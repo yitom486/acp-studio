@@ -124,6 +124,47 @@ function cleanOrphanedAgyProcesses() {
 cleanOrphanedAgyProcesses();
 freePortIfOccupied(PORT);
 
+// --- Crash-proof _MEI watchdog (double insurance) ---
+// A detached companion process that keeps sweeping even if THIS server crashes.
+const acpTmpDir = path.join(process.cwd(), ".acp-tmp");
+const meiRegistry = path.join(acpTmpDir, "mei-registry.json");
+const serverHbFile = path.join(acpTmpDir, "server.hb.json");
+const watchdogPidFile = path.join(acpTmpDir, "watchdog.pid");
+let watchdogPid: number | null = null;
+try { fs.mkdirSync(acpTmpDir, { recursive: true }); } catch {}
+
+function writeServerHeartbeat() {
+  try { fs.writeFileSync(serverHbFile, JSON.stringify({ pid: process.pid, ts: Date.now() })); } catch {}
+}
+
+function startMeiWatchdog() {
+  try {
+    // Reuse a live watchdog from a previous run instead of spawning duplicates.
+    try {
+      const oldPid = Number(fs.readFileSync(watchdogPidFile, "utf8"));
+      if (oldPid > 0) {
+        try { process.kill(oldPid, 0); watchdogPid = oldPid; return; }
+        catch { /* stale pid file, spawn fresh */ }
+      }
+    } catch {}
+    const { spawn } = require("child_process");
+    const child = spawn(
+      process.execPath,
+      [path.join(__dirname, "acp", "meiWatchdog.ts"), acpTmpDir, meiRegistry, serverHbFile, watchdogPidFile],
+      { detached: true, stdio: "ignore", windowsHide: true }
+    );
+    child.unref();
+    watchdogPid = child.pid ?? null;
+    console.log(`[Server] MEI watchdog running (pid ${watchdogPid})`);
+  } catch (err: any) {
+    console.warn("[Server] Failed to start MEI watchdog:", err.message);
+  }
+}
+
+writeServerHeartbeat();
+startMeiWatchdog();
+const hbTimer = setInterval(writeServerHeartbeat, 30_000);
+
 /**
  * Sweep stale PyInstaller _MEI* extraction dirs left by force-killed
  * agy_acp_server.exe instances. Skips anything modified within the last 24h
@@ -290,7 +331,7 @@ const server = Bun.serve({
       }
     }
 
-    // 5. Chat Streaming via SSE (Transport A: Web SSE �?Transport B: Official ACP stdio)
+    // 5. Chat Streaming via SSE (Transport A: Web SSE ↔ Transport B: Official ACP stdio)
     if (url.pathname === "/api/chat" && req.method === "POST") {
       const body = (await req.json()) as {
         prompt: string;
@@ -406,7 +447,14 @@ const server = Bun.serve({
 
 const gracefulShutdown = async () => {
   console.log("\n[Server] Shutting down cleanly...");
+  try { clearInterval(hbTimer); } catch {}
   await processManager.shutdown();
+  // Stand down the watchdog: final sweep already covered by graceful ACP exit.
+  if (watchdogPid) {
+    try { process.kill(watchdogPid); } catch {}
+  }
+  try { fs.rmSync(watchdogPidFile, { force: true }); } catch {}
+  try { fs.rmSync(serverHbFile, { force: true }); } catch {}
   process.exit(0);
 };
 

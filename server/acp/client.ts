@@ -13,6 +13,7 @@ import {
   SessionCloseParams,
 } from "./types";
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 export interface AcpClientOptions {
   executablePath: string;
@@ -100,6 +101,10 @@ export class AntigravityAcpClient {
     });
 
     this.isStarted = true;
+
+    // Track this instance's PyInstaller _MEI extraction dir in the background
+    // (non-blocking): needed for crash-proof cleanup by the MEI watchdog.
+    this.trackMeiDir();
 
     // Handle stdout: Strict NDJSON JSON-RPC 2.0 stream
     this.readStdoutLoop();
@@ -412,6 +417,73 @@ export class AntigravityAcpClient {
     }
     this.proc = null;
     this.isStarted = false;
+    this.cleanupMeiDir(pid);
+  }
+
+  // --- PyInstaller _MEI tracking (crash-proof cleanup support) ---
+
+  private meiDir: string | null = null;
+
+  private meiBaseDir(): string {
+    return this.options.pyTempDir || process.env.TEMP || process.env.TMP || "";
+  }
+
+  private meiRegistryPath(): string {
+    return path.join(this.meiBaseDir(), "mei-registry.json");
+  }
+
+  /** Background task: detect the _MEI dir this spawn extracted and register it. */
+  private trackMeiDir(): void {
+    const base = this.meiBaseDir();
+    const proc = this.proc;
+    if (!base || !proc) return;
+    let before = new Set<string>();
+    try {
+      before = new Set(fs.readdirSync(base).filter((e) => e.startsWith("_MEI")));
+    } catch {}
+    const pid = proc.pid;
+    (async () => {
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        if (!this.proc || this.proc.pid !== pid) return;
+        try {
+          for (const d of fs.readdirSync(base)) {
+            if (d.startsWith("_MEI") && !before.has(d)) {
+              this.meiDir = path.join(base, d);
+              this.addRegistryEntry(pid, this.meiDir);
+              return;
+            }
+          }
+        } catch {}
+      }
+    })().catch(() => {});
+  }
+
+  private addRegistryEntry(pid: number, dir: string): void {
+    const reg = this.meiRegistryPath();
+    try {
+      let arr: any[] = [];
+      try { arr = JSON.parse(fs.readFileSync(reg, "utf8")); if (!Array.isArray(arr)) arr = []; } catch {}
+      arr = arr.filter((e) => e && e.pid !== pid);
+      arr.push({ pid, dir, startedAt: Date.now() });
+      fs.writeFileSync(reg, JSON.stringify(arr, null, 2));
+    } catch {}
+  }
+
+  /** Best-effort removal of our own _MEI dir (graceful exit usually already did it). */
+  private cleanupMeiDir(pid?: number): void {
+    if (this.meiDir) {
+      try { fs.rmSync(this.meiDir, { recursive: true, force: true }); } catch {}
+      this.meiDir = null;
+    }
+    if (pid === undefined) return;
+    const reg = this.meiRegistryPath();
+    try {
+      const arr = JSON.parse(fs.readFileSync(reg, "utf8"));
+      if (Array.isArray(arr)) {
+        fs.writeFileSync(reg, JSON.stringify(arr.filter((e) => e?.pid !== pid), null, 2));
+      }
+    } catch {}
   }
 
   private async waitForExit(timeoutMs: number): Promise<boolean> {
