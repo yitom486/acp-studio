@@ -21,6 +21,50 @@ import { execSync } from "child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+const ACP_IMAGE_NAMES = ["agy_acp_server.exe", "localharness_external.exe"];
+const OWN_SERVER_IMAGES = ["agy_acp_server.exe", "localharness_external.exe", "bun.exe", "node.exe"];
+
+/** Query Win32_Process for the candidate image names; returns pid/ppid/start-time. */
+function queryAgyProcessTree(): { pid: number; ppid: number; startedAt: number; image: string }[] {
+  if (process.platform !== "win32") return [];
+  const filter = ACP_IMAGE_NAMES.map((n) => `Name='${n}'`).join(" OR ");
+  const ps = `Get-CimInstance Win32_Process -Filter "${filter}" | Select-Object ProcessId,ParentProcessId,Name,CreationDate | ConvertTo-Json -Compress`;
+  try {
+    const raw = execSync(`powershell -NoProfile -NonInteractive -Command "${ps}"`, {
+      encoding: "utf8",
+    }).trim();
+    if (!raw) return [];
+    const arr = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [JSON.parse(raw)];
+    return arr.map((e: any) => ({
+      pid: Number(e.ProcessId),
+      ppid: Number(e.ParentProcessId),
+      startedAt: parseWmiDate(String(e.CreationDate)),
+      image: String(e.Name),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function parseWmiDate(s: string): number {
+  // "20260918190305.123456+480" -> epoch ms
+  const m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
+  if (!m) return 0;
+  return new Date(
+    `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`
+  ).getTime();
+}
+
+function getImageName(pid: number): string {
+  try {
+    const out = execSync(`tasklist /NH /FO CSV /FI "PID eq ${pid}"`, { encoding: "utf8" }).trim();
+    const m = out.match(/^"([^"]+)"/);
+    return m ? m[1].toLowerCase() : "";
+  } catch {
+    return "";
+  }
+}
+
 function freePortIfOccupied(port: number) {
   if (process.platform !== "win32") return;
   try {
@@ -29,13 +73,18 @@ function freePortIfOccupied(port: number) {
     for (const line of lines) {
       const parts = line.trim().split(/\s+/);
       const pid = parts[parts.length - 1];
-      if (pid && pid !== String(process.pid) && pid !== "0") {
-        console.log(`[Server] Freeing lingering process PID ${pid} on port ${port}...`);
-        try {
-          execSync(`taskkill /F /PID ${pid} 2>nul`);
-        } catch {
-          // ignore
-        }
+      if (!pid || pid === String(process.pid) || pid === "0") continue;
+      // Root-cause fix: only touch our own stack's images, never random apps.
+      const image = getImageName(Number(pid));
+      if (!OWN_SERVER_IMAGES.includes(image)) {
+        console.log(`[Server] Port ${port} is held by foreign process PID ${pid} (${image}); leaving it alone.`);
+        continue;
+      }
+      console.log(`[Server] Freeing lingering process PID ${pid} (${image}) on port ${port}...`);
+      try {
+        execSync(`taskkill /F /PID ${pid} 2>nul`);
+      } catch {
+        // ignore
       }
     }
   } catch {
@@ -43,12 +92,32 @@ function freePortIfOccupied(port: number) {
   }
 }
 
+/**
+ * Root-cause fix: only kill ACP instances whose parent process is already dead
+ * (true orphans from a crashed/force-killed session). Healthy instances owned
+ * by Zed or other clients keep a live parent and are never touched — this ends
+ * the self-inflicted "Server exited with code 1" cycle from blanket /IM sweeps.
+ */
 function cleanOrphanedAgyProcesses() {
   if (process.platform !== "win32") return;
   try {
-    execSync("taskkill /F /IM agy_acp_server.exe /IM localharness_external.exe 2>nul");
+    const procs = queryAgyProcessTree();
+    if (procs.length === 0) return;
+    const live = new Set(procs.map((p) => p.pid));
+    live.add(process.pid);
+    for (const p of procs) {
+      if (p.pid === process.pid) continue;
+      if (!live.has(p.ppid)) {
+        console.log(`[Server] Removing orphaned ${p.image} PID ${p.pid} (parent ${p.ppid} gone)...`);
+        try {
+          execSync(`taskkill /F /T /PID ${p.pid} 2>nul`);
+        } catch {
+          // ignore if already gone
+        }
+      }
+    }
   } catch {
-    // ignore if none running
+    // ignore on query failure
   }
 }
 
@@ -64,6 +133,12 @@ function sweepStaleMeiDirs() {
   const dirs = [process.env.TEMP || process.env.TMP, path.join(process.cwd(), ".acp-tmp")].filter(
     Boolean
   ) as string[];
+  const acpTmp = path.join(process.cwd(), ".acp-tmp");
+  // Live-instance guard: a _MEI dir is owned by an instance that started at or
+  // before the dir's mtime. Everything older than ALL live instances is residue.
+  const liveStarts = queryAgyProcessTree()
+    .map((p) => p.startedAt)
+    .filter((t) => t > 0);
   for (const tmp of dirs) {
     try {
       const cutoff = Date.now() - 24 * 60 * 60 * 1000;
@@ -71,7 +146,15 @@ function sweepStaleMeiDirs() {
         if (!entry.startsWith("_MEI")) continue;
         const full = path.join(tmp, entry);
         try {
-          if (fs.statSync(full).mtimeMs > cutoff) continue;
+          const mtime = fs.statSync(full).mtimeMs;
+          if (tmp === acpTmp) {
+            // Our dedicated dir: precise rule — keep only if some live ACP
+            // process could own it (started within 90s before the dir).
+            if (liveStarts.some((t) => t <= mtime + 90_000)) continue;
+          } else {
+            // Shared system TEMP may host other apps' onefile dirs: age rule.
+            if (mtime > cutoff) continue;
+          }
           fs.rmSync(full, { recursive: true, force: true });
           console.log(`[Server] Removed stale PyInstaller extraction dir: ${full}`);
         } catch {

@@ -381,18 +381,51 @@ export class AntigravityAcpClient {
 
   public async stop(): Promise<void> {
     this.isShuttingDown = true;
-    if (this.proc) {
-      const pid = this.proc.pid;
-      try {
-        this.proc.kill();
-      } catch {}
+    const proc = this.proc;
+    if (!proc) return;
+    const pid = proc.pid;
+
+    // 1) Graceful shutdown: close stdin. The official ACP server detects EOF,
+    //    tears down its sessions itself and exits normally, which lets the
+    //    PyInstaller bootloader cleanup hook delete its _MEI extraction dir.
+    try {
+      const stdin: any = proc.stdin;
+      if (stdin && typeof stdin.end === "function") stdin.end();
+      else if (stdin && typeof stdin.close === "function") stdin.close();
+    } catch {}
+
+    // 2) Wait for the process to terminate on its own.
+    const exited = await this.waitForExit(8000);
+
+    // 3) Last resort only: force-kill the whole tree. This path leaks one
+    //    _MEI dir, which the sweeper in server/index.ts removes on next start.
+    if (!exited) {
       if (process.platform === "win32" && pid) {
         try {
           Bun.spawnSync(["taskkill", "/F", "/T", "/PID", String(pid)]);
+        } catch {}
+      } else {
+        try {
+          proc.kill();
         } catch {}
       }
     }
     this.proc = null;
     this.isStarted = false;
+  }
+
+  private async waitForExit(timeoutMs: number): Promise<boolean> {
+    const proc = this.proc;
+    if (!proc) return true;
+    if (proc.exitCode !== null && proc.exitCode !== undefined) return true;
+    try {
+      await Promise.race([
+        proc.exited,
+        new Promise((r) => setTimeout(r, timeoutMs)),
+      ]);
+      return proc.exitCode !== null && proc.exitCode !== undefined;
+    } catch {
+      return false;
+    }
   }
 }
