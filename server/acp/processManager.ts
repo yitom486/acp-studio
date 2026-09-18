@@ -104,6 +104,9 @@ export class AntigravityAcpProcessManager {
           cwd: this.serverMeta.dir,
           args: ["--debug"],
           requestTimeoutMs: 120000,
+          // PyInstaller _MEI extraction dir for the ACP child process goes here
+          // instead of %TEMP% on C: (protects the system drive from residue).
+          pyTempDir: path.join(this.workingDir, ".acp-tmp"),
           onLog: (line) => {
             console.log("[Official ACP Log]", line);
           },

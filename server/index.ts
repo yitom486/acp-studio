@@ -18,6 +18,72 @@ function corsHeaders() {
   };
 }
 import { execSync } from "child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+function freePortIfOccupied(port: number) {
+  if (process.platform !== "win32") return;
+  try {
+    const stdout = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: "utf8" });
+    const lines = stdout.trim().split("\n");
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      const pid = parts[parts.length - 1];
+      if (pid && pid !== String(process.pid) && pid !== "0") {
+        console.log(`[Server] Freeing lingering process PID ${pid} on port ${port}...`);
+        try {
+          execSync(`taskkill /F /PID ${pid} 2>nul`);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  } catch {
+    // Port is not occupied
+  }
+}
+
+function cleanOrphanedAgyProcesses() {
+  if (process.platform !== "win32") return;
+  try {
+    execSync("taskkill /F /IM agy_acp_server.exe /IM localharness_external.exe 2>nul");
+  } catch {
+    // ignore if none running
+  }
+}
+
+cleanOrphanedAgyProcesses();
+freePortIfOccupied(PORT);
+
+/**
+ * Sweep stale PyInstaller _MEI* extraction dirs left by force-killed
+ * agy_acp_server.exe instances. Skips anything modified within the last 24h
+ * (a live process holds its dir locked; deleting it would break the instance).
+ */
+function sweepStaleMeiDirs() {
+  const dirs = [process.env.TEMP || process.env.TMP, path.join(process.cwd(), ".acp-tmp")].filter(
+    Boolean
+  ) as string[];
+  for (const tmp of dirs) {
+    try {
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      for (const entry of fs.readdirSync(tmp)) {
+        if (!entry.startsWith("_MEI")) continue;
+        const full = path.join(tmp, entry);
+        try {
+          if (fs.statSync(full).mtimeMs > cutoff) continue;
+          fs.rmSync(full, { recursive: true, force: true });
+          console.log(`[Server] Removed stale PyInstaller extraction dir: ${full}`);
+        } catch {
+          // Locked by a live process or permission issue; skip
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+sweepStaleMeiDirs();
 
 const server = Bun.serve({
   port: PORT,
