@@ -11,12 +11,21 @@ export default defineConfig({
   },
   server: {
     port: 5188,
-    strictPort: true,
+    strictPort: false,
     proxy: {
       "/api": {
         target: "http://localhost:3004",
         changeOrigin: true,
-        ws: true,
+        ws: false,
+        configure: (proxy) => {
+          proxy.on("error", (err: any) => {
+            if (err.code === "ECONNRESET" || err.message?.includes("ECONNRESET")) {
+              // Benign reset when downstream client cancels or completes SSE
+              return;
+            }
+            console.error("[Vite Proxy Error]", err.message || err);
+          });
+        },
       },
     },
   },

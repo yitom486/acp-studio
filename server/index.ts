@@ -1,14 +1,45 @@
-import { AntigravityAcpProcessManager } from "./acp/processManager";
+import { AgyAcpBridge } from "./bridge/agyBridge";
+import { execSync } from "node:child_process";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as fs from "node:fs";
+
+// Auto-detect Google Antigravity CLI binary location
+if (!process.env.AGY_BIN) {
+  const candidate = path.join(os.homedir(), ".gemini", "bin", process.platform === "win32" ? "agy.exe" : "agy");
+  if (fs.existsSync(candidate)) {
+    process.env.AGY_BIN = candidate;
+  }
+}
+const geminiBinDir = path.join(os.homedir(), ".gemini", "bin");
+if (fs.existsSync(geminiBinDir) && !process.env.PATH?.includes(geminiBinDir)) {
+  process.env.PATH = `${geminiBinDir}${path.delimiter}${process.env.PATH || ""}`;
+}
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3004;
 
-console.log("[Server] Initializing Antigravity Official ACP Studio Server...");
-const processManager = new AntigravityAcpProcessManager(process.cwd());
-
-// Eagerly initiate connection to official agy_acp_server
-processManager.ensureRunning().catch((err) => {
-  console.error("[Server] Warning: Failed to eagerly start official ACP server:", err.message);
+process.on("unhandledRejection", (reason) => {
+  console.error("[Server] Unhandled rejection:", reason);
 });
+process.on("uncaughtException", (err) => {
+  console.error("[Server] Uncaught exception:", err);
+});
+
+console.log("[Server] Initializing Google Antigravity ACP Studio Server (powered by agy-acp-map)...");
+const agyBridge = new AgyAcpBridge(process.cwd());
+
+// Eagerly initialize bridge and prefetch models
+agyBridge
+  .init()
+  .then(() => {
+    const status = agyBridge.getStatus();
+    console.log(
+      `[Server] Antigravity ACP Bridge ready (${status.mode} mode, v${status.packageVersion}). Models: ${status.models.length}. Default: ${status.currentModelId}`
+    );
+  })
+  .catch((err) => {
+    console.warn("[Server] Warning: Bridge initialization note:", err.message);
+  });
 
 function corsHeaders() {
   return {
@@ -17,74 +48,51 @@ function corsHeaders() {
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 }
-import { execSync } from "child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
 
-const ACP_IMAGE_NAMES = ["agy_acp_server.exe", "localharness_external.exe"];
-const OWN_SERVER_IMAGES = ["agy_acp_server.exe", "localharness_external.exe", "bun.exe", "node.exe"];
+process.on("uncaughtException", (err) => {
+  console.error("[Server] Uncaught Exception:", err);
+});
 
-/** Query Win32_Process for the candidate image names; returns pid/ppid/start-time. */
-function queryAgyProcessTree(): { pid: number; ppid: number; startedAt: number; image: string }[] {
-  if (process.platform !== "win32") return [];
-  const filter = ACP_IMAGE_NAMES.map((n) => `Name='${n}'`).join(" OR ");
-  const ps = `Get-CimInstance Win32_Process -Filter "${filter}" | Select-Object ProcessId,ParentProcessId,Name,CreationDate | ConvertTo-Json -Compress`;
-  try {
-    const raw = execSync(`powershell -NoProfile -NonInteractive -Command "${ps}"`, {
-      encoding: "utf8",
-    }).trim();
-    if (!raw) return [];
-    const arr = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [JSON.parse(raw)];
-    return arr.map((e: any) => ({
-      pid: Number(e.ProcessId),
-      ppid: Number(e.ParentProcessId),
-      startedAt: parseWmiDate(String(e.CreationDate)),
-      image: String(e.Name),
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function parseWmiDate(s: string): number {
-  // "20260918190305.123456+480" -> epoch ms
-  const m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
-  if (!m) return 0;
-  return new Date(
-    `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`
-  ).getTime();
-}
-
-function getImageName(pid: number): string {
-  try {
-    const out = execSync(`tasklist /NH /FO CSV /FI "PID eq ${pid}"`, { encoding: "utf8" }).trim();
-    const m = out.match(/^"([^"]+)"/);
-    return m ? m[1].toLowerCase() : "";
-  } catch {
-    return "";
-  }
-}
+process.on("unhandledRejection", (reason) => {
+  console.error("[Server] Unhandled Rejection:", reason);
+});
 
 function freePortIfOccupied(port: number) {
   if (process.platform !== "win32") return;
   try {
-    const stdout = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: "utf8" });
+    const stdout = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, {
+      encoding: "utf8",
+      windowsHide: true,
+    });
     const lines = stdout.trim().split("\n");
+    const seenPids = new Set<string>();
+    let killedAny = false;
     for (const line of lines) {
       const parts = line.trim().split(/\s+/);
       const pid = parts[parts.length - 1];
-      if (!pid || pid === String(process.pid) || pid === "0") continue;
-      // Root-cause fix: only touch our own stack's images, never random apps.
-      const image = getImageName(Number(pid));
-      if (!OWN_SERVER_IMAGES.includes(image)) {
-        console.log(`[Server] Port ${port} is held by foreign process PID ${pid} (${image}); leaving it alone.`);
-        continue;
-      }
-      console.log(`[Server] Freeing lingering process PID ${pid} (${image}) on port ${port}...`);
+      if (!pid || pid === String(process.pid) || pid === "0" || seenPids.has(pid)) continue;
+      seenPids.add(pid);
+      console.log(`[Server] Freeing lingering process PID ${pid} on port ${port}...`);
       try {
-        execSync(`taskkill /F /PID ${pid} 2>nul`);
+        execSync(`taskkill /F /PID ${pid} 2>nul`, { windowsHide: true });
+        killedAny = true;
       } catch {
         // ignore
+      }
+    }
+    if (killedAny) {
+      // Allow Windows socket table up to 1 second to release the port
+      for (let i = 0; i < 10; i++) {
+        try {
+          const check = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, {
+            encoding: "utf8",
+            windowsHide: true,
+          });
+          if (!check.trim()) break;
+        } catch {
+          break;
+        }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
       }
     }
   } catch {
@@ -92,126 +100,11 @@ function freePortIfOccupied(port: number) {
   }
 }
 
-/**
- * Root-cause fix: only kill ACP instances whose parent process is already dead
- * (true orphans from a crashed/force-killed session). Healthy instances owned
- * by Zed or other clients keep a live parent and are never touched — this ends
- * the self-inflicted "Server exited with code 1" cycle from blanket /IM sweeps.
- */
-function cleanOrphanedAgyProcesses() {
-  if (process.platform !== "win32") return;
-  try {
-    const procs = queryAgyProcessTree();
-    if (procs.length === 0) return;
-    const live = new Set(procs.map((p) => p.pid));
-    live.add(process.pid);
-    for (const p of procs) {
-      if (p.pid === process.pid) continue;
-      if (!live.has(p.ppid)) {
-        console.log(`[Server] Removing orphaned ${p.image} PID ${p.pid} (parent ${p.ppid} gone)...`);
-        try {
-          execSync(`taskkill /F /T /PID ${p.pid} 2>nul`);
-        } catch {
-          // ignore if already gone
-        }
-      }
-    }
-  } catch {
-    // ignore on query failure
-  }
-}
-
-cleanOrphanedAgyProcesses();
 freePortIfOccupied(PORT);
-
-// --- Crash-proof _MEI watchdog (double insurance) ---
-// A detached companion process that keeps sweeping even if THIS server crashes.
-const acpTmpDir = path.join(process.cwd(), ".acp-tmp");
-const meiRegistry = path.join(acpTmpDir, "mei-registry.json");
-const serverHbFile = path.join(acpTmpDir, "server.hb.json");
-const watchdogPidFile = path.join(acpTmpDir, "watchdog.pid");
-let watchdogPid: number | null = null;
-try { fs.mkdirSync(acpTmpDir, { recursive: true }); } catch {}
-
-function writeServerHeartbeat() {
-  try { fs.writeFileSync(serverHbFile, JSON.stringify({ pid: process.pid, ts: Date.now() })); } catch {}
-}
-
-function startMeiWatchdog() {
-  try {
-    // Reuse a live watchdog from a previous run instead of spawning duplicates.
-    try {
-      const oldPid = Number(fs.readFileSync(watchdogPidFile, "utf8"));
-      if (oldPid > 0) {
-        try { process.kill(oldPid, 0); watchdogPid = oldPid; return; }
-        catch { /* stale pid file, spawn fresh */ }
-      }
-    } catch {}
-    const { spawn } = require("child_process");
-    const child = spawn(
-      process.execPath,
-      [path.join(__dirname, "acp", "meiWatchdog.ts"), acpTmpDir, meiRegistry, serverHbFile, watchdogPidFile],
-      { detached: true, stdio: "ignore", windowsHide: true }
-    );
-    child.unref();
-    watchdogPid = child.pid ?? null;
-    console.log(`[Server] MEI watchdog running (pid ${watchdogPid})`);
-  } catch (err: any) {
-    console.warn("[Server] Failed to start MEI watchdog:", err.message);
-  }
-}
-
-writeServerHeartbeat();
-startMeiWatchdog();
-const hbTimer = setInterval(writeServerHeartbeat, 30_000);
-
-/**
- * Sweep stale PyInstaller _MEI* extraction dirs left by force-killed
- * agy_acp_server.exe instances. Skips anything modified within the last 24h
- * (a live process holds its dir locked; deleting it would break the instance).
- */
-function sweepStaleMeiDirs() {
-  const dirs = [process.env.TEMP || process.env.TMP, path.join(process.cwd(), ".acp-tmp")].filter(
-    Boolean
-  ) as string[];
-  const acpTmp = path.join(process.cwd(), ".acp-tmp");
-  // Live-instance guard: a _MEI dir is owned by an instance that started at or
-  // before the dir's mtime. Everything older than ALL live instances is residue.
-  const liveStarts = queryAgyProcessTree()
-    .map((p) => p.startedAt)
-    .filter((t) => t > 0);
-  for (const tmp of dirs) {
-    try {
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-      for (const entry of fs.readdirSync(tmp)) {
-        if (!entry.startsWith("_MEI")) continue;
-        const full = path.join(tmp, entry);
-        try {
-          const mtime = fs.statSync(full).mtimeMs;
-          if (tmp === acpTmp) {
-            // Our dedicated dir: precise rule — keep only if some live ACP
-            // process could own it (started within 90s before the dir).
-            if (liveStarts.some((t) => t <= mtime + 90_000)) continue;
-          } else {
-            // Shared system TEMP may host other apps' onefile dirs: age rule.
-            if (mtime > cutoff) continue;
-          }
-          fs.rmSync(full, { recursive: true, force: true });
-          console.log(`[Server] Removed stale PyInstaller extraction dir: ${full}`);
-        } catch {
-          // Locked by a live process or permission issue; skip
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-}
-sweepStaleMeiDirs();
 
 const server = Bun.serve({
   port: PORT,
-  idleTimeout: 255, // Prevent premature socket termination
+  idleTimeout: 0, // Disable idle timeout so server never exits
   async fetch(req) {
     const url = new URL(req.url);
 
@@ -219,155 +112,125 @@ const server = Bun.serve({
       return new Response(null, { headers: corsHeaders() });
     }
 
-    // 1. Health & Official Status
+    // 1. Health & Status
     if (url.pathname === "/api/status" && req.method === "GET") {
       try {
-        await processManager.ensureRunning();
-        const status = processManager.getStatus();
-        return Response.json(
-          {
-            ok: true,
-            isOfficial: true,
-            service: "Google Antigravity Official ACP Studio",
-            protocol: "Agent Client Protocol (ACP) v1",
-            agentInfo: status.agentInfo,
-            agentCapabilities: status.agentCapabilities,
-            auth: {
-              authenticated: status.hasCredentials,
-              method: status.authMethod || "oauth-personal",
-              authMethods: status.authMethods || [],
-              latestOAuthUrl: status.latestOAuthUrl,
-            },
-            binary: status.serverInfo,
-            // Real model list advertised by the official ACP server (from session/new).
-            models: status.models?.availableModels ?? [],
-            currentModelId: status.models?.currentModelId ?? null,
-          },
-          { headers: corsHeaders() }
-        );
+        await agyBridge.ensureReady();
+        const status = agyBridge.getStatus();
+        return Response.json(status, { headers: corsHeaders() });
       } catch (err: any) {
         return Response.json(
-          { ok: false, error: err.message, status: processManager.getStatus() },
+          { ok: false, error: err.message, status: agyBridge.getStatus() },
           { status: 500, headers: corsHeaders() }
         );
       }
     }
 
-    // 2. Google OAuth Authentication (Official ACP authenticate method)
+    // 2. Auth Endpoint
     if (url.pathname === "/api/auth/login" && req.method === "POST") {
-      try {
-        const body = (await req.json().catch(() => ({}))) as {
-          methodId?: string;
-          apiKey?: string;
-          [key: string]: any;
-        };
-        const methodId = body.methodId || "oauth-personal";
-        const res = await processManager.authenticate(methodId, body);
-        return Response.json(res, { headers: corsHeaders() });
-      } catch (err: any) {
-        return Response.json(
-          { ok: false, error: err.message },
-          { status: 500, headers: corsHeaders() }
-        );
-      }
+      return Response.json(
+        {
+          ok: true,
+          message: "已自动连接 Google Antigravity CLI 本地认证环境，无需额外配置。",
+        },
+        { headers: corsHeaders() }
+      );
     }
 
-    // 2b. Fetch the real model list from the official ACP server (may create a temp session)
+    // 3. Fetch models
     if (url.pathname === "/api/models" && req.method === "GET") {
       try {
-        const models = await processManager.getModels();
+        const models = await agyBridge.getModels();
         return Response.json(
-          { ok: true, models: models?.availableModels ?? [], currentModelId: models?.currentModelId ?? null },
+          { ok: true, models: models.availableModels, currentModelId: models.currentModelId },
           { headers: corsHeaders() }
         );
       } catch (err: any) {
-        return Response.json(
-          { ok: false, error: err.message },
-          { status: 500, headers: corsHeaders() }
-        );
+        return Response.json({ ok: false, error: err.message }, { status: 500, headers: corsHeaders() });
       }
     }
 
-    // 2c. Switch an active session's model via session/set_model
+    // 4. Set model
     if (url.pathname === "/api/model/set" && req.method === "POST") {
       try {
         const body = (await req.json().catch(() => ({}))) as { sessionId?: string; modelId?: string };
-        if (!body.sessionId || !body.modelId) {
-          return Response.json({ ok: false, error: "sessionId and modelId are required" }, { status: 400, headers: corsHeaders() });
+        if (!body.modelId) {
+          return Response.json({ ok: false, error: "modelId is required" }, { status: 400, headers: corsHeaders() });
         }
-        await processManager.setSessionModel(body.sessionId, body.modelId);
+        await agyBridge.setSessionModel(body.sessionId || "default", body.modelId);
         return Response.json({ ok: true, sessionId: body.sessionId, modelId: body.modelId }, { headers: corsHeaders() });
       } catch (err: any) {
         return Response.json({ ok: false, error: err.message }, { status: 500, headers: corsHeaders() });
       }
     }
 
-    // 3. Create new ACP Session
+    // 5. Create new Session
     if (url.pathname === "/api/session/new" && req.method === "POST") {
       try {
-        const res = await processManager.createSession();
+        const res = await agyBridge.createSession();
         return Response.json(res, { headers: corsHeaders() });
       } catch (err: any) {
-        return Response.json(
-          { ok: false, error: err.message },
-          { status: 500, headers: corsHeaders() }
-        );
+        return Response.json({ ok: false, error: err.message }, { status: 500, headers: corsHeaders() });
       }
     }
 
-    // 4. Cancel active prompt on session
+    // 6. Cancel active prompt on session
     if (url.pathname === "/api/chat/stop" && req.method === "POST") {
       try {
         const body = (await req.json().catch(() => ({}))) as { sessionId?: string };
         if (body.sessionId) {
-          await processManager.cancel(body.sessionId);
+          await agyBridge.cancel(body.sessionId);
         }
         return Response.json({ ok: true, cancelled: true }, { headers: corsHeaders() });
       } catch (err: any) {
-        return Response.json(
-          { ok: false, error: err.message },
-          { status: 500, headers: corsHeaders() }
-        );
+        return Response.json({ ok: false, error: err.message }, { status: 500, headers: corsHeaders() });
       }
     }
 
-    // 5. Chat Streaming via SSE (Transport A: Web SSE ↔ Transport B: Official ACP stdio)
-    if (url.pathname === "/api/chat" && req.method === "POST") {
-      const body = (await req.json()) as {
-        prompt: string;
-        model?: string;
-        mode?: string;
-        sessionId?: string;
-      };
+    // 7. Toggle Bridge Mode (Library vs Process)
+    if (url.pathname === "/api/bridge/mode" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as { mode?: "library" | "process" };
+      if (body.mode === "library" || body.mode === "process") {
+        agyBridge.setMode(body.mode);
+        return Response.json({ ok: true, mode: agyBridge.currentMode }, { headers: corsHeaders() });
+      }
+      return Response.json({ ok: false, error: "Invalid mode. Use 'library' or 'process'" }, { status: 400, headers: corsHeaders() });
+    }
 
-      // Ensure active session exists on official server
+    // 8. Chat Streaming via SSE (Transport: Web SSE ↔ ACP session/prompt)
+    if (url.pathname === "/api/chat" && req.method === "POST") {
+      let body: { prompt?: string | any[]; model?: string; mode?: string; sessionId?: string };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400, headers: corsHeaders() });
+      }
+
       let sessionId = body.sessionId;
       if (!sessionId) {
         try {
-          const fresh = await processManager.createSession();
+          const fresh = await agyBridge.createSession();
           sessionId = fresh.sessionId;
         } catch (err: any) {
           return Response.json(
-            { ok: false, error: `Failed to create session on official ACP server: ${err.message}` },
+            { ok: false, error: `Failed to create session: ${err.message}` },
             { status: 500, headers: corsHeaders() }
           );
         }
       }
 
-      // Apply requested model if provided (session-scoped, superseded RPC still handled)
       if (body.model) {
         try {
-          await processManager.setSessionModel(sessionId, body.model);
+          await agyBridge.setSessionModel(sessionId, body.model);
         } catch (err: any) {
           console.warn(`[Server] Failed to switch model to ${body.model}:`, err.message);
         }
       }
 
-      // Configure request timeout = 0 for streaming
       try {
         server.timeout(req, 0);
       } catch {
-        // ignore if not supported in this runtime version
+        // ignore
       }
 
       const stream = new ReadableStream({
@@ -377,12 +240,10 @@ const server = Bun.serve({
             try {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
             } catch {
-              // controller may be closed
+              // controller closed
             }
           };
 
-          // Web Transport Keep-Alive comment: SSE heartbeat ONLY for proxy/browser timeout prevention
-          // This is purely Transport A and is NEVER forwarded to ACP stdio!
           const pingInterval = setInterval(() => {
             try {
               controller.enqueue(encoder.encode(`: keepalive\n\n`));
@@ -391,37 +252,43 @@ const server = Bun.serve({
             }
           }, 2000);
 
-          // Notify start
           send({ type: "start", sessionId });
 
           try {
-            // Build standardized ACP prompt blocks
             const promptBlocks = Array.isArray(body.prompt)
               ? body.prompt
-              : [{ type: "text", text: body.prompt }];
+              : [{ type: "text", text: String(body.prompt || "") }];
 
-            // Stream real ACP session/update events emitted by official agy_acp_server
-            const outcome = await processManager.prompt(
-              sessionId!,
+            let activeSessionId = sessionId!;
+            const outcome = await agyBridge.prompt(
+              activeSessionId,
               promptBlocks,
               (update: any) => {
                 send({
                   type: "update",
-                  sessionId,
+                  sessionId: activeSessionId,
                   update,
                 });
-              }
+              },
+              { model: body.model, mode: body.mode }
             );
 
-            send({ type: "done", sessionId, outcome });
+            send({
+              type: "done",
+              sessionId: activeSessionId,
+              stopReason: outcome.stopReason,
+            });
           } catch (err: any) {
+            console.error("[Server] Prompt error:", err);
             send({
               type: "error",
               sessionId,
-              message: err.message || "Official ACP execution error",
+              message: err.message || "Antigravity ACP execution error",
             });
           } finally {
             clearInterval(pingInterval);
+            // Allow event loop to dispatch final SSE chunk into TCP buffer
+            await new Promise((r) => setTimeout(r, 50));
             try {
               controller.close();
             } catch {
@@ -434,9 +301,10 @@ const server = Bun.serve({
       return new Response(stream, {
         headers: {
           ...corsHeaders(),
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
           Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
         },
       });
     }
@@ -445,20 +313,18 @@ const server = Bun.serve({
   },
 });
 
+// Explicit keepalive timer to ensure Bun process never drains event loop when idle on Windows
+const keepAliveTimer = setInterval(() => {}, 60_000);
+
 const gracefulShutdown = async () => {
   console.log("\n[Server] Shutting down cleanly...");
-  try { clearInterval(hbTimer); } catch {}
-  await processManager.shutdown();
-  // Stand down the watchdog: final sweep already covered by graceful ACP exit.
-  if (watchdogPid) {
-    try { process.kill(watchdogPid); } catch {}
-  }
-  try { fs.rmSync(watchdogPidFile, { force: true }); } catch {}
-  try { fs.rmSync(serverHbFile, { force: true }); } catch {}
+  clearInterval(keepAliveTimer);
+  server.stop(true);
+  await agyBridge.shutdown();
   process.exit(0);
 };
 
 process.on("SIGINT", gracefulShutdown);
 process.on("SIGTERM", gracefulShutdown);
 
-console.log(`[Server] Official Antigravity ACP HTTP & SSE server running at http://localhost:${PORT}`);
+console.log(`[Server] Google Antigravity ACP Studio server running at http://localhost:${PORT}`);

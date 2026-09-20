@@ -78,10 +78,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <Sparkles className="w-8 h-8" />
             </div>
             <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-              Google Antigravity <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">ACP Studio</span>
+              Google Antigravity <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">Studio</span>
             </h2>
             <p className="text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
-              基于开放的 <strong>Agent Client Protocol (ACP)</strong> 标准开发。直接驱动本地 Antigravity 智能体内核（`agy.exe`），实现全双工流式会话与工具自主执行。
+              基于原生 <strong>Google Antigravity CLI (agy.exe)</strong> 引擎。零临时磁盘解压占用，毫秒级响应，支持多轮会话上下文流式输出与自主工具调用。
             </p>
           </div>
 

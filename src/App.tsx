@@ -3,6 +3,7 @@ import { Header } from "./components/Header";
 import { ChatArea, Message } from "./components/ChatArea";
 import { ChatInput } from "./components/ChatInput";
 import { AuthModal } from "./components/AuthModal";
+import { consumeChatSseStream } from "./lib/sse-client";
 
 export default function App() {
   const [status, setStatus] = useState<any>(null);
@@ -111,100 +112,65 @@ export default function App() {
 
       if (!res.body) throw new Error("No response stream body");
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data: ")) continue;
-
-          try {
-            const payload = JSON.parse(trimmed.slice(6));
-
-            if (payload.type === "start" && payload.sessionId) {
-              setSessionId(payload.sessionId);
-            }
-
-            if (payload.type === "update" && payload.update) {
-              const u = payload.update;
-              // Handle text chunk
-              if (
-                u.sessionUpdate === "agent_message_chunk" &&
-                u.content?.type === "text" &&
-                typeof u.content.text === "string"
-              ) {
-                const chunk = u.content.text;
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === assistantMsgId
-                      ? { ...msg, content: msg.content + chunk }
-                      : msg
-                  )
-                );
+      await consumeChatSseStream(res.body, {
+        onSessionId: (newSid) => setSessionId(newSid),
+        onTextChunk: (chunk) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId
+                ? { ...msg, content: msg.content + chunk }
+                : msg
+            )
+          );
+        },
+        onToolCall: ({ id, title, status }) => {
+          setMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.id !== assistantMsgId) return msg;
+              const existingCalls = msg.toolCalls || [];
+              const foundIndex = existingCalls.findIndex((c) => c.id === id);
+              if (foundIndex >= 0) {
+                const updated = [...existingCalls];
+                updated[foundIndex] = { ...updated[foundIndex], title, status };
+                return { ...msg, toolCalls: updated };
               }
-
-              // Handle tool calls
-              if (u.sessionUpdate === "tool_call" || u.sessionUpdate === "tool_use") {
-                const toolTitle = u.toolCall?.title || u.title || u.name || "Tool Operation";
-                const toolId = u.toolCallId || "tool-" + Date.now();
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === assistantMsgId
-                      ? {
-                          ...msg,
-                          toolCalls: [
-                            ...(msg.toolCalls || []),
-                            { id: toolId, title: toolTitle, status: "completed" },
-                          ],
-                        }
-                      : msg
-                  )
-                );
-              }
-            }
-
-            if (payload.type === "done") {
-              setIsStreaming(false);
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMsgId ? { ...msg, isStreaming: false } : msg
-                )
-              );
-            }
-
-            if (payload.type === "error") {
-              if (payload.message?.includes("Authentication required")) {
-                setAuthModalOpen(true);
-              }
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMsgId
-                    ? {
-                        ...msg,
-                        content:
-                          msg.content +
-                          `\n\n> ⚠️ [Google 官方 ACP 提示] 尚未授权 Google 账号。请在弹出的窗口中登录 Google。`,
-                        isStreaming: false,
-                      }
-                    : msg
-                )
-              );
-              setIsStreaming(false);
-            }
-          } catch {
-            // ignore non-json SSE lines
+              return {
+                ...msg,
+                toolCalls: [...existingCalls, { id, title, status }],
+              };
+            })
+          );
+        },
+        onDone: () => {
+          setIsStreaming(false);
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId ? { ...msg, isStreaming: false } : msg
+            )
+          );
+        },
+        onAuthRequired: () => {
+          setAuthModalOpen(true);
+        },
+        onError: (err) => {
+          if (err.message.includes("Authentication required")) {
+            setAuthModalOpen(true);
           }
-        }
-      }
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId
+                ? {
+                    ...msg,
+                    content:
+                      msg.content +
+                      `\n\n> ❌ [连接异常] ${err.message || "未能与 Antigravity ACP 通信"}`,
+                    isStreaming: false,
+                  }
+                : msg
+            )
+          );
+        },
+      });
     } catch (err: any) {
       if (err.name !== "AbortError") {
         setMessages((prev) =>

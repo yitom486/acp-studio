@@ -41,14 +41,14 @@ export const Header: React.FC<HeaderProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
-              Antigravity <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 font-extrabold">ACP Studio</span>
+              Antigravity <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 font-extrabold">Studio</span>
             </h1>
             <Badge variant="success" className="h-5 text-[10px] px-1.5 font-mono font-medium">
-              Official ACP Active
+              {status?.mode === "process" ? "ACP Process Mode" : "agy-acp-map Active"}
             </Badge>
           </div>
           <p className="text-[11px] text-slate-400 font-mono flex items-center gap-1">
-            agy_acp_server &bull; Google LLC
+            @yitom/agy-acp-map v{status?.packageVersion || "0.1.3"} &bull; {status?.protocol || "ACP v2"}
           </p>
         </div>
       </div>

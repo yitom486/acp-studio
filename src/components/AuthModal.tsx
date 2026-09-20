@@ -166,7 +166,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <span>官方支持认证：oauth-personal / gemini-api-key</span>
             </div>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              Google Antigravity 官方 ACP Server（<code className="text-slate-300 font-mono">agy_acp_server.exe</code>）直接负责鉴权与生命周期管理，凭据妥善存储于本地安全环境。
+              Google Antigravity 官方 CLI 引擎（<code className="text-slate-300 font-mono">agy.exe</code>）配合 <code className="text-indigo-400 font-mono">agy-acp-map</code> 桥接器直接负责鉴权与会话生命周期管理，凭据安全保存于本地原生环境（~/.gemini/）。
             </p>
           </div>
 
@@ -246,7 +246,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <Badge variant="success" className="text-[10px]">已复用本地配置</Badge>
                   </div>
                   <p className="text-slate-300 text-[11px] leading-relaxed">
-                    已自动加载本地安全凭证（配置来源：<code className="text-slate-200 font-mono">~/.gemini/antigravity-acp/settings.json</code>）。官方 ACP 服务已就绪，可直接发起 AI 问答与代码编辑。
+                    已自动检测并接入 Google Antigravity CLI 本地登录态（原生安全凭据目录：<code className="text-slate-200 font-mono">~/.gemini/</code>）。官方 ACP 桥接服务已就绪，可直接发起 AI 问答与代码编辑。
                   </p>
                   <Button
                     variant="outline"
@@ -315,24 +315,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="flex items-center justify-between text-slate-400">
               <span>官方 Agent 名称</span>
               <span className="font-mono text-indigo-300 font-medium">
-                {status?.agentInfo?.title || "Google Antigravity"} ({status?.agentInfo?.version || "1.1.1"})
+                {status?.agentInfo?.title || "agy ACP (stream-json)"} (v{status?.packageVersion || "0.1.3"})
               </span>
             </div>
             <div className="flex items-center justify-between text-slate-400">
-              <span>官方 ACP 执行文件</span>
+              <span>官方原生引擎</span>
               <span className="font-mono text-emerald-400 text-[11px] truncate max-w-[240px]" title={status?.binary?.executablePath}>
-                {status?.binary?.executablePath ? status.binary.executablePath.split("\\").pop() : "agy_acp_server.exe"}
+                {status?.binary?.executablePath ? status.binary.executablePath.split("\\").pop() : "agy.exe"}
               </span>
             </div>
             <div className="flex items-center justify-between text-slate-400">
-              <span>配套外部 Harness</span>
-              <span className="font-mono text-slate-300 text-[11px]">
-                localharness_external.exe (已就绪)
+              <span>ACP 适配桥接器</span>
+              <span className="font-mono text-slate-200 text-[11px]">
+                @yitom/agy-acp-map@{status?.packageVersion || "0.1.3"} ({status?.mode === "process" ? "外部应用模式" : "外部包模式"})
               </span>
             </div>
             <div className="flex items-center justify-between text-slate-400">
-              <span>发布方</span>
-              <span className="font-mono text-purple-300 font-medium">Google LLC &bull; ACP Registry 官方分发</span>
+              <span>通信协议</span>
+              <span className="font-mono text-purple-300 font-medium">{status?.protocol || "Agent Client Protocol v2"}</span>
             </div>
           </div>
 

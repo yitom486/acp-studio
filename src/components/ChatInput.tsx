@@ -111,9 +111,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
         <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
           <div className="flex items-center gap-2">
-            <span>运行内核：Google 官方 agy_acp_server</span>
+            <span>运行内核：Google 官方 agy 原生引擎</span>
             <span>&bull;</span>
-            <span>协议：Agent Client Protocol (ACP)</span>
+            <span>桥接：@yitom/agy-acp-map v0.1.3 (ACP v2)</span>
           </div>
           <div>按需支持工具自主读写与终端命令调度</div>
         </div>
