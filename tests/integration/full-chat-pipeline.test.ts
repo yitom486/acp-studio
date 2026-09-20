@@ -62,4 +62,60 @@ describe("Full Chat Pipeline Integration (Server Response -> Client Consumer)", 
     // Verify that NO spurious network error was emitted
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it("handles consecutive multi-turn dialogue on the same session without hanging", async () => {
+    const encoder = new TextEncoder();
+
+    // Turn 1
+    const streamTurn1 = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"start","sessionId":"multi-turn-sess"}\n\n'));
+        controller.enqueue(
+          encoder.encode(
+            'data: {"type":"update","sessionId":"multi-turn-sess","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Turn 1 answer."}}}\n\n'
+          )
+        );
+        controller.enqueue(
+          encoder.encode('data: {"type":"done","sessionId":"multi-turn-sess","stopReason":"end_turn"}\n\n')
+        );
+        await new Promise((r) => setTimeout(r, 10));
+        controller.close();
+      },
+    });
+
+    let turn1Text = "";
+    const outcome1 = await consumeChatSseStream(new Response(streamTurn1).body!, {
+      onTextChunk: (chunk) => {
+        turn1Text += chunk;
+      },
+    });
+    expect(outcome1.completedCleanly).toBe(true);
+    expect(turn1Text).toBe("Turn 1 answer.");
+
+    // Turn 2 (consecutive on same session)
+    const streamTurn2 = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"start","sessionId":"multi-turn-sess"}\n\n'));
+        controller.enqueue(
+          encoder.encode(
+            'data: {"type":"update","sessionId":"multi-turn-sess","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Turn 2 answer: yes, multimodal is supported."}}}\n\n'
+          )
+        );
+        controller.enqueue(
+          encoder.encode('data: {"type":"done","sessionId":"multi-turn-sess","stopReason":"end_turn"}\n\n')
+        );
+        await new Promise((r) => setTimeout(r, 10));
+        controller.close();
+      },
+    });
+
+    let turn2Text = "";
+    const outcome2 = await consumeChatSseStream(new Response(streamTurn2).body!, {
+      onTextChunk: (chunk) => {
+        turn2Text += chunk;
+      },
+    });
+    expect(outcome2.completedCleanly).toBe(true);
+    expect(turn2Text).toBe("Turn 2 answer: yes, multimodal is supported.");
+  });
 });
