@@ -12,6 +12,7 @@ export interface ToolCallItem {
 export interface SseStreamHandlers {
   onSessionId?: (sessionId: string) => void;
   onTextChunk?: (chunk: string) => void;
+  onThoughtChunk?: (chunk: string) => void;
   onToolCall?: (call: ToolCallItem) => void;
   onDone?: (stopReason?: string) => void;
   onError?: (err: Error) => void;
@@ -58,10 +59,19 @@ export async function consumeChatSseStream(
 
           if (payload.type === "update" && payload.update) {
             const u = payload.update;
-            // Handle text and reasoning/thought chunk
+            // Handle reasoning/thought chunk
             if (
-              (u.sessionUpdate === "agent_message_chunk" ||
-                u.sessionUpdate === "agent_thought_chunk") &&
+              u.sessionUpdate === "agent_thought_chunk" &&
+              u.content?.type === "text" &&
+              typeof u.content.text === "string"
+            ) {
+              if (handlers.onThoughtChunk) {
+                handlers.onThoughtChunk(u.content.text);
+              } else {
+                handlers.onTextChunk?.(u.content.text);
+              }
+            } else if (
+              u.sessionUpdate === "agent_message_chunk" &&
               u.content?.type === "text" &&
               typeof u.content.text === "string"
             ) {
@@ -81,7 +91,11 @@ export async function consumeChatSseStream(
                 (u.kind ? `Tool: ${u.kind}` : "Tool Operation");
               const toolId = u.toolCallId || "tool-" + Date.now();
               const status: "running" | "completed" | "failed" =
-                u.status === "failed" ? "failed" : "completed";
+                u.status === "failed"
+                  ? "failed"
+                  : u.status === "in_progress"
+                  ? "running"
+                  : "completed";
               handlers.onToolCall?.({ id: toolId, title: toolTitle, status });
             }
           }
