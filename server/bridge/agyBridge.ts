@@ -220,6 +220,7 @@ export class AgyAcpBridge {
 
     this.activeSessionsCount++;
     this.sessionModels.set(sessionId, this.currentModelId);
+    console.log(`[ACP-BRIDGE] createSession: created sessionId: ${sessionId} (model: ${this.currentModelId}, activeSessions: ${this.activeSessionsCount})`);
     const models = await this.getModels();
 
     return {
@@ -232,6 +233,7 @@ export class AgyAcpBridge {
   }
 
   public async cancel(sessionId: string): Promise<void> {
+    console.log(`[ACP-BRIDGE] cancel: stopping session: ${sessionId}`);
     if (this.mode === "library" && this.service) {
       this.service.cancelSession({ sessionId });
     } else {
@@ -247,10 +249,12 @@ export class AgyAcpBridge {
   ): Promise<{ stopReason: string }> {
     await this.ensureReady();
     const model = options?.model || this.sessionModels.get(sessionId) || this.currentModelId;
+    console.log(`[ACP-BRIDGE] prompt called: sid: ${sessionId}, model: ${model}, mode: ${this.mode}, promptPreview: "${JSON.stringify(promptBlocks).slice(0, 80)}"`);
 
     if (this.mode === "library" && this.service) {
       // Auto-register session if not already in memory
       if (!(this.service as any).sessions.has(sessionId)) {
+        console.log(`[ACP-BRIDGE] session ${sessionId} not in memory, registering fresh session`);
         const res = await this.service.newSession({
           cwd: this.workingDir,
           model,
@@ -265,16 +269,19 @@ export class AgyAcpBridge {
       }
 
       // Library mode: AgyAcpService handles prompt normalization, process supervision, event mapping
-      return this.service.promptSession(
+      const outcome = await this.service.promptSession(
         {
           sessionId,
           prompt: promptBlocks,
           model,
         },
         async (update: any) => {
+          console.log(`[ACP-BRIDGE] update from SDK (sid: ${sessionId}): ${update?.sessionUpdate || 'unknown'}`);
           onUpdate(update);
         }
       );
+      console.log(`[ACP-BRIDGE] prompt completed (sid: ${sessionId}) with stopReason: ${outcome.stopReason}`);
+      return outcome;
     } else {
       // Process mode: Register session update callback and send session/prompt
       this.processSessionListeners.set(sessionId, onUpdate);
@@ -283,7 +290,9 @@ export class AgyAcpBridge {
           sessionId,
           prompt: promptBlocks,
         });
-        return { stopReason: res?.stopReason || "end_turn" };
+        const stopReason = res?.stopReason || "end_turn";
+        console.log(`[ACP-BRIDGE] process mode prompt completed (sid: ${sessionId}): ${stopReason}`);
+        return { stopReason };
       } finally {
         this.processSessionListeners.delete(sessionId);
       }

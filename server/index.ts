@@ -203,15 +203,20 @@ const server = Bun.serve({
       try {
         body = await req.json();
       } catch {
+        console.error("[Server] Invalid JSON body in /api/chat");
         return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400, headers: corsHeaders() });
       }
+
+      console.log(`[Server] POST /api/chat received: sid: ${body.sessionId || '(none)'}, model: ${body.model || 'default'}, prompt: "${typeof body.prompt === 'string' ? body.prompt.slice(0, 60) : JSON.stringify(body.prompt).slice(0, 60)}"`);
 
       let sessionId = body.sessionId;
       if (!sessionId) {
         try {
           const fresh = await agyBridge.createSession();
           sessionId = fresh.sessionId;
+          console.log(`[Server] Created fresh session for chat: ${sessionId}`);
         } catch (err: any) {
+          console.error(`[Server] Failed to create session:`, err.message);
           return Response.json(
             { ok: false, error: `Failed to create session: ${err.message}` },
             { status: 500, headers: corsHeaders() }
@@ -252,6 +257,7 @@ const server = Bun.serve({
             }
           }, 2000);
 
+          console.log(`[Server][SSE] Dispatching "start" event for sid: ${sessionId}`);
           send({ type: "start", sessionId });
 
           try {
@@ -260,10 +266,12 @@ const server = Bun.serve({
               : [{ type: "text", text: String(body.prompt || "") }];
 
             let activeSessionId = sessionId!;
+            console.log(`[Server][SSE] Initiating bridge.prompt for sid: ${activeSessionId}`);
             const outcome = await agyBridge.prompt(
               activeSessionId,
               promptBlocks,
               (update: any) => {
+                console.log(`[Server][SSE] Pushing update to client (sid: ${activeSessionId}): ${update?.sessionUpdate || 'unknown'}`);
                 send({
                   type: "update",
                   sessionId: activeSessionId,
@@ -273,13 +281,14 @@ const server = Bun.serve({
               { model: body.model, mode: body.mode }
             );
 
+            console.log(`[Server][SSE] Dispatching "done" event (sid: ${activeSessionId}) stopReason: ${outcome.stopReason}`);
             send({
               type: "done",
               sessionId: activeSessionId,
               stopReason: outcome.stopReason,
             });
           } catch (err: any) {
-            console.error("[Server] Prompt error:", err);
+            console.error(`[Server][SSE] Prompt execution error (sid: ${sessionId}):`, err);
             send({
               type: "error",
               sessionId,
@@ -291,6 +300,7 @@ const server = Bun.serve({
             await new Promise((r) => setTimeout(r, 50));
             try {
               controller.close();
+              console.log(`[Server][SSE] Stream controller closed cleanly (sid: ${sessionId})`);
             } catch {
               // ignore
             }

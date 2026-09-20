@@ -51,6 +51,7 @@ export async function consumeChatSseStream(
 
         try {
           const payload = JSON.parse(trimmed.slice(6));
+          console.log(`[SSE-Client] Event: ${payload.type}`, payload.update?.sessionUpdate ? `[${payload.update.sessionUpdate}]` : "", payload);
 
           if (payload.type === "start" && payload.sessionId) {
             activeSessionId = payload.sessionId;
