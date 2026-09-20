@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "dev": "concurrently -k -n \"server,client\" -c \"cyan,green\" \"bun run dev:server\" \"bun run dev:client\"",
-    "dev:server": "bun run server/index.ts",
+    "dev:server": "bun --watch server/index.ts",
     "dev:client": "vite",
     "acp:stdio": "bun run server/acp-stdio.ts",
     "build": "tsc && vite build",
