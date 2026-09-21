@@ -1,0 +1,53 @@
+name: Release (Windows)
+
+# 打 tag 即发版，例如：git tag v1.0.0 && git push origin v1.0.0
+# 产物：NSIS 安装包 + 绿色 dir 包，自动挂到 GitHub Release。
+# 未签名（没有代码签名证书）：用户安装时 SmartScreen 会提示，
+# 如需消除请配置 CSC_LINK / CSC_KEY_PASSWORD 后重跑。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Unit tests (universal)
+        run: bunx vitest run tests/universal
+
+      - name: Web build
+        run: bun run build
+
+      - name: Electron bundle
+        run: bun run build:electron
+
+      - name: Package (nsis + dir)
+        run: bunx electron-builder --win nsis dir --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest*.yml

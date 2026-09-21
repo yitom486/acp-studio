@@ -16,8 +16,10 @@
     ],
     "win": {
       "target": [
+        "nsis",
         "dir"
-      ]
+      ],
+      "signAndEditExecutable": false
     },
     "directories": {
       "output": "release"
@@ -31,6 +33,7 @@
     "acp:stdio": "bun run server/acp-stdio.ts",
     "build": "tsc && vite build",
     "build:electron": "bun desktop/build.ts",
+    "package:win": "bunx electron-builder --win nsis dir --publish never",
     "start:electron": "electron electron-dist/main.cjs",
     "dev:electron": "ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:5188 electron electron-dist/main.cjs",
     "preview": "vite preview",

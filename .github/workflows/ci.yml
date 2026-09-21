@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      # NOTE: tests/integration legacy suites depend on a live agy binary
+      # flow and fail without it (pre-existing); the universal suite is
+      # the green gate for the gateway + studio.
+      - name: Unit tests (universal)
+        run: bunx vitest run tests/universal
+
+      - name: Web build
+        run: bun run build
+
+      - name: Electron bundle check
+        run: bun run build:electron

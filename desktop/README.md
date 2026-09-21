@@ -33,7 +33,7 @@ electron electron-dist/main.cjs   # main 内起网关并打开窗口
 
 ## 打包
 
-`bunx electron-builder --win --dir`（`package.json#build`）。
+`bunx electron-builder --win nsis dir --publish never`（`package.json#build`）。
 注意两件事（均已踩坑）：
 
 1. `electron/` 不能作为源码目录名——会与 npm `electron` 包撞名导致
@@ -50,3 +50,12 @@ electron electron-dist/main.cjs   # main 内起网关并打开窗口
   `<app>/dist`），**禁止依赖 `process.cwd()`**。
 - `spawn` 跨运行时走 `spawnCrossPlatform`（`server/universal/AgentConnection.ts`）：
   Node 在 Windows 下直接 exec `.cmd` 会 `EINVAL`，须经 shell 中转。
+
+## GitHub 运维流程
+
+- `.github/workflows/ci.yml`：push/PR 跑类型检查 + universal 单测 + Web 构建 + Electron 打包校验。
+- `.github/workflows/release.yml`：打 `v*` tag 即发版，产物为 NSIS 安装包 +
+  绿色 dir 包，自动挂到 GitHub Release（未签名，SmartScreen 会提示；
+  有证书后配 `CSC_LINK` / `CSC_KEY_PASSWORD` 即可消除）。
+- legacy `tests/integration` 因依赖 live agy 流程、CI 里不跑（现状如此，
+  与本次无关），门禁以 `tests/universal` 为准。
