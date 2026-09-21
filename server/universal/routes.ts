@@ -178,6 +178,14 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
           case "set_config":
             result = await conn.setConfigOption(body);
             break;
+          case "set_model": {
+            // Legacy fallback (agy-style servers without config options).
+            if (!body.sessionId || !body.modelId) {
+              return json({ ok: false, error: "sessionId + modelId required" }, 400);
+            }
+            result = await conn.rawRequest("session/set_model", body);
+            break;
+          }
           case "cancel":
             await conn.cancel(String(body.sessionId || ""));
             result = { ok: true, cancelled: true };
@@ -196,6 +204,7 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
       if (["new", "load", "resume", "list", "delete", "close", "cancel", "fork"].includes(action)) {
         return sessionAction(action);
       }
+      if (action === "set_model" || action === "set-model") return sessionAction("set_model");
       if (action === "set_mode" || action === "set-mode") return sessionAction("set_mode");
       if (action === "set_config" || action === "set-config" || action === "set_config_option") {
         return sessionAction("set_config");

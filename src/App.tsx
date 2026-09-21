@@ -67,6 +67,8 @@ export default function App() {
 
   const abortRef = useRef<AbortController | null>(null);
   const activeAgent = agents.find((a) => a.id === activeAgentId);
+  const activeAgentIdRef = useRef(activeAgentId);
+  activeAgentIdRef.current = activeAgentId;
   const caps = (activeAgent?.status?.agentCapabilities || {}) as any;
   const sessionCaps = (caps.sessionCapabilities || {}) as Record<string, unknown>;
   const promptCaps = (caps.promptCapabilities || {}) as Record<string, unknown>;
@@ -125,6 +127,8 @@ export default function App() {
     }
   };
 
+  const ensuredRef = useRef<string | null>(null);
+
   useEffect(() => {
     refreshAgents().then(async () => {
       try {
@@ -132,8 +136,15 @@ export default function App() {
         for (const a of list) {
           if (a.status?.connected) {
             await probeAuth(a.id);
-            if (a.id === activeAgentId) await refreshSessions(a.id);
+            if (a.id === activeAgentIdRef.current) await refreshSessions(a.id);
           }
+        }
+        // Auto-ensure a session for the active agent so the model /
+        // thinking / permission dropdowns show up immediately on load.
+        const active = list.find((a) => a.id === activeAgentIdRef.current);
+        if (active?.status?.connected && ensuredRef.current !== active.id) {
+          ensuredRef.current = active.id;
+          await ensureSession(active.id, true);
         }
       } catch {
         // ignore probe failures on load
@@ -165,8 +176,15 @@ export default function App() {
     setSessionId(null);
     resetThread();
     const target = agents.find((a) => a.id === id);
-    if (target?.status?.connected) refreshSessions(id);
-    else setSessions([]);
+    if (target?.status?.connected) {
+      refreshSessions(id);
+      // New agent is already connected: ensure a session so the model /
+      // thinking / permission dropdowns show up immediately.
+      ensuredRef.current = id;
+      void ensureSession(id, true);
+    } else {
+      setSessions([]);
+    }
   };
 
   const handleConnect = async (id: string = activeAgentId) => {
@@ -178,8 +196,9 @@ export default function App() {
       await refreshSessions(id);
       // Auto-create a session so model/thinking/permission selectors
       // (which come from session configOptions) show up immediately.
-      if (id === activeAgentId && !sessionId) {
-        await ensureSession();
+      if (id === activeAgentIdRef.current && !sessionId) {
+        ensuredRef.current = id;
+        await ensureSession(id);
       }
     } catch (e: any) {
       alert(`连接 ${id} 失败: ${e.message}`);
@@ -199,19 +218,23 @@ export default function App() {
   };
 
   /** Create a session on demand (e.g. user tweaks model/thinking before chatting). */
-  const ensureSession = async (): Promise<string | null> => {
-    if (sessionId) return sessionId;
+  const ensureSession = async (agentId: string = activeAgentId, force = false): Promise<string | null> => {
+    if (!force && sessionId && agentId === activeAgentId) return sessionId;
     if (isStreaming || busy) return null;
     try {
-      if (!activeAgent?.status?.connected) await connectAgent(activeAgentId);
-      const res: any = await sessionNew(activeAgentId, {});
+      const st = agents.find((a) => a.id === agentId)?.status?.connected;
+      if (!st) await connectAgent(agentId);
+      const res: any = await sessionNew(agentId, {});
+      // Only adopt the result when still on the same agent.
+      if (activeAgentIdRef.current !== agentId) return res?.sessionId || null;
       applyNewSessionResult(res);
-      setAuthOk((prev) => ({ ...prev, [activeAgentId]: true }));
-      await refreshSessions();
+      setAuthOk((prev) => ({ ...prev, [agentId]: true }));
+      await refreshSessions(agentId);
+      await refreshAgents();
       return res?.sessionId || null;
     } catch (e: any) {
       if (/auth/i.test(String(e?.message || ""))) {
-        setAuthOk((prev) => ({ ...prev, [activeAgentId]: false }));
+        setAuthOk((prev) => ({ ...prev, [agentId]: false }));
         setAuthOpen(true);
       } else {
         alert(`创建会话失败: ${e.message}`);
@@ -428,6 +451,23 @@ export default function App() {
     }
   };
 
+  /** Fallback model switch for agents without a model config option. */
+  const handleFallbackModel = async (modelId: string) => {
+    const modelOpt = findConfigOption(configOptions, "model");
+    if (modelOpt) {
+      await setSessionConfig(modelOpt.id, parseModelId(modelId).model);
+      return;
+    }
+    const sid = sessionId || (await ensureSession());
+    if (!sid) return;
+    try {
+      // Legacy agy-style servers implement session/set_model directly.
+      await sessionRpc(activeAgentId, "set_model", { sessionId: sid, modelId });
+      if (models) setModels({ ...models, currentModelId: modelId });
+    } catch (e: any) {
+      alert(`切换模型失败: ${e.message}`);
+    }
+  };
   /** Apply a catalog modelId (e.g. "gpt-5.6-luna[xhigh]") + linked thinking level. */
   const handleApplyModel = async (modelId: string) => {
     const { model, effort } = parseModelId(modelId);
@@ -730,6 +770,11 @@ export default function App() {
           onSetConfig={(configId, value) => setSessionConfig(configId, value)}
           onBrowseModels={() => setModelsOpen(true)}
           hasModelCatalog={!!models}
+          connected={!!activeAgent?.status?.connected}
+          fallbackModels={models?.availableModels || null}
+          fallbackCurrentModel={models?.currentModelId || ""}
+          onFallbackModel={handleFallbackModel}
+          onEnsureSession={() => ensureSession()}
         />
       </div>
 

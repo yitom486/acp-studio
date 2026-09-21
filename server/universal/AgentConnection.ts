@@ -391,14 +391,22 @@ export class UniversalAgentConnection {
     return conn.agent.request(acp.methods.agent.session.fork, args as unknown as never);
   }
 
-  /** UNSTABLE providers/* (advertised via providers capability, e.g. codex). */
-  async providersRpc(action: "list" | "set" | "disable", body: Record<string, unknown>): Promise<unknown> {
+  /** UNSTABLE providers/* (advertised via providers capability, e.g. codex). */  async providersRpc(action: "list" | "set" | "disable", body: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
     const method =
       action === "list" ? acp.methods.agent.providers.list
       : action === "set" ? acp.methods.agent.providers.set
       : acp.methods.agent.providers.disable;
     return conn.agent.request(method, body as unknown as never);
+  }
+
+  /**
+   * Escape hatch for legacy/unstable agent methods (e.g. session/set_model
+   * on agy-style servers that lack session config options).
+   */
+  async rawRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
+    const conn = this.ensureConn();
+    return conn.agent.request(method as never, params as never);
   }
 
   /** Broadcast an fs/terminal/compaction activity line into session sinks. */

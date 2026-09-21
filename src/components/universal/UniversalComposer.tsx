@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
 import { Send, Square, Trash2, Paperclip, ImagePlus, X, Command, Cpu, Brain, ShieldCheck, LayoutGrid } from "lucide-react";
 import { Button } from "../ui/button";
-import { configCurrentValue, findConfigOption, type ConfigOptionLike } from "../../lib/universal-api";
+import { configCurrentValue, findConfigOption, type ConfigOptionLike, type ModelCatalogEntry } from "../../lib/universal-api";
 
 export interface Attachment {
   id: string;
@@ -31,6 +31,14 @@ export interface UniversalComposerProps {
   /** Open the model discovery browser. */
   onBrowseModels?: () => void;
   hasModelCatalog?: boolean;
+  /** Whether the agent stdio connection is up (drives the selector bar). */
+  connected?: boolean;
+  /** Fallback model list for agents without a model config option (session/new models). */
+  fallbackModels?: ModelCatalogEntry[] | null;
+  fallbackCurrentModel?: string;
+  onFallbackModel?: (modelId: string) => void;
+  /** Create a session on demand (used by the loading chip). */
+  onEnsureSession?: () => void;
 }
 
 const TEXTISH = /^(text\/|application\/(json|javascript|typescript|xml|x-www-form-urlencoded)|.*\+(json|xml)$)/;
@@ -202,8 +210,45 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
   const modelOpt = pickRole(p.configOptions, "model");
   const thinkOpt = pickRole(p.configOptions, "thinking");
   const permOpt = pickRole(p.configOptions, "permission");
-  const showSelectors = !!(modelOpt || thinkOpt || permOpt) && !!p.onSetConfig;
 
+  const muted = (text: string, title?: string) => (
+    <span className="text-[11px] text-slate-600 font-mono" title={title}>
+      {text}
+    </span>
+  );
+
+  const renderFallbackModel = () => {
+    const list = p.fallbackModels || [];
+    if (list.length === 0) {
+      return (
+        <button
+          type="button"
+          onClick={() => p.onEnsureSession?.()}
+          title="创建会话以加载模型配置"
+          className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-indigo-300"
+        >
+          <Cpu className="w-3.5 h-3.5" />模型：获取中…
+        </button>
+      );
+    }
+    return (
+      <label className="flex items-center gap-1 text-xs text-slate-300" title="该 Agent 未提供模型配置项，使用会话模型目录切换">
+        <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+        <select
+          value={p.fallbackCurrentModel || ""}
+          disabled={p.isStreaming}
+          onChange={(e) => e.target.value && p.onFallbackModel?.(e.target.value)}
+          className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-slate-200 outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-slate-800/80"
+        >
+          {list.map((m) => (
+            <option key={m.modelId} value={m.modelId} className="bg-slate-900" title={m.description}>
+              {m.name || m.modelId}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  };
   const renderSelect = (opt: ConfigOptionLike, icon: React.ReactNode, label: string) => (
     <label key={opt.id} className="flex items-center gap-1 text-xs text-slate-300" title={opt.description || opt.name}>
       {icon}
@@ -314,11 +359,17 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 +
               </button>
             </div>
-            {showSelectors && (
+            {p.connected && (
               <>
-                {modelOpt && renderSelect(modelOpt, <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />, "模型")}
-                {thinkOpt && renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />, "思考")}
-                {permOpt && renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />, "权限")}
+                {modelOpt
+                  ? renderSelect(modelOpt, <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />, "模型")
+                  : renderFallbackModel()}
+                {thinkOpt
+                  ? renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />, "思考")
+                  : muted("思考：—", "该 Agent 未提供思考等级配置")}
+                {permOpt
+                  ? renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />, "权限")
+                  : muted("权限：—", "该 Agent 未提供权限配置")}
               </>
             )}
             {p.onBrowseModels && (
@@ -331,7 +382,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 <LayoutGrid className="w-3.5 h-3.5" />
               </button>
             )}
-            {!showSelectors && (
+            {!p.connected && (
               <span className="font-mono text-[11px] text-slate-600 hidden sm:inline">Enter 发送 · Shift+Enter 换行 · / 命令联想</span>
             )}
             <div className="flex-1" />
