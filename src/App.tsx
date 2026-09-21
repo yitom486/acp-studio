@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
-import { ChatArea, Message } from "./components/ChatArea";
+import React, { useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ChatArea } from "./components/ChatArea";
 import { AgentBar } from "./components/universal/AgentBar";
 import { Sidebar, type SessionItem } from "./components/universal/Sidebar";
 import { SessionControls } from "./components/universal/SessionControls";
@@ -8,10 +9,11 @@ import { ProvidersModal } from "./components/universal/ProvidersModal";
 import { PermissionDialog } from "./components/universal/PermissionDialog";
 import { ElicitationCard } from "./components/universal/ElicitationCard";
 import { UniversalAuthModal } from "./components/universal/AuthModal";
-import { UniversalComposer, type Attachment } from "./components/universal/UniversalComposer";
+import { UniversalComposer } from "./components/universal/UniversalComposer";
 import { ModelBrowserModal } from "./components/universal/ModelBrowserModal";
+import { useStudioStore } from "./stores/useStudioStore";
+import { useAgentsQuery, useSessionsQuery, invalidateAgents, invalidateSessions } from "./lib/acp-queries";
 import {
-  fetchAgents,
   connectAgent,
   logoutAgent,
   sessionNew,
@@ -24,51 +26,30 @@ import {
   buildTranscriptFromReplay,
   findConfigOption,
   parseModelId,
-  type AgentSummary,
   type PendingPermission,
   type PendingElicitation,
   type ActivityEvent,
-  type ModelCatalog,
 } from "./lib/universal-api";
 
 /**
  * ACP Studio Universal — full ACP v1 client.
- * Agents: codex / gemini / claude / opencode / copilot / cursor / antigravity-stdio.
+ * State: zustand (client) + TanStack Query (server). See
+ * .agents/rules/state_management.md for the conventions.
  */
 export default function App() {
-  const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [activeAgentId, setActiveAgentId] = useState<string>("codex");
-  const [connectingId, setConnectingId] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [modes, setModes] = useState<{ currentModeId?: string; availableModes?: Array<{ id: string; name?: string }> } | null>(null);
-  const [configOptions, setConfigOptions] = useState<any[] | null>(null);
-  const [availableCommands, setAvailableCommands] = useState<Array<{ name: string; description?: string }>>([]);
-  const [usage, setUsage] = useState<{ used: number; size: number; cost?: { amount: number; currency: string } } | null>(null);
-  const [sessionInfo, setSessionInfo] = useState<any>(null);
-
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [providersOpen, setProvidersOpen] = useState(false);
-  const [pendingPerms, setPendingPerms] = useState<PendingPermission[]>([]);
-  const [pendingElic, setPendingElic] = useState<PendingElicitation[]>([]);
-  const [respondingId, setRespondingId] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<SessionItem[]>([]);
-  const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [authOk, setAuthOk] = useState<Record<string, boolean | null>>({});
-  /** Model catalog from session/new (codex advertises models + thinking suffixes). */
-  const [models, setModels] = useState<ModelCatalog | null>(null);
-  const [modelsOpen, setModelsOpen] = useState(false);
-  const [discovering, setDiscovering] = useState(false);
-
+  const qc = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
-  const activeAgent = agents.find((a) => a.id === activeAgentId);
-  const activeAgentIdRef = useRef(activeAgentId);
-  activeAgentIdRef.current = activeAgentId;
+  const ensuredRef = useRef<string | null>(null);
+  const s = useStudioStore();
+
+  // Server state (TanStack Query)
+  const agentsQuery = useAgentsQuery();
+  const agents = agentsQuery.data ?? [];
+  const activeAgent = agents.find((a) => a.id === s.activeAgentId);
+  const connected = !!activeAgent?.status?.connected;
+  const sessionsQuery = useSessionsQuery(s.activeAgentId, connected);
+  const sessions = sessionsQuery.data ?? [];
+
   const caps = (activeAgent?.status?.agentCapabilities || {}) as any;
   const sessionCaps = (caps.sessionCapabilities || {}) as Record<string, unknown>;
   const promptCaps = (caps.promptCapabilities || {}) as Record<string, unknown>;
@@ -79,37 +60,34 @@ export default function App() {
   const supportsAdditionalDirs = "additionalDirectories" in sessionCaps;
   const supportImage = !!promptCaps.image;
 
-  const refreshAgents = async () => {
-    try {
-      const list = await fetchAgents();
-      setAgents(list);
-      if (!list.find((a) => a.id === activeAgentId) && list.length > 0) {
-        setActiveAgentId(list[0].id);
-      }
-    } catch (e) {
-      console.error("fetchAgents failed", e);
+  // Keep the selected agent valid as the registry list arrives/changes.
+  useEffect(() => {
+    if (agents.length > 0 && !agents.find((a) => a.id === s.activeAgentId)) {
+      s.setActiveAgentId(agents[0].id);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents]);
 
-  const refreshSessions = async (agentId: string = activeAgentId) => {
-    setSessionsLoading(true);
-    try {
-      const res: any = await sessionRpc(agentId, "list", {});
-      const items = res?.sessions || [];
-      setSessions(
-        (Array.isArray(items) ? items : []).map((s: any) => ({
-          sessionId: s.sessionId || s.id,
-          title: s.title,
-          cwd: s.cwd,
-          updatedAt: s.updatedAt,
-        }))
-      );
-    } catch {
-      // list unsupported or failed — sidebar shows hint
-    } finally {
-      setSessionsLoading(false);
-    }
-  };
+  // One-time: probe local-auth reuse for connected agents + ensure a session
+  // for the active one (StrictMode-safe via ensuredRef).
+  useEffect(() => {
+    if (agentsQuery.isLoading || agents.length === 0) return;
+    void (async () => {
+      for (const a of agents) {
+        if (a.status?.connected && s.authOk[a.id] === undefined) {
+          await probeAuth(a.id);
+        }
+      }
+      const active = agents.find((a) => a.id === useStudioStore.getState().activeAgentId);
+      if (active?.status?.connected && ensuredRef.current !== active.id) {
+        ensuredRef.current = active.id;
+        await ensureSession(active.id, true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentsQuery.isLoading, agents]);
+
+  const now = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   /**
    * Non-mutating local-auth probe: session/list succeeds without any
@@ -119,123 +97,31 @@ export default function App() {
   const probeAuth = async (agentId: string) => {
     try {
       await sessionRpc(agentId, "list", {});
-      setAuthOk((prev) => ({ ...prev, [agentId]: true }));
+      useStudioStore.getState().setAuthOk(agentId, true);
     } catch (e: any) {
       const msg = String(e?.message || "");
-      if (/auth/i.test(msg)) setAuthOk((prev) => ({ ...prev, [agentId]: false }));
-      else setAuthOk((prev) => ({ ...prev, [agentId]: null }));
-    }
-  };
-
-  const ensuredRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    refreshAgents().then(async () => {
-      try {
-        const list = await fetchAgents();
-        for (const a of list) {
-          if (a.status?.connected) {
-            await probeAuth(a.id);
-            if (a.id === activeAgentIdRef.current) await refreshSessions(a.id);
-          }
-        }
-        // Auto-ensure a session for the active agent so the model /
-        // thinking / permission dropdowns show up immediately on load.
-        const active = list.find((a) => a.id === activeAgentIdRef.current);
-        if (active?.status?.connected && ensuredRef.current !== active.id) {
-          ensuredRef.current = active.id;
-          await ensureSession(active.id, true);
-        }
-      } catch {
-        // ignore probe failures on load
-      }
-    });
-    const t = setInterval(refreshAgents, 15000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const resetThread = () => {
-    setMessages([]);
-    setModes(null);
-    setModels(null);
-    setConfigOptions(null);
-    setAvailableCommands([]);
-    setUsage(null);
-    setSessionInfo(null);
-    setPendingPerms([]);
-    setPendingElic([]);
-    setAttachments([]);
-  };
-
-  // Switching agent resets session-scoped state (sessions live per-agent on gateway)
-  const handleSelectAgent = (id: string) => {
-    if (id === activeAgentId) return;
-    abortRef.current?.abort();
-    setActiveAgentId(id);
-    setSessionId(null);
-    resetThread();
-    const target = agents.find((a) => a.id === id);
-    if (target?.status?.connected) {
-      refreshSessions(id);
-      // New agent is already connected: ensure a session so the model /
-      // thinking / permission dropdowns show up immediately.
-      ensuredRef.current = id;
-      void ensureSession(id, true);
-    } else {
-      setSessions([]);
-    }
-  };
-
-  const handleConnect = async (id: string = activeAgentId) => {
-    setConnectingId(id);
-    try {
-      await connectAgent(id);
-      await refreshAgents();
-      await probeAuth(id);
-      await refreshSessions(id);
-      // Auto-create a session so model/thinking/permission selectors
-      // (which come from session configOptions) show up immediately.
-      if (id === activeAgentIdRef.current && !sessionId) {
-        ensuredRef.current = id;
-        await ensureSession(id);
-      }
-    } catch (e: any) {
-      alert(`连接 ${id} 失败: ${e.message}`);
-    } finally {
-      setConnectingId(null);
-    }
-  };
-
-  const applyNewSessionResult = (res: any) => {
-    if (res?.sessionId) {
-      setSessionId(res.sessionId);
-      if (res.modes) setModes(res.modes);
-      if (res.models) setModels(res.models);
-      if (res.configOptions) setConfigOptions(res.configOptions);
-      if (res.availableCommands) setAvailableCommands(res.availableCommands);
+      useStudioStore.getState().setAuthOk(agentId, /auth/i.test(msg) ? false : null);
     }
   };
 
   /** Create a session on demand (e.g. user tweaks model/thinking before chatting). */
-  const ensureSession = async (agentId: string = activeAgentId, force = false): Promise<string | null> => {
-    if (!force && sessionId && agentId === activeAgentId) return sessionId;
-    if (isStreaming || busy) return null;
+  const ensureSession = async (agentId: string = s.activeAgentId, force = false): Promise<string | null> => {
+    const st = useStudioStore.getState();
+    if (!force && st.sessionId && agentId === st.activeAgentId) return st.sessionId;
+    if (st.isStreaming || st.busy) return null;
     try {
-      const st = agents.find((a) => a.id === agentId)?.status?.connected;
-      if (!st) await connectAgent(agentId);
+      const known = agents.find((a) => a.id === agentId)?.status?.connected;
+      if (!known) await connectAgent(agentId);
       const res: any = await sessionNew(agentId, {});
-      // Only adopt the result when still on the same agent.
-      if (activeAgentIdRef.current !== agentId) return res?.sessionId || null;
-      applyNewSessionResult(res);
-      setAuthOk((prev) => ({ ...prev, [agentId]: true }));
-      await refreshSessions(agentId);
-      await refreshAgents();
+      st.applySessionResult(res);
+      st.setAuthOk(agentId, true);
+      invalidateSessions(qc, agentId);
+      invalidateAgents(qc);
       return res?.sessionId || null;
     } catch (e: any) {
       if (/auth/i.test(String(e?.message || ""))) {
-        setAuthOk((prev) => ({ ...prev, [agentId]: false }));
-        setAuthOpen(true);
+        st.setAuthOk(agentId, false);
+        st.setAuthOpen(true);
       } else {
         alert(`创建会话失败: ${e.message}`);
       }
@@ -243,57 +129,94 @@ export default function App() {
     }
   };
 
-  /** Shared session/set_config_option with correct select/boolean shapes. */
-  const setSessionConfig = async (configId: string, value: unknown) => {
-    const sid = sessionId || (await ensureSession());
-    if (!sid) return;
-    try {
-      const opt = configOptions?.find((c) => c.id === configId);
-      const body: Record<string, unknown> =
-        opt?.type === "boolean" || typeof value === "boolean"
-          ? { sessionId: sid, configId, type: "boolean", value }
-          : { sessionId: sid, configId, value };
-      const res: any = await sessionRpc(activeAgentId, "set_config", body);
-      if (res?.configOptions) setConfigOptions(res.configOptions);
-      else if (Array.isArray(res)) setConfigOptions(res);
-      else {
-        // Optimistic local update when the agent returns void.
-        setConfigOptions((prev) => prev?.map((c) => (c.id === configId ? { ...c, currentValue: value } : c)) || prev);
-      }
-    } catch (e: any) {
-      alert(`set_config 失败: ${e.message}`);
+  // Switching agent resets session-scoped state (sessions live per-agent on gateway)
+  const handleSelectAgent = (id: string) => {
+    const st = useStudioStore.getState();
+    if (id === st.activeAgentId) return;
+    abortRef.current?.abort();
+    st.setActiveAgentId(id);
+    st.setSessionId(null);
+    st.resetThread();
+    const target = agents.find((a) => a.id === id);
+    if (target?.status?.connected) {
+      invalidateSessions(qc, id);
+      ensuredRef.current = id;
+      void ensureSession(id, true);
     }
   };
 
-  const handleCreateSession = async (s: SessionSettings) => {
-    setBusy(true);
+  const handleConnect = async (id: string = s.activeAgentId) => {
+    const st = useStudioStore.getState();
+    st.setConnectingId(id);
     try {
-      if (!activeAgent?.status?.connected) await connectAgent(activeAgentId);
-      const res: any = await sessionNew(activeAgentId, {
-        ...(s.cwd ? { cwd: s.cwd } : {}),
-        ...(s.additionalDirectories.length > 0 ? { additionalDirectories: s.additionalDirectories } : {}),
-        mcpServers: s.mcpServers,
+      await connectAgent(id);
+      invalidateAgents(qc);
+      await probeAuth(id);
+      invalidateSessions(qc, id);
+      // Auto-create a session so model/thinking/permission selectors
+      // (which come from session configOptions) show up immediately.
+      if (id === useStudioStore.getState().activeAgentId && !useStudioStore.getState().sessionId) {
+        ensuredRef.current = id;
+        await ensureSession(id);
+      }
+    } catch (e: any) {
+      alert(`连接 ${id} 失败: ${e.message}`);
+    } finally {
+      useStudioStore.getState().setConnectingId(null);
+    }
+  };
+
+  const handleCreateSession = async (settings: SessionSettings) => {
+    const st = useStudioStore.getState();
+    const agentId = st.activeAgentId;
+    st.setBusy(true);
+    try {
+      const known = agents.find((a) => a.id === agentId)?.status?.connected;
+      if (!known) await connectAgent(agentId);
+      const res: any = await sessionNew(agentId, {
+        ...(settings.cwd ? { cwd: settings.cwd } : {}),
+        ...(settings.additionalDirectories.length > 0 ? { additionalDirectories: settings.additionalDirectories } : {}),
+        mcpServers: settings.mcpServers,
       });
-      applyNewSessionResult(res);
-      resetThread();
-      setAuthOk((prev) => ({ ...prev, [activeAgentId]: true }));
-      setSettingsOpen(false);
-      await refreshAgents();
-      await refreshSessions();
+      st.applySessionResult(res);
+      st.resetThread();
+      st.setAuthOk(agentId, true);
+      st.setSettingsOpen(false);
+      invalidateAgents(qc);
+      invalidateSessions(qc, agentId);
     } catch (e: any) {
       if (/auth/i.test(String(e?.message || ""))) {
-        setAuthOk((prev) => ({ ...prev, [activeAgentId]: false }));
-        setSettingsOpen(false);
-        setAuthOpen(true);
+        st.setAuthOk(agentId, false);
+        st.setSettingsOpen(false);
+        st.setAuthOpen(true);
       } else {
         alert(`session/new 失败: ${e.message}`);
       }
     } finally {
-      setBusy(false);
+      useStudioStore.getState().setBusy(false);
     }
   };
 
-  const now = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  /** Shared session/set_config_option with correct select/boolean shapes. */
+  const setSessionConfig = async (configId: string, value: unknown) => {
+    const st = useStudioStore.getState();
+    const sid = st.sessionId || (await ensureSession());
+    if (!sid) return;
+    try {
+      const opt = useStudioStore.getState().configOptions?.find((c) => c.id === configId);
+      const body: Record<string, unknown> =
+        opt?.type === "boolean" || typeof value === "boolean"
+          ? { sessionId: sid, configId, type: "boolean", value }
+          : { sessionId: sid, configId, value };
+      const res: any = await sessionRpc(st.activeAgentId, "set_config", body);
+      const cur = useStudioStore.getState();
+      if (res?.configOptions) cur.setConfigOptions(res.configOptions);
+      else if (Array.isArray(res)) cur.setConfigOptions(res);
+      else cur.patchConfigOption({ ...(opt || { id: configId }), currentValue: value });
+    } catch (e: any) {
+      alert(`set_config 失败: ${e.message}`);
+    }
+  };
 
   const appendActivity = (a: ActivityEvent) => {
     const icon =
@@ -306,25 +229,28 @@ export default function App() {
       summary = "";
     }
     const line = `${icon} [${a.kind}] ${summary}`.trim();
-    setMessages((prev) => [...prev, { id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: "system", content: line, timestamp: now() }]);
+    useStudioStore.getState().appendMessage({ id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: "system", content: line, timestamp: now() });
   };
 
   /** Open a session from the sidebar: load (with replay), resume, else attach bare. */
-  const handleOpenSession = async (s: SessionItem) => {
-    if (isStreaming) return;
-    setBusy(true);
+  const handleOpenSession = async (item: SessionItem) => {
+    const st = useStudioStore.getState();
+    if (st.isStreaming) return;
+    const agentId = st.activeAgentId;
+    st.setBusy(true);
     try {
-      if (!activeAgent?.status?.connected) await connectAgent(activeAgentId);
-      let attached = false;
+      const known = agents.find((a) => a.id === agentId)?.status?.connected;
+      if (!known) await connectAgent(agentId);
       try {
-        const { result, replayed } = await loadSession(activeAgentId, {
-          sessionId: s.sessionId,
-          cwd: s.cwd,
+        const { result, replayed } = await loadSession(agentId, {
+          sessionId: item.sessionId,
+          cwd: item.cwd,
           mcpServers: [],
         });
         const t = buildTranscriptFromReplay(replayed || []);
-        setSessionId(s.sessionId);
-        setMessages(
+        const cur = useStudioStore.getState();
+        cur.setSessionId(item.sessionId);
+        cur.setMessages(
           t.messages.map((m, i) => ({
             id: `hist-${Date.now()}-${i}`,
             role: m.role,
@@ -334,305 +260,306 @@ export default function App() {
             timestamp: now(),
           }))
         );
-        if (t.plan.length > 0 && t.messages.length > 0) {
-          setMessages((prev) => {
-            const next = [...prev];
-            const lastAsst = [...next].reverse().find((m) => m.role === "assistant");
-            if (lastAsst) lastAsst.plan = t.plan;
-            return next;
-          });
+        if (t.plan.length > 0) {
+          const msgs = useStudioStore.getState().messages;
+          const lastAsst = [...msgs].reverse().find((m) => m.role === "assistant");
+          if (lastAsst) useStudioStore.getState().patchMessage(lastAsst.id, { plan: t.plan });
         }
-        if (t.usage) setUsage(t.usage);
-        if (t.availableCommands.length > 0) setAvailableCommands(t.availableCommands);
-        if (t.currentModeId) setModes((prev) => (prev ? { ...prev, currentModeId: t.currentModeId! } : prev));
+        if (t.usage) useStudioStore.getState().setUsage(t.usage);
+        if (t.availableCommands.length > 0) useStudioStore.getState().setAvailableCommands(t.availableCommands);
+        if (t.currentModeId) {
+          const modes = useStudioStore.getState().modes;
+          if (modes) useStudioStore.getState().setModes({ ...modes, currentModeId: t.currentModeId! });
+        }
         for (const a of t.activities) appendActivity(a);
         const r: any = result || {};
-        if (r.modes) setModes(r.modes);
-        if (r.models) setModels(r.models);
-        if (r.configOptions) setConfigOptions(r.configOptions);
-        setAuthOk((prev) => ({ ...prev, [activeAgentId]: true }));
-        attached = true;
-      } catch (loadErr: any) {
+        const cur2 = useStudioStore.getState();
+        if (r.modes) cur2.setModes(r.modes);
+        if (r.models) cur2.setModels(r.models);
+        if (r.configOptions) cur2.setConfigOptions(r.configOptions);
+        cur2.setAuthOk(agentId, true);
+      } catch {
         // Fall back to resume (no replay) when load is unsupported/fails.
         try {
-          await sessionRpc(activeAgentId, "resume", { sessionId: s.sessionId, cwd: s.cwd, mcpServers: [] });
-          setSessionId(s.sessionId);
-          resetThread();
-          setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已 resume 会话（无历史回放）。`, timestamp: now() }]);
-          attached = true;
+          await sessionRpc(agentId, "resume", { sessionId: item.sessionId, cwd: item.cwd, mcpServers: [] });
+          const cur = useStudioStore.getState();
+          cur.setSessionId(item.sessionId);
+          cur.resetThread();
+          cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已 resume 会话（无历史回放）。`, timestamp: now() }]);
         } catch {
-          // Some agents (e.g. codex) reject load/resume on certain sessions
-          // while session/prompt on the same id still works — attach bare so
-          // the user can keep chatting instead of hitting a dead end.
-          setSessionId(s.sessionId);
-          resetThread();
-          setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已切换到会话（该 Agent 未提供历史回放，直接继续对话即可）。`, timestamp: now() }]);
-          attached = true;
+          // Some agents reject load/resume while session/prompt on the same
+          // id still works — attach bare instead of hitting a dead end.
+          const cur = useStudioStore.getState();
+          cur.setSessionId(item.sessionId);
+          cur.resetThread();
+          cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已切换到会话（该 Agent 未提供历史回放，直接继续对话即可）。`, timestamp: now() }]);
         }
       }
-      if (attached) await refreshSessions();
+      invalidateSessions(qc, agentId);
     } catch (e: any) {
       alert(`打开会话失败: ${e.message}`);
     } finally {
-      setBusy(false);
+      useStudioStore.getState().setBusy(false);
     }
   };
 
   const handleForkSession = async (sid?: string) => {
-    const source = sid || sessionId;
-    if (!source || isStreaming) return;
-    setBusy(true);
+    const st = useStudioStore.getState();
+    const source = sid || st.sessionId;
+    if (!source || st.isStreaming) return;
+    const agentId = st.activeAgentId;
+    st.setBusy(true);
     try {
-      const info = sessions.find((s) => s.sessionId === source);
-      const res: any = await forkSession(activeAgentId, {
+      const listed = sessionsQuery.data ?? [];
+      const info = listed.find((x) => x.sessionId === source);
+      const res: any = await forkSession(agentId, {
         sessionId: source,
         ...(info?.cwd ? { cwd: info.cwd } : {}),
       });
-      applyNewSessionResult(res);
-      resetThread();
-      setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已从 ${source.slice(0, 8)}… fork 出新会话。`, timestamp: now() }]);
-      await refreshSessions();
+      const cur = useStudioStore.getState();
+      cur.applySessionResult(res);
+      cur.resetThread();
+      cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已从 ${source.slice(0, 8)}… fork 出新会话。`, timestamp: now() }]);
+      invalidateSessions(qc, agentId);
     } catch (e: any) {
       alert(`fork 失败: ${e.message}`);
     } finally {
-      setBusy(false);
+      useStudioStore.getState().setBusy(false);
     }
   };
 
-  const handleDeleteSession = async (s: SessionItem) => {
-    if (!confirm(`删除会话 ${s.title || s.sessionId}？`)) return;
+  const handleDeleteSession = async (item: SessionItem) => {
+    if (!confirm(`删除会话 ${item.title || item.sessionId}？`)) return;
+    const st = useStudioStore.getState();
+    const agentId = st.activeAgentId;
     try {
-      await sessionRpc(activeAgentId, "delete", { sessionId: s.sessionId });
-      if (s.sessionId === sessionId) {
-        setSessionId(null);
-        resetThread();
+      await sessionRpc(agentId, "delete", { sessionId: item.sessionId });
+      const cur = useStudioStore.getState();
+      if (item.sessionId === cur.sessionId) {
+        cur.setSessionId(null);
+        cur.resetThread();
       }
-      await refreshSessions();
+      invalidateSessions(qc, agentId);
     } catch (e: any) {
       // Some agents reject delete — fall back to close (frees active resources).
       try {
-        await sessionRpc(activeAgentId, "close", { sessionId: s.sessionId });
-        if (s.sessionId === sessionId) {
-          setSessionId(null);
-          resetThread();
+        await sessionRpc(agentId, "close", { sessionId: item.sessionId });
+        const cur = useStudioStore.getState();
+        if (item.sessionId === cur.sessionId) {
+          cur.setSessionId(null);
+          cur.resetThread();
         }
-        setMessages((prev) => [...prev, { id: `sys-${Date.now()}`, role: "system", content: `该 Agent 不支持 delete，已改用 close。`, timestamp: now() }]);
-        await refreshSessions();
+        cur.appendMessage({ id: `sys-${Date.now()}`, role: "system", content: `该 Agent 不支持 delete，已改用 close。`, timestamp: now() });
+        invalidateSessions(qc, agentId);
       } catch {
-        alert(`删除失败: ${e.message}`);
+        alert(`删除失败: ${(e as Error).message}`);
       }
     }
   };
 
   /** Re-discover the model catalog via a throwaway session (closed afterwards). */
   const handleDiscoverModels = async () => {
-    if (discovering || isStreaming) return;
-    setDiscovering(true);
+    const st = useStudioStore.getState();
+    if (st.discovering || st.isStreaming) return;
+    const agentId = st.activeAgentId;
+    st.setDiscovering(true);
     try {
-      if (!activeAgent?.status?.connected) await connectAgent(activeAgentId);
-      const res: any = await sessionNew(activeAgentId, {});
+      const known = agents.find((a) => a.id === agentId)?.status?.connected;
+      if (!known) await connectAgent(agentId);
+      const res: any = await sessionNew(agentId, {});
+      const cur = useStudioStore.getState();
       if (res?.models) {
-        setModels(res.models);
-        // Adopt config/modes too when we have no session yet.
-        if (!sessionId) {
-          if (res.modes) setModes(res.modes);
-          if (res.configOptions) setConfigOptions(res.configOptions);
-          if (res.availableCommands) setAvailableCommands(res.availableCommands);
-        }
+        cur.setModels(res.models);
+        if (!cur.sessionId) cur.applySessionResult(res);
       }
-      if (res?.sessionId && res.sessionId !== sessionId) {
-        await sessionRpc(activeAgentId, "close", { sessionId: res.sessionId }).catch(() => undefined);
+      if (res?.sessionId && res.sessionId !== useStudioStore.getState().sessionId) {
+        await sessionRpc(agentId, "close", { sessionId: res.sessionId }).catch(() => undefined);
       }
-      setAuthOk((prev) => ({ ...prev, [activeAgentId]: true }));
+      cur.setAuthOk(agentId, true);
     } catch (e: any) {
       alert(`发现模型失败: ${e.message}`);
     } finally {
-      setDiscovering(false);
+      useStudioStore.getState().setDiscovering(false);
     }
   };
 
   /** Fallback model switch for agents without a model config option. */
   const handleFallbackModel = async (modelId: string) => {
-    const modelOpt = findConfigOption(configOptions, "model");
+    const st = useStudioStore.getState();
+    const modelOpt = findConfigOption(st.configOptions, "model");
     if (modelOpt) {
       await setSessionConfig(modelOpt.id, parseModelId(modelId).model);
       return;
     }
-    const sid = sessionId || (await ensureSession());
+    const sid = st.sessionId || (await ensureSession());
     if (!sid) return;
     try {
       // Legacy agy-style servers implement session/set_model directly.
-      await sessionRpc(activeAgentId, "set_model", { sessionId: sid, modelId });
-      if (models) setModels({ ...models, currentModelId: modelId });
+      await sessionRpc(st.activeAgentId, "set_model", { sessionId: sid, modelId });
+      const cur = useStudioStore.getState();
+      if (cur.models) cur.setModels({ ...cur.models, currentModelId: modelId });
     } catch (e: any) {
       alert(`切换模型失败: ${e.message}`);
     }
   };
+
   /** Apply a catalog modelId (e.g. "gpt-5.6-luna[xhigh]") + linked thinking level. */
   const handleApplyModel = async (modelId: string) => {
+    const st = useStudioStore.getState();
     const { model, effort } = parseModelId(modelId);
-    const modelOpt = findConfigOption(configOptions, "model");
+    const modelOpt = findConfigOption(st.configOptions, "model");
     await setSessionConfig(modelOpt?.id || "model", model);
     if (effort) {
-      const thinkOpt = findConfigOption(configOptions, "thinking");
+      const cur = useStudioStore.getState();
+      const thinkOpt = findConfigOption(cur.configOptions, "thinking");
       if (thinkOpt && (thinkOpt.options || []).some((o) => String(o.value) === effort)) {
         await setSessionConfig(thinkOpt.id, effort);
       }
     }
-    if (models) {
-      setModels({ ...models, currentModelId: modelId });
-    }
-    setModelsOpen(false);
+    const cur2 = useStudioStore.getState();
+    if (cur2.models) cur2.setModels({ ...cur2.models, currentModelId: modelId });
+    cur2.setModelsOpen(false);
   };
 
   const handleSend = async (textToSend?: string) => {
-    const prompt = (textToSend ?? input).trim();
-    if ((!prompt && attachments.length === 0) || isStreaming) return;
+    const st = useStudioStore.getState();
+    const prompt = (textToSend ?? st.input).trim();
+    if ((!prompt && st.attachments.length === 0) || st.isStreaming) return;
+    const agentId = st.activeAgentId;
     const blocks: Record<string, unknown>[] = [
-      ...attachments.map((a) => a.block),
+      ...st.attachments.map((a) => a.block),
       ...(prompt ? [{ type: "text", text: prompt }] : []),
     ];
-    const display = prompt + (attachments.length > 0 ? `\n\n[附件: ${attachments.map((a) => a.name).join(", ")}]` : "");
-    setInput("");
-    setAttachments([]);
+    const display = prompt + (st.attachments.length > 0 ? `\n\n[附件: ${st.attachments.map((a) => a.name).join(", ")}]` : "");
+    st.setInput("");
+    st.setAttachments([]);
 
     const assistantId = "asst-" + Date.now();
-    setMessages((prev) => [
-      ...prev,
-      { id: "user-" + Date.now(), role: "user", content: display, timestamp: now() },
-      { id: assistantId, role: "assistant", content: "", thought: "", plan: [], toolCalls: [], timestamp: now(), isStreaming: true },
-    ]);
-    setIsStreaming(true);
+    st.appendMessage({ id: "user-" + Date.now(), role: "user", content: display, timestamp: now() });
+    st.appendMessage({ id: assistantId, role: "assistant", content: "", thought: "", plan: [], toolCalls: [], timestamp: now(), isStreaming: true });
+    st.setStreaming(true);
     abortRef.current = new AbortController();
 
     try {
-      if (!activeAgent?.status?.connected) await connectAgent(activeAgentId);
+      const known = agents.find((a) => a.id === agentId)?.status?.connected;
+      if (!known) await connectAgent(agentId);
       // Always chat on a known session so model/thinking/permission state
       // stays in sync (backend auto-create would leave config unknown).
-      let sid = sessionId;
+      let sid = useStudioStore.getState().sessionId;
       if (!sid) {
-        sid = await ensureSession();
+        sid = await ensureSession(agentId);
         if (!sid) throw new Error("无法创建会话");
       }
+      const cur = useStudioStore.getState();
       await consumeUniversalChat(
-        { agentId: activeAgentId, sessionId: sid, prompt: blocks },
+        { agentId, sessionId: sid, prompt: blocks },
         {
-          onSessionId: (sid) => setSessionId(sid),
+          onSessionId: (id) => cur.setSessionId(id),
           onTextChunk: (chunk) =>
-            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + chunk } : m))),
+            cur.patchMessage(assistantId, (m) => ({ ...m, content: m.content + chunk })),
           onThoughtChunk: (chunk) =>
-            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, thought: (m.thought || "") + chunk } : m))),
+            cur.patchMessage(assistantId, (m) => ({ ...m, thought: (m.thought || "") + chunk })),
           onToolCall: (c) =>
-            setMessages((prev) =>
-              prev.map((m) => (m.id === assistantId ? { ...m, toolCalls: [...(m.toolCalls || []), c] } : m))
-            ),
+            cur.patchMessage(assistantId, (m) => ({ ...m, toolCalls: [...(m.toolCalls || []), c] })),
           onToolCallUpdate: (c) =>
-            setMessages((prev) =>
-              prev.map((m) => {
-                if (m.id !== assistantId) return m;
-                const calls = [...(m.toolCalls || [])];
-                const i = calls.findIndex((x) => x.id === c.id);
-                if (i >= 0) calls[i] = { ...calls[i], ...c, title: c.title || calls[i].title };
-                else calls.push(c);
-                return { ...m, toolCalls: calls };
-              })
-            ),
-          onPlan: (entries) =>
-            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, plan: entries } : m))),
-          onAvailableCommands: (cmds) => setAvailableCommands(cmds),
-          onModeUpdate: (modeId) => setModes((prev) => (prev ? { ...prev, currentModeId: modeId } : prev)),
-          onConfigUpdate: (opt) =>
-            setConfigOptions((prev) => {
-              if (!prev) return [opt];
-              const i = prev.findIndex((x) => x.id === opt.id);
-              if (i >= 0) {
-                const next = [...prev];
-                next[i] = opt;
-                return next;
-              }
-              return [...prev, opt];
+            cur.patchMessage(assistantId, (m) => {
+              const calls = [...(m.toolCalls || [])];
+              const i = calls.findIndex((x) => x.id === c.id);
+              if (i >= 0) calls[i] = { ...calls[i], ...c, title: c.title || calls[i].title };
+              else calls.push(c);
+              return { ...m, toolCalls: calls };
             }),
-          onSessionInfo: (info) => setSessionInfo(info),
+          onPlan: (entries) => cur.patchMessage(assistantId, { plan: entries }),
+          onAvailableCommands: (cmds) => cur.setAvailableCommands(cmds),
+          onModeUpdate: (modeId) => {
+            const modes = useStudioStore.getState().modes;
+            if (modes) useStudioStore.getState().setModes({ ...modes, currentModeId: modeId });
+          },
+          onConfigUpdate: (opt) => useStudioStore.getState().patchConfigOption(opt),
+          onSessionInfo: (info) => useStudioStore.getState().setSessionInfo(info),
           onUsage: (u) => {
-            setUsage(u);
-            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, usage: u } : m)));
+            const c2 = useStudioStore.getState();
+            c2.setUsage(u);
+            c2.patchMessage(assistantId, { usage: u });
           },
           onActivity: (a) => appendActivity(a),
-          onPermissionRequest: (p) => setPendingPerms((prev) => [...prev, p]),
-          onElicitationRequest: (e) => setPendingElic((prev) => [...prev, e]),
-          onDone: () => {
-            setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false } : m)));
-          },
+          onPermissionRequest: (p) => useStudioStore.getState().addPermission(p),
+          onElicitationRequest: (e) => useStudioStore.getState().addElicitation(e),
+          onDone: () => useStudioStore.getState().patchMessage(assistantId, { isStreaming: false }),
           onError: (err) => {
+            const c2 = useStudioStore.getState();
             if (/auth/i.test(err.message)) {
-              setAuthOk((prev) => ({ ...prev, [activeAgentId]: false }));
-              setAuthOpen(true);
+              c2.setAuthOk(agentId, false);
+              c2.setAuthOpen(true);
             }
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, content: m.content + `\n\n> ❌ [${activeAgentId}] ${err.message}`, isStreaming: false } : m
-              )
-            );
+            c2.patchMessage(assistantId, {
+              content: c2.messages.find((m) => m.id === assistantId)?.content + `\n\n> ❌ [${agentId}] ${err.message}`,
+              isStreaming: false,
+            });
           },
         },
         abortRef.current.signal
       );
-      setAuthOk((prev) => ({ ...prev, [activeAgentId]: true }));
-      await refreshAgents();
-      await refreshSessions();
+      const done = useStudioStore.getState();
+      done.setAuthOk(agentId, true);
+      invalidateAgents(qc);
+      invalidateSessions(qc, agentId);
     } catch (e: any) {
       if (e?.name !== "AbortError") {
+        const c2 = useStudioStore.getState();
         if (/auth/i.test(String(e?.message || ""))) {
-          setAuthOk((prev) => ({ ...prev, [activeAgentId]: false }));
-          setAuthOpen(true);
+          c2.setAuthOk(agentId, false);
+          c2.setAuthOpen(true);
         }
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId ? { ...m, content: m.content + `\n\n> ❌ [连接异常] ${e.message}`, isStreaming: false } : m
-          )
-        );
+        const prev = c2.messages.find((m) => m.id === assistantId)?.content || "";
+        c2.patchMessage(assistantId, { content: prev + `\n\n> ❌ [连接异常] ${e.message}`, isStreaming: false });
       }
     } finally {
-      setIsStreaming(false);
-      setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false } : m)));
+      const c2 = useStudioStore.getState();
+      c2.setStreaming(false);
+      c2.patchMessage(assistantId, { isStreaming: false });
     }
   };
 
   const handleStop = async () => {
     abortRef.current?.abort();
-    if (sessionId) {
+    const st = useStudioStore.getState();
+    if (st.sessionId) {
       try {
-        await sessionRpc(activeAgentId, "cancel", { sessionId });
+        await sessionRpc(st.activeAgentId, "cancel", { sessionId: st.sessionId });
       } catch {
         // ignore
       }
     }
-    setIsStreaming(false);
-    setMessages((prev) => prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)));
+    const cur = useStudioStore.getState();
+    cur.setStreaming(false);
+    cur.setMessages(cur.messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)));
   };
 
   const handlePermRespond = async (p: PendingPermission, optionId: string | null) => {
-    setRespondingId(p.permissionId);
+    const st = useStudioStore.getState();
+    st.setRespondingId(p.permissionId);
     try {
       await respondPermission(p.agentId, p.permissionId, optionId ? { outcome: "selected", optionId } : { outcome: "cancelled" });
-      setPendingPerms((prev) => prev.filter((x) => x.permissionId !== p.permissionId));
+      useStudioStore.getState().removePermission(p.permissionId);
     } catch (e: any) {
       alert(`permission respond 失败: ${e.message}`);
     } finally {
-      setRespondingId(null);
+      useStudioStore.getState().setRespondingId(null);
     }
   };
 
   const handleElicRespond = async (e: PendingElicitation, accept: boolean, payload?: unknown) => {
-    setRespondingId(e.elicitationId);
+    const st = useStudioStore.getState();
+    st.setRespondingId(e.elicitationId);
     try {
       const result = accept ? { action: "accept", content: payload ?? {} } : { action: "decline" };
       await respondElicitation(e.agentId, e.elicitationId, result);
-      setPendingElic((prev) => prev.filter((x) => x.elicitationId !== e.elicitationId));
+      useStudioStore.getState().removeElicitation(e.elicitationId);
     } catch (err: any) {
       alert(`elicitation respond 失败: ${err.message}`);
     } finally {
-      setRespondingId(null);
+      useStudioStore.getState().setRespondingId(null);
     }
   };
 
@@ -640,22 +567,22 @@ export default function App() {
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden select-text">
       <Sidebar
         agents={agents}
-        activeAgentId={activeAgentId}
+        activeAgentId={s.activeAgentId}
         onSelectAgent={handleSelectAgent}
         onConnectAgent={handleConnect}
-        connectingId={connectingId}
-        authOk={authOk}
+        connectingId={s.connectingId}
+        authOk={s.authOk}
         sessions={sessions}
-        sessionsLoading={sessionsLoading}
-        activeSessionId={sessionId}
-        onRefreshSessions={() => refreshSessions()}
-        onNewSession={() => setSettingsOpen(true)}
+        sessionsLoading={sessionsQuery.isFetching}
+        activeSessionId={s.sessionId}
+        onRefreshSessions={() => invalidateSessions(qc, s.activeAgentId)}
+        onNewSession={() => s.setSettingsOpen(true)}
         onOpenSession={handleOpenSession}
-        onForkSession={(s) => handleForkSession(s.sessionId)}
+        onForkSession={(item) => handleForkSession(item.sessionId)}
         onDeleteSession={handleDeleteSession}
         supportsFork={supportsFork}
         supportsList={supportsList}
-        onOpenProviders={() => setProvidersOpen(true)}
+        onOpenProviders={() => s.setProvidersOpen(true)}
         supportsProviders={supportsProviders}
       />
 
@@ -664,157 +591,160 @@ export default function App() {
           <div>
             <h1 className="font-bold text-sm">ACP Studio <span className="text-primary">Universal</span></h1>
             <p className="text-[10px] text-muted-foreground font-mono">
-              {activeAgent?.title || activeAgentId} · ACP v{activeAgent?.status?.protocolVersion ?? "?"}
-              {sessionId ? ` · ${sessionId.slice(0, 13)}…` : " · 无会话"}
+              {activeAgent?.title || s.activeAgentId} · ACP v{activeAgent?.status?.protocolVersion ?? "?"}
+              {s.sessionId ? ` · ${s.sessionId.slice(0, 13)}…` : " · 无会话"}
             </p>
           </div>
           <div className="flex-1" />
-          <button onClick={() => setSettingsOpen(true)} disabled={isStreaming || busy} className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40">新会话</button>
-          <button onClick={() => !isStreaming && setMessages([])} disabled={isStreaming} className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40">清空</button>
+          <button onClick={() => s.setSettingsOpen(true)} disabled={s.isStreaming || s.busy} className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40">新会话</button>
+          <button onClick={() => !s.isStreaming && s.setMessages([])} disabled={s.isStreaming} className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40">清空</button>
         </div>
 
         <AgentBar
           agents={agents}
-          activeAgentId={activeAgentId}
+          activeAgentId={s.activeAgentId}
           onSelect={handleSelectAgent}
           onConnect={() => handleConnect()}
-          connecting={connectingId === activeAgentId}
-          onOpenAuth={() => setAuthOpen(true)}
+          connecting={s.connectingId === s.activeAgentId}
+          onOpenAuth={() => s.setAuthOpen(true)}
           onLogout={async () => {
             try {
-              await logoutAgent(activeAgentId);
-              await refreshAgents();
+              await logoutAgent(s.activeAgentId);
+              invalidateAgents(qc);
             } catch (e: any) {
               alert(`logout 失败: ${e.message}`);
             }
           }}
-          authOk={authOk[activeAgentId] ?? null}
+          authOk={s.authOk[s.activeAgentId] ?? null}
         />
 
         <SessionControls
-          sessionId={sessionId}
-          modes={modes}
-          configOptions={configOptions}
-          availableCommands={availableCommands}
-          usage={usage}
-          sessionInfo={sessionInfo}
+          sessionId={s.sessionId}
+          modes={s.modes}
+          configOptions={s.configOptions}
+          availableCommands={s.availableCommands}
+          usage={s.usage}
+          sessionInfo={s.sessionInfo}
           capabilities={activeAgent?.status?.agentCapabilities}
-          onNewSession={() => setSettingsOpen(true)}
+          onNewSession={() => s.setSettingsOpen(true)}
           onCloseSession={async () => {
-            if (!sessionId) return;
-            await sessionRpc(activeAgentId, "close", { sessionId }).catch((e: any) => alert(e.message));
-            setSessionId(null);
-            await refreshSessions();
+            const cur = useStudioStore.getState();
+            if (!cur.sessionId) return;
+            await sessionRpc(cur.activeAgentId, "close", { sessionId: cur.sessionId }).catch((e: any) => alert(e.message));
+            cur.setSessionId(null);
+            invalidateSessions(qc, cur.activeAgentId);
           }}
           onDeleteSession={async () => {
-            if (!sessionId) return;
-            if (!confirm(`删除会话 ${sessionId}？`)) return;
-            await sessionRpc(activeAgentId, "delete", { sessionId }).catch((e: any) => alert(e.message));
-            setSessionId(null);
-            resetThread();
-            await refreshSessions();
+            const cur = useStudioStore.getState();
+            if (!cur.sessionId) return;
+            if (!confirm(`删除会话 ${cur.sessionId}？`)) return;
+            await sessionRpc(cur.activeAgentId, "delete", { sessionId: cur.sessionId }).catch((e: any) => alert(e.message));
+            cur.setSessionId(null);
+            cur.resetThread();
+            invalidateSessions(qc, cur.activeAgentId);
           }}
           onListSessions={async () => {
-            await refreshSessions();
+            invalidateSessions(qc, useStudioStore.getState().activeAgentId);
           }}
           onSetMode={async (modeId) => {
-            if (!sessionId) return;
+            const cur = useStudioStore.getState();
+            if (!cur.sessionId) return;
             try {
-              await sessionRpc(activeAgentId, "set_mode", { sessionId, modeId });
-              setModes((prev) => (prev ? { ...prev, currentModeId: modeId } : prev));
+              await sessionRpc(cur.activeAgentId, "set_mode", { sessionId: cur.sessionId, modeId });
+              if (cur.modes) cur.setModes({ ...cur.modes, currentModeId: modeId });
             } catch (e: any) {
               alert(`set_mode 失败: ${e.message}`);
             }
           }}
           onSetConfig={(configId, value) => setSessionConfig(configId, value)}
-          onInsertCommand={(cmd) => setInput((prev) => (prev ? prev + " " + cmd : cmd))}
+          onInsertCommand={(cmd) => useStudioStore.getState().setInput(`${useStudioStore.getState().input ? useStudioStore.getState().input + " " : ""}${cmd}`)}
           onForkSession={() => handleForkSession()}
-          onOpenProviders={() => setProvidersOpen(true)}
+          onOpenProviders={() => s.setProvidersOpen(true)}
           supportsFork={supportsFork}
           supportsProviders={supportsProviders}
-          busy={busy || isStreaming}
+          busy={s.busy || s.isStreaming}
         />
 
-        <PermissionDialog pending={pendingPerms.filter((p) => !sessionId || p.sessionId === sessionId)} onRespond={handlePermRespond} respondingId={respondingId} />
+        <PermissionDialog pending={s.pendingPerms.filter((p) => !s.sessionId || p.sessionId === s.sessionId)} onRespond={handlePermRespond} respondingId={s.respondingId} />
 
-        {pendingElic.length > 0 && (
+        {s.pendingElic.length > 0 && (
           <div className="px-4 pt-2 space-y-2 max-h-64 overflow-y-auto shrink-0">
-            {pendingElic.map((e) => (
-              <ElicitationCard key={e.elicitationId} e={e} onRespond={handleElicRespond} busy={respondingId === e.elicitationId} />
+            {s.pendingElic.map((e) => (
+              <ElicitationCard key={e.elicitationId} e={e} onRespond={handleElicRespond} busy={s.respondingId === e.elicitationId} />
             ))}
           </div>
         )}
 
         <ChatArea
-          messages={messages}
-          isStreaming={isStreaming}
-          selectedModel={activeAgent?.title || activeAgentId}
-          selectedMode={modes?.currentModeId || ""}
+          messages={s.messages}
+          isStreaming={s.isStreaming}
+          selectedModel={activeAgent?.title || s.activeAgentId}
+          selectedMode={s.modes?.currentModeId || ""}
           onSelectSuggestion={(p) => handleSend(p)}
           agentName={activeAgent?.title || activeAgent?.name || "Agent"}
         />
 
         <UniversalComposer
-          input={input}
-          setInput={setInput}
+          input={s.input}
+          setInput={(v) => s.setInput(v)}
           onSend={(t) => handleSend(t)}
           onStop={handleStop}
-          onClear={() => !isStreaming && setMessages([])}
-          isStreaming={isStreaming}
-          commands={availableCommands}
+          onClear={() => !s.isStreaming && s.setMessages([])}
+          isStreaming={s.isStreaming}
+          commands={s.availableCommands}
           supportImage={supportImage}
-          attachments={attachments}
-          setAttachments={setAttachments}
-          agentTitle={activeAgent?.title || activeAgentId}
-          configOptions={configOptions}
+          attachments={s.attachments}
+          setAttachments={(a) => s.setAttachments(a)}
+          agentTitle={activeAgent?.title || s.activeAgentId}
+          configOptions={s.configOptions}
           onSetConfig={(configId, value) => setSessionConfig(configId, value)}
-          onBrowseModels={() => setModelsOpen(true)}
-          hasModelCatalog={!!models}
-          connected={!!activeAgent?.status?.connected}
-          fallbackModels={models?.availableModels || null}
-          fallbackCurrentModel={models?.currentModelId || ""}
+          onBrowseModels={() => s.setModelsOpen(true)}
+          hasModelCatalog={!!s.models}
+          connected={connected}
+          fallbackModels={s.models?.availableModels || null}
+          fallbackCurrentModel={s.models?.currentModelId || ""}
           onFallbackModel={handleFallbackModel}
           onEnsureSession={() => ensureSession()}
         />
       </div>
 
       <UniversalAuthModal
-        isOpen={authOpen}
-        onClose={() => setAuthOpen(false)}
+        isOpen={s.authOpen}
+        onClose={() => s.setAuthOpen(false)}
         agent={activeAgent}
         onAuthenticated={async () => {
-          await refreshAgents();
-          await probeAuth(activeAgentId);
+          invalidateAgents(qc);
+          await probeAuth(useStudioStore.getState().activeAgentId);
         }}
         onLogout={async () => {
           try {
-            await logoutAgent(activeAgentId);
-            await refreshAgents();
+            await logoutAgent(s.activeAgentId);
+            invalidateAgents(qc);
           } catch (e: any) {
             alert(`logout 失败: ${e.message}`);
           }
         }}
-        authOk={authOk[activeAgentId] ?? null}
+        authOk={s.authOk[s.activeAgentId] ?? null}
       />
 
       <SessionSettingsModal
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        isOpen={s.settingsOpen}
+        onClose={() => s.setSettingsOpen(false)}
         onCreate={handleCreateSession}
-        busy={busy}
+        busy={s.busy}
         supportsAdditionalDirs={supportsAdditionalDirs}
         supportsMcpHttp={!!mcpCaps.http}
       />
 
-      <ProvidersModal isOpen={providersOpen} onClose={() => setProvidersOpen(false)} agentId={activeAgentId} />
+      <ProvidersModal isOpen={s.providersOpen} onClose={() => s.setProvidersOpen(false)} agentId={s.activeAgentId} />
 
       <ModelBrowserModal
-        isOpen={modelsOpen}
-        onClose={() => setModelsOpen(false)}
-        catalog={models}
-        modelOption={findConfigOption(configOptions, "model")}
-        currentModelId={models?.currentModelId}
-        discovering={discovering}
+        isOpen={s.modelsOpen}
+        onClose={() => s.setModelsOpen(false)}
+        catalog={s.models}
+        modelOption={findConfigOption(s.configOptions, "model")}
+        currentModelId={s.models?.currentModelId}
+        discovering={s.discovering}
         onRefresh={handleDiscoverModels}
         onApply={handleApplyModel}
       />

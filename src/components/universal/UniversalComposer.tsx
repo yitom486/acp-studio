@@ -1,17 +1,9 @@
 import React, { useRef, useEffect, useState } from "react";
 import { Send, Square, Trash2, Paperclip, ImagePlus, X, Command, Cpu, Brain, ShieldCheck, LayoutGrid } from "lucide-react";
 import { Button } from "../ui/button";
-import { configCurrentValue, findConfigOption, type ConfigOptionLike, type ModelCatalogEntry } from "../../lib/universal-api";
+import { configCurrentValue, findConfigOption, type Attachment, type ConfigOptionLike, type ModelCatalogEntry } from "../../lib/universal-api";
 
-export interface Attachment {
-  id: string;
-  name: string;
-  mimeType: string;
-  size: number;
-  block: Record<string, unknown>;
-  /** Local object URL for image thumbnails (not sent). */
-  preview?: string;
-}
+export type { Attachment };
 
 export interface UniversalComposerProps {
   input: string;

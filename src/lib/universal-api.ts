@@ -99,6 +99,17 @@ export interface ModelCatalog {
   currentModelId?: string;
 }
 
+/** A file/image staged in the composer, converted to ACP content blocks on send. */
+export interface Attachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  block: Record<string, unknown>;
+  /** Local object URL for image thumbnails (not sent). */
+  preview?: string;
+}
+
 export interface ActivityEvent {
   kind: string;
   detail?: any;
