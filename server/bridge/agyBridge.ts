@@ -83,10 +83,27 @@ function setupEnvironment() {
 
 setupEnvironment();
 
+export const DEFAULT_AGY_MODELS_CATALOG: ModelOption[] = [
+  { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", description: "Default high-speed reasoning" },
+  { id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", description: "Balanced performance & speed" },
+  { id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)", description: "Ultra-fast low-latency" },
+  { id: "gemini-3.7-flash-high", name: "Gemini 3.7 Flash (High)", description: "Google Gemini 3.7 Flash High" },
+  { id: "gemini-3.7-flash-medium", name: "Gemini 3.7 Flash (Medium)", description: "Google Gemini 3.7 Flash Medium" },
+  { id: "gemini-3.7-flash-low", name: "Gemini 3.7 Flash (Low)", description: "Google Gemini 3.7 Flash Low" },
+  { id: "gemini-3.6-flash-high", name: "Gemini 3.6 Flash (High)", description: "Google Gemini 3.6 Flash High" },
+  { id: "gemini-3.6-flash-medium", name: "Gemini 3.6 Flash (Medium)", description: "Google Gemini 3.6 Flash Medium" },
+  { id: "gemini-3.6-flash-low", name: "Gemini 3.6 Flash (Low)", description: "Google Gemini 3.6 Flash Low" },
+  { id: "gemini-3.1-pro-high", name: "Gemini 3.1 Pro (High)", description: "Google Gemini 3.1 Pro High" },
+  { id: "gemini-3.1-pro-low", name: "Gemini 3.1 Pro (Low)", description: "Google Gemini 3.1 Pro Low" },
+  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Thinking)", description: "Anthropic Claude 4.6 Sonnet" },
+  { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)", description: "Anthropic Claude 4.6 Opus" },
+  { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)", description: "Open-source 120B model" },
+];
+
 export class AgyAcpBridge {
   private mode: BridgeMode;
   private service: AgyAcpService | null = null;
-  private cachedModels: ModelOption[] = [];
+  private cachedModels: ModelOption[] = [...DEFAULT_AGY_MODELS_CATALOG];
   private currentModelId = "gemini-3.8-flash-high";
   private workingDir: string;
   private sessionModels = new Map<string, string>();
@@ -160,7 +177,8 @@ export class AgyAcpBridge {
       if (catalog.availableModels && catalog.availableModels.length > 0) {
         this.cachedModels = catalog.availableModels.map((m) => {
           if (typeof m === "string") {
-            return { id: m, name: m };
+            const found = DEFAULT_AGY_MODELS_CATALOG.find((x) => x.id === m);
+            return found || { id: m, name: m };
           }
           return { id: (m as any).id, name: (m as any).name || (m as any).id };
         });
@@ -170,16 +188,7 @@ export class AgyAcpBridge {
     }
 
     if (this.cachedModels.length === 0) {
-      this.cachedModels = [
-        { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" },
-        { id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)" },
-        { id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" },
-        { id: "gemini-3.7-flash-high", name: "Gemini 3.7 Flash (High)" },
-        { id: "gemini-3.6-flash-high", name: "Gemini 3.6 Flash (High)" },
-        { id: "gemini-3.1-pro-high", name: "Gemini 3.1 Pro (High)" },
-        { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Thinking)" },
-        { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)" },
-      ];
+      this.cachedModels = [...DEFAULT_AGY_MODELS_CATALOG];
     }
 
     if (!this.cachedModels.some((m) => m.id === this.currentModelId)) {
