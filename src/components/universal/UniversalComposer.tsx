@@ -218,14 +218,13 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
   const showSelectors = !!(modelOpt || thinkOpt || permOpt) && !!p.onSetConfig;
 
   const renderSelect = (opt: ConfigOptionLike, icon: React.ReactNode, label: string) => (
-    <label key={opt.id} className="flex items-center gap-1 text-[11px] text-slate-400" title={opt.description || opt.name}>
+    <label key={opt.id} className="flex items-center gap-1 text-xs text-slate-300" title={opt.description || opt.name}>
       {icon}
-      <span className="hidden lg:inline">{label}</span>
       <select
         value={curVal(opt)}
         disabled={p.isStreaming}
         onChange={(e) => p.onSetConfig?.(opt.id, e.target.value)}
-        className="bg-slate-800/80 border border-slate-700 rounded-lg px-1.5 py-1 text-[11px] text-slate-200 outline-none max-w-[150px] disabled:opacity-50"
+        className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-slate-200 outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-slate-800/80"
       >
         {(opt.options || []).map((o) => (
           <option key={String(o.value)} value={String(o.value)} className="bg-slate-900" title={o.description}>
@@ -279,13 +278,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
               松开以添加文件 / 图片附件
             </div>
           )}
-          {showSelectors && (
-            <div className="flex items-center gap-3 px-4 pt-2.5 flex-wrap">
-              {modelOpt && renderSelect(modelOpt, <Cpu className="w-3.5 h-3.5 text-indigo-400" />, "模型")}
-              {thinkOpt && renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-purple-400" />, "思考")}
-              {permOpt && renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />, "权限")}
-            </div>
-          )}
           {slashOpen && (
             <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-slate-700 bg-slate-950/95 shadow-xl overflow-hidden z-20">
               {filtered.slice(0, 8).map((c, i) => (
@@ -311,11 +303,12 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
             placeholder={
               p.isStreaming
                 ? `${p.agentTitle} 正在响应中…可继续编辑，结束后发送`
-                : `输入需求，可拖拽/粘贴图片文件，用 / 唤起斜杠命令（${p.agentTitle}）…`
+                : `随便问点什么，/ 可查看命令，拖拽/粘贴可添加图片文件…`
             }
             className="w-full resize-none bg-transparent px-4 py-3.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none max-h-48 min-h-[48px]"
           />
-          <div className="flex items-center justify-between px-3.5 pb-2.5 pt-1 text-xs">
+          {/* Bottom toolbar: [+] model / thinking / permission ... send */}
+          <div className="flex items-center gap-1.5 px-3.5 pb-2.5 pt-1 text-xs">
             <div className="flex items-center gap-1">
               <input
                 ref={fileRef}
@@ -329,12 +322,22 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 title={p.supportImage ? "附加文件或图片（可拖拽 / 粘贴）" : "附加文本文件（该 Agent 不支持图片输入）"}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition-colors"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition-colors text-lg leading-none"
               >
-                <Paperclip className="w-4 h-4" />
+                +
               </button>
-              <span className="font-mono text-[11px] text-slate-500 hidden sm:inline">Enter 发送 · Shift+Enter 换行 · / 命令联想</span>
             </div>
+            {showSelectors && (
+              <>
+                {modelOpt && renderSelect(modelOpt, <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />, "模型")}
+                {thinkOpt && renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />, "思考")}
+                {permOpt && renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />, "权限")}
+              </>
+            )}
+            {!showSelectors && (
+              <span className="font-mono text-[11px] text-slate-600 hidden sm:inline">Enter 发送 · Shift+Enter 换行 · / 命令联想</span>
+            )}
+            <div className="flex-1" />
             <div className="flex items-center gap-2">
               <button
                 type="button"

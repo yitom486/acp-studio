@@ -51,7 +51,7 @@ export const SessionControls: React.FC<SessionControlsProps> = (p) => {
         <Button size="sm" variant="outline" onClick={p.onDeleteSession} disabled={p.busy || !p.sessionId} className="h-6 text-[11px] gap-1 text-rose-300"><Trash2 className="w-3 h-3" />delete</Button>
       </div>
 
-      {(p.modes?.availableModes?.length || p.configOptions?.length || p.availableCommands?.length) && (
+      {((p.modes?.availableModes?.length || 0) > 0 || (p.configOptions?.length || 0) > 0 || (p.availableCommands?.length || 0) > 0) && (
         <div className="flex items-start gap-4 flex-wrap">
           {p.modes?.availableModes && p.modes.availableModes.length > 0 && (
             <div className="flex items-center gap-1.5">

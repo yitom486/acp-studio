@@ -167,6 +167,11 @@ export default function App() {
       await refreshAgents();
       await probeAuth(id);
       await refreshSessions(id);
+      // Auto-create a session so model/thinking/permission selectors
+      // (which come from session configOptions) show up immediately.
+      if (id === activeAgentId && !sessionId) {
+        await ensureSession();
+      }
     } catch (e: any) {
       alert(`连接 ${id} 失败: ${e.message}`);
     } finally {
@@ -407,8 +412,15 @@ export default function App() {
 
     try {
       if (!activeAgent?.status?.connected) await connectAgent(activeAgentId);
+      // Always chat on a known session so model/thinking/permission state
+      // stays in sync (backend auto-create would leave config unknown).
+      let sid = sessionId;
+      if (!sid) {
+        sid = await ensureSession();
+        if (!sid) throw new Error("无法创建会话");
+      }
       await consumeUniversalChat(
-        { agentId: activeAgentId, sessionId: sessionId || undefined, prompt: blocks },
+        { agentId: activeAgentId, sessionId: sid, prompt: blocks },
         {
           onSessionId: (sid) => setSessionId(sid),
           onTextChunk: (chunk) =>
