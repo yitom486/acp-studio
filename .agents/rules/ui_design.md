@@ -38,7 +38,9 @@
      keyframes，一并登记进 `tailwind.config.js`），禁止自创动画组件。
      前置依赖 `framer-motion` 已安装。
 2. **现有库存（复用优先，新需求先查这里）**：
-   `ui/`：button badge card input skeleton；
+   `ui/`：button badge card input skeleton（全部为 CLI 官方版；
+   唯一特批扩展是 badge 的 `success`/`warning` 变体，token 实现，
+   见该文件注释）；
    `magicui/`：blur-fade animated-shiny-text。
 3. **禁止事项**：禁止新建 `ui/*`、`magicui/*` 之外的通用基础组件；
    禁止在业务组件（`universal/*`、`ChatArea` 等）里手写 keyframes、
