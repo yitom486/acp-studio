@@ -25,12 +25,25 @@
    rg --glob '*.tsx' '-(slate|indigo|purple|pink|emerald|amber|rose|sky|violet|fuchsia|cyan|teal|lime|orange|red|green|yellow|zinc|neutral|stone|gray)-\d|text-white|bg-white|border-white|text-black|bg-black|#[0-9a-fA-F]{3,6}\b' src
    ```
 
-## 三、组件优先：shadcn / Magic UI，而不是手写 tailwind 动画
+## 三、组件来源铁律：只用 shadcn / Magic UI 官方组件，禁止手写组件
 
-1. 基础组件只用 `src/components/ui/`（shadcn 模式：button badge card input skeleton）。
-2. 动效只用 `src/components/magicui/`（BlurFade、AnimatedShinyText 等）与 framer-motion，
-   禁止在业务组件里手写 keyframes / 渐变动画。
-3. 新增动效需求先复用现有组件，确需新增时按官方实现原样移植到对应目录。
+1. **本项目已正规引入两套组件库**（不再是手抄）：
+   - shadcn：根目录 `components.json` 已配置（new-york 风格，`@/components/ui`），
+     新增基础组件必须走 CLI：`bunx shadcn@latest add <name> -y`，
+     装完如含字面调色板需按第二条改写为变量（以 `skeleton` 为例，官方版
+     `bg-primary/10` 本就是变量，直接合规）。
+   - Magic UI：无 npm 包，官方分发即复制源码。本项目 `src/components/magicui/`
+     即官方登记位：`blur-fade`、`animated-shiny-text` 均为官网实现原样移植；
+     新增动效必须从 magicui.design 按官方文档复制（含其要求的 tailwind
+     keyframes，一并登记进 `tailwind.config.js`），禁止自创动画组件。
+     前置依赖 `framer-motion` 已安装。
+2. **现有库存（复用优先，新需求先查这里）**：
+   `ui/`：button badge card input skeleton；
+   `magicui/`：blur-fade animated-shiny-text。
+3. **禁止事项**：禁止新建 `ui/*`、`magicui/*` 之外的通用基础组件；
+   禁止在业务组件（`universal/*`、`ChatArea` 等）里手写 keyframes、
+   渐变动画、骨架屏、微光文字——一律用第 2 条库存；业务组件只做
+   “拼装 + 传参”，不许自带视觉样式发明。
 
 ## 四、聊天内容必须富文本渲染
 

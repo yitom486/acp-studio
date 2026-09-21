@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { createElement as h } from "react";
 import { renderToString } from "react-dom/server";
 import { Skeleton } from "../../src/components/ui/skeleton";
@@ -56,5 +58,17 @@ describe("motion primitives (shadcn + magic ui)", () => {
   it("ErrorBoundary renders children when healthy", () => {
     const html = renderToString(h(ErrorBoundary, null, h("span", null, "healthy")));
     expect(html).toContain("healthy");
+  });
+
+  it("shadcn channel is properly introduced (components.json matches repo layout)", () => {
+    const root = process.cwd();
+    const cfg = JSON.parse(fs.readFileSync(path.join(root, "components.json"), "utf8"));
+    expect(cfg.tsx).toBe(true);
+    expect(cfg.aliases["ui"]).toBe("@/components/ui");
+    expect(cfg.aliases["utils"]).toBe("@/lib/utils");
+    // configured paths must actually exist
+    expect(fs.existsSync(path.join(root, cfg.tailwind.css))).toBe(true);
+    expect(fs.existsSync(path.join(root, "src/components/ui"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "src/components/magicui"))).toBe(true);
   });
 });
