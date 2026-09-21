@@ -1,10 +1,30 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { AgentProfile, AgentStatus } from "./types";
-import { BUILTIN_AGENTS, loadExtraProfilesFromEnv, resolveBuiltin } from "./presets";
+import { BUILTIN_AGENTS, loadExtraProfilesFromEnv, resolveBuiltin, parseProfilesJson } from "./presets";
 import { UniversalAgentConnection } from "./AgentConnection";
+
+/** User custom profiles live here (override with ACP_AGENTS_FILE). */
+export function customAgentsFile(): string {
+  return process.env.ACP_AGENTS_FILE || path.join(os.homedir(), ".acp-studio", "agents.json");
+}
+
+function loadCustomProfilesFromFile(): AgentProfile[] {
+  try {
+    const file = customAgentsFile();
+    if (!fs.existsSync(file)) return [];
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    return parseProfilesJson(raw);
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Registry of agent profiles + live stdio connections.
  * One connection per agent id (shared across sessions, like Zed).
+ * Sources (later wins): builtins → ACP_AGENTS_JSON env → ~/.acp-studio/agents.json.
  */
 export class UniversalRegistry {
   private profiles = new Map<string, AgentProfile>();
@@ -13,6 +33,16 @@ export class UniversalRegistry {
   constructor() {
     for (const p of BUILTIN_AGENTS) this.profiles.set(p.id, { ...p });
     for (const p of loadExtraProfilesFromEnv()) this.profiles.set(p.id, p);
+    for (const p of loadCustomProfilesFromFile()) this.profiles.set(p.id, { ...p, builtin: false });
+  }
+
+  /** Re-read env + file customs (tests / external edits). Drops in-memory customs. */
+  reloadCustomProfiles(): void {
+    for (const [id, p] of this.profiles) {
+      if (!p.builtin) this.profiles.delete(id);
+    }
+    for (const p of loadExtraProfilesFromEnv()) this.profiles.set(p.id, p);
+    for (const p of loadCustomProfilesFromFile()) this.profiles.set(p.id, { ...p, builtin: false });
   }
 
   listProfiles(): AgentProfile[] {
@@ -22,6 +52,17 @@ export class UniversalRegistry {
   /** full profile incl. env for internal use only */
   getProfile(id: string): AgentProfile | undefined {
     return this.profiles.get(id);
+  }
+
+  private saveCustomProfiles(): void {
+    try {
+      const customs = [...this.profiles.values()].filter((p) => !p.builtin);
+      const file = customAgentsFile();
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(customs, null, 2));
+    } catch {
+      // persistence is best-effort; in-memory registry keeps working
+    }
   }
 
   upsertProfile(p: AgentProfile): AgentProfile {
@@ -37,9 +78,18 @@ export class UniversalRegistry {
       args: p.args || [],
       env: p.env || {},
       defaultCwd: p.defaultCwd ?? prev?.defaultCwd,
+      authHint: p.authHint ?? prev?.authHint,
+      installHint: p.installHint ?? prev?.installHint,
       builtin: prev?.builtin ?? false,
     };
     this.profiles.set(p.id, merged);
+    // Drop a stale connection so the next connect() picks up the new profile.
+    const c = this.conns.get(p.id);
+    if (c) {
+      void c.disconnect().catch(() => undefined);
+      this.conns.delete(p.id);
+    }
+    this.saveCustomProfiles();
     return merged;
   }
 
@@ -47,16 +97,23 @@ export class UniversalRegistry {
     const p = this.profiles.get(id);
     if (!p || p.builtin) return false;
     this.profiles.delete(id);
+    const c = this.conns.get(id);
+    if (c) {
+      void c.disconnect().catch(() => undefined);
+      this.conns.delete(id);
+    }
+    this.saveCustomProfiles();
     return true;
   }
 
   connFor(id: string): UniversalAgentConnection {
     const profile = this.profiles.get(id);
     if (!profile) throw new Error(`Unknown agent '${id}'. Available: ${[...this.profiles.keys()].join(", ")}`);
-    // Re-resolve builtin command each time (handles bun/npx path drift)
+    // Re-resolve builtin base each time (handles bun/npx path drift),
+    // but user customizations of the same id always win.
     const freshBuiltin = resolveBuiltin(id);
     const effective: AgentProfile = freshBuiltin
-      ? { ...freshBuiltin, env: { ...(freshBuiltin.env || {}), ...(profile.env || {}) } }
+      ? { ...freshBuiltin, ...profile, env: { ...(freshBuiltin.env || {}), ...(profile.env || {}) } }
       : profile;
     let c = this.conns.get(id);
     if (!c || c.profile.id !== id) {

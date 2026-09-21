@@ -19,6 +19,14 @@ export interface AgentProfile extends AgentCommand {
   defaultCwd?: string;
   /** whether this profile is built-in (shipped) vs user custom */
   builtin?: boolean;
+  /**
+   * Shell principle: how to log in ONCE with the official CLI so that
+   * credentials stay in the vendor's own store (we never keep secrets).
+   * Shown in the UI; never contains secrets.
+   */
+  authHint?: string;
+  /** Shown when the command binary is missing from PATH. */
+  installHint?: string;
 }
 
 export interface AgentStatus {

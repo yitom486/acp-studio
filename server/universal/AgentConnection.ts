@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { createRequire } from "node:module";
 import { Readable, Writable } from "node:stream";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
@@ -18,18 +19,109 @@ interface TerminalRecord {
 }
 
 /**
- * Cross-runtime spawn (Bun *and* Node).
- * Node on Windows cannot exec .cmd/.bat directly (EINVAL) — route those
- * through the shell with proper quoting. Bun tolerates both forms.
+ * Locate the native Windows headless launcher (GUI-subsystem shim that
+ * spawns console binaries with CREATE_NO_WINDOW + stdio passthrough).
+ * Order: explicit env, dev-layout workspace path, installed package path.
+ * Cached; missing launcher degrades gracefully to windowsHide/shell spawn.
+ */
+let cachedLauncher: string | null | undefined;
+export function findHeadlessLauncher(): string | null {
+  if (cachedLauncher !== undefined) return cachedLauncher;
+  cachedLauncher = null;
+  const check = (p?: string | null) => {
+    if (p && fs.existsSync(p)) {
+      cachedLauncher = p;
+      return true;
+    }
+    return false;
+  };
+  if (check(process.env.AGY_HEADLESS_LAUNCHER)) return cachedLauncher;
+  // Dev layout: <repo>/scratch/repos/yitom486-agy-acp-map/dist/agy-headless.exe
+  check(path.join(process.cwd(), "scratch", "repos", "yitom486-agy-acp-map", "dist", "agy-headless.exe"));
+  if (!cachedLauncher) {
+    try {
+      const meta = (import.meta as unknown as { url?: string })?.url;
+      const req = meta ? createRequire(meta) : (globalThis as any).require;
+      const pkgJson = req?.resolve?.("@yitom/agy-acp-map/package.json");
+      if (pkgJson) check(path.join(path.dirname(pkgJson), "dist", "agy-headless.exe"));
+    } catch {
+      // bundlers / exotic runtimes: fall through to degraded spawn
+    }
+  }
+  if (!cachedLauncher) {
+    console.warn("[UniversalACP] headless launcher not found; console windows may flash on Windows. Set AGY_HEADLESS_LAUNCHER.");
+  }
+  return cachedLauncher;
+}
+
+function isLauncherItself(command: string, launcher: string): boolean {
+  if (path.basename(command).toLowerCase() === "agy-headless.exe") return true;
+  try {
+    return path.resolve(command) === path.resolve(launcher);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Cross-runtime spawn (Bun *and* Node) with zero console flash on Windows.
+ * Console binaries (.exe/.cmd/.bat) go through the native headless launcher
+ * when available (works under every runtime, unlike windowsHide under Bun);
+ * .cmd/.bat additionally fall back to shell:true for Node's EINVAL.
  */
 function spawnCrossPlatform(command: string, args: string[], opts: SpawnOptions): ChildProcess {
-  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
-    const line = [command, ...args]
-      .map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a))
-      .join(" ");
-    return spawn(line, { ...opts, shell: true });
+  if (process.platform === "win32" && /\.(exe|cmd|bat)$/i.test(command)) {
+    const launcher = findHeadlessLauncher();
+    if (launcher && !isLauncherItself(command, launcher)) {
+      return spawn(launcher, [command, ...args], { ...opts, shell: false });
+    }
+    if (/\.(cmd|bat)$/i.test(command)) {
+      const line = [command, ...args]
+        .map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a))
+        .join(" ");
+      return spawn(line, { ...opts, shell: true });
+    }
   }
   return spawn(command, args, opts);
+}
+
+/**
+ * Resolve a command the way the OS would (PATH scan, PATHEXT on Windows).
+ * Returns the absolute path or null — used to fail fast with the preset's
+ * installHint instead of a cryptic ENOENT/EINVAL from spawn.
+ */
+export function whichCommand(command: string): string | null {
+  if (!command) return null;
+  const isAbs = path.isAbsolute(command);
+  const dirs = isAbs
+    ? [path.dirname(command)]
+    : (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  const base = isAbs ? path.basename(command) : command;
+  const exts =
+    process.platform === "win32" && !path.extname(base)
+      ? ["", ".exe", ".cmd", ".bat", ".ps1"]
+      : [""];
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const full = path.join(dir, base + ext);
+      try {
+        fs.accessSync(full, fs.constants.X_OK);
+        return full;
+      } catch {
+        // try next
+      }
+    }
+  }
+  // Absolute path that exists but isn't executable-flagged (Windows has no X_OK).
+  if (isAbs) {
+    try {
+      fs.accessSync(command, fs.constants.F_OK);
+      return command;
+    } catch {
+      // miss
+    }
+  }
+  return null;
 }
 
 /**
@@ -186,6 +278,13 @@ export class UniversalAgentConnection {
     env.no_proxy = env.no_proxy || "localhost,127.0.0.1,::1";
 
     const cwd = this.profile.defaultCwd && fs.existsSync(this.profile.defaultCwd) ? this.profile.defaultCwd : process.cwd();
+    // Shell principle: fail fast with install guidance when the vendor CLI
+    // is missing, instead of a cryptic spawn ENOENT/EINVAL.
+    const resolved = whichCommand(this.profile.command);
+    if (!resolved) {
+      const hint = this.profile.installHint ? ` ${this.profile.installHint}` : "";
+      throw new Error(`命令 '${this.profile.command}' 不在 PATH 中。${hint}`.trim());
+    }
     console.log(`[UniversalACP:${this.profile.id}] spawn: ${this.profile.command} ${(this.profile.args || []).join(" ")}`);
 
     const proc = spawnCrossPlatform(this.profile.command, this.profile.args || [], {

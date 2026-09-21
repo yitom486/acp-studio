@@ -77,6 +77,11 @@ export const UniversalAuthModal: React.FC<UniversalAuthModalProps> = ({ isOpen, 
             本地登录态复用成功：该 Agent 可直接创建会话，无需再走 authenticate（如 codex 会自动读取你本地 ~/.codex/auth.json）。
           </div>
         )}
+        {agent?.authHint && (
+          <div className="p-3 rounded-xl bg-background border border-border text-xs text-muted-foreground">
+            壳原则 · {agent.authHint}
+          </div>
+        )}
         {authOk === false && (
           <div className="p-3 rounded-xl bg-warning/30 border border-warning/30 text-xs text-warning">
             本地暂无可用登录态（探测 session/list 返回需认证），请在下方选择一种方式完成 authenticate。

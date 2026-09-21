@@ -29,6 +29,7 @@ export interface SidebarProps {
   supportsList: boolean;
   onOpenProviders: () => void;
   supportsProviders: boolean;
+  onManageCustom: () => void;
 }
 
 function shortCwd(cwd?: string): string {
@@ -43,6 +44,9 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       {/* Agents */}
       <div className="px-3 pt-3 pb-2 flex items-center justify-between">
         <span className="font-bold text-muted-foreground tracking-wide">AGENTS</span>
+        <button onClick={p.onManageCustom} title="添加 / 管理自定义 agent" className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+          <PlusCircle className="w-3.5 h-3.5" />自定
+        </button>
       </div>
       <div className="px-2 space-y-1 overflow-y-auto max-h-[38%]">
         {p.agents.map((a) => {
@@ -52,6 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
             <div
               key={a.id}
               onClick={() => p.onSelectAgent(a.id)}
+              title={a.authHint ? `认证复用：${a.authHint}` : a.description}
               className={`rounded-xl px-2.5 py-2 cursor-pointer border transition-colors ${
                 active ? "bg-muted/50 border-primary/40" : "border-transparent hover:bg-card"
               }`}

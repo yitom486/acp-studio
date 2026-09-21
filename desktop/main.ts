@@ -5,6 +5,7 @@
  */
 import { app, BrowserWindow } from "electron";
 import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "../server/gateway";
 
@@ -18,8 +19,12 @@ async function startGateway() {
   setupEnv();
   freePortIfOccupied(PORT);
   // Packaged layout: frontend lives under <app>/dist, not cwd.
+  // Ship agy-headless.exe via electron-builder extraResources later;
+  // when present, all console children spawn with CREATE_NO_WINDOW.
   if (!isDev) {
     process.env.ACP_PUBLIC_DIR = path.join(app.getAppPath(), "dist");
+    const exe = path.join(process.resourcesPath, "agy-headless.exe");
+    if (existsSync(exe)) process.env.AGY_HEADLESS_LAUNCHER = exe;
   }
   const honoApp = buildApp();
   const srv = serve({ fetch: honoApp.fetch, port: PORT }, () => {
