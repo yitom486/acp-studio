@@ -5,12 +5,34 @@
   "workspaces": [
     "scratch/repos/yitom486-agy-acp-map"
   ],
+  "main": "electron-dist/main.cjs",
+  "build": {
+    "appId": "studio.acp.app",
+    "productName": "ACP Studio",
+    "files": [
+      "electron-dist/**/*",
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "dir"
+      ]
+    },
+    "directories": {
+      "output": "release"
+    }
+  },
   "scripts": {
     "dev": "concurrently -k -n \"server,client\" -c \"cyan,green\" \"bun run dev:server\" \"bun run dev:client\"",
     "dev:server": "bun --watch server/index.ts",
+    "dev:server:node": "bun build server/node.ts --target=node --outdir=.tmp-node && node .tmp-node/node.js",
     "dev:client": "vite",
     "acp:stdio": "bun run server/acp-stdio.ts",
     "build": "tsc && vite build",
+    "build:electron": "bun desktop/build.ts",
+    "start:electron": "electron electron-dist/main.cjs",
+    "dev:electron": "ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:5188 electron electron-dist/main.cjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -18,10 +40,12 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.0.0",
     "@bufbuild/protobuf": "^2.12.1",
+    "@hono/node-server": "^2.1.1",
     "@tanstack/react-query": "^5.103.1",
     "@yitom/agy-acp-map": "workspace:*",
     "clsx": "^2.1.1",
     "framer-motion": "^13.4.0",
+    "hono": "^4.13.8",
     "lucide-react": "^0.475.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -39,6 +63,8 @@
     "autoprefixer": "^10.4.20",
     "bun-types": "^1.4.2",
     "concurrently": "^10.0.5",
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3",
     "happy-dom": "^20.14.5",
     "postcss": "^8.5.1",
     "tailwindcss": "^3.4.17",

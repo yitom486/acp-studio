@@ -1,5 +1,8 @@
 node_modules/
 dist/
+.tmp-node/
+electron-dist/
+release/
 .acp-tmp/
 *.local
 .env

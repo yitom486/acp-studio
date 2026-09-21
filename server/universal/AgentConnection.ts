@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
@@ -15,6 +15,21 @@ interface TerminalRecord {
   outputBytes: number;
   exited?: { code: number | null; signal: string | null };
   cwd: string;
+}
+
+/**
+ * Cross-runtime spawn (Bun *and* Node).
+ * Node on Windows cannot exec .cmd/.bat directly (EINVAL) — route those
+ * through the shell with proper quoting. Bun tolerates both forms.
+ */
+function spawnCrossPlatform(command: string, args: string[], opts: SpawnOptions): ChildProcess {
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+    const line = [command, ...args]
+      .map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a))
+      .join(" ");
+    return spawn(line, { ...opts, shell: true });
+  }
+  return spawn(command, args, opts);
 }
 
 /**
@@ -173,7 +188,7 @@ export class UniversalAgentConnection {
     const cwd = this.profile.defaultCwd && fs.existsSync(this.profile.defaultCwd) ? this.profile.defaultCwd : process.cwd();
     console.log(`[UniversalACP:${this.profile.id}] spawn: ${this.profile.command} ${(this.profile.args || []).join(" ")}`);
 
-    const proc = spawn(this.profile.command, this.profile.args || [], {
+    const proc = spawnCrossPlatform(this.profile.command, this.profile.args || [], {
       cwd,
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -600,7 +615,7 @@ export class UniversalAgentConnection {
     const id = `term-${Date.now()}-${this.termSeq++}`;
     const sessionId = String(params.sessionId || "");
     this.emitActivity(sessionId, "terminal_create", { terminalId: id, command, args, cwd });
-    const proc = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: false });
+    const proc = spawnCrossPlatform(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: false });
     const rec: TerminalRecord = { id, proc, output: "", outputBytes: 0, cwd };
     this.terminals.set(id, rec);
     const append = (chunk: Buffer) => {
