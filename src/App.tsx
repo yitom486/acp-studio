@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChatArea } from "./components/ChatArea";
 import { AgentBar } from "./components/universal/AgentBar";
@@ -10,6 +10,8 @@ import { PermissionDialog } from "./components/universal/PermissionDialog";
 import { ElicitationCard } from "./components/universal/ElicitationCard";
 import { UniversalAuthModal } from "./components/universal/AuthModal";
 import { UniversalComposer } from "./components/universal/UniversalComposer";
+import { CustomAgentModal } from "./components/universal/CustomAgentModal";
+import { GitChangesModal } from "./components/universal/GitChangesModal";
 import { ModelBrowserModal } from "./components/universal/ModelBrowserModal";
 import { useStudioStore } from "./stores/useStudioStore";
 import { useAgentsQuery, useSessionsQuery, invalidateAgents, invalidateSessions } from "./lib/acp-queries";
@@ -41,6 +43,8 @@ export default function App() {
   const qc = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
   const ensuredRef = useRef<string | null>(null);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [changesOpen, setChangesOpen] = useState(false);
   const s = useStudioStore();
 
   // Server state (TanStack Query)
@@ -50,6 +54,7 @@ export default function App() {
   const connected = !!activeAgent?.status?.connected;
   const sessionsQuery = useSessionsQuery(s.activeAgentId, connected);
   const sessions = sessionsQuery.data ?? [];
+  const sessionCwd = sessions.find((x) => x.sessionId === s.sessionId)?.cwd || null;
 
   const caps = (activeAgent?.status?.agentCapabilities || {}) as any;
   const sessionCaps = (caps.sessionCapabilities || {}) as Record<string, unknown>;
@@ -584,6 +589,7 @@ export default function App() {
         supportsList={supportsList}
         onOpenProviders={() => s.setProvidersOpen(true)}
         supportsProviders={supportsProviders}
+        onManageCustom={() => setCustomOpen(true)}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -660,6 +666,8 @@ export default function App() {
           onInsertCommand={(cmd) => useStudioStore.getState().setInput(`${useStudioStore.getState().input ? useStudioStore.getState().input + " " : ""}${cmd}`)}
           onForkSession={() => handleForkSession()}
           onOpenProviders={() => s.setProvidersOpen(true)}
+          onOpenChanges={() => setChangesOpen(true)}
+          hasChangesCwd={!!sessionCwd}
           supportsFork={supportsFork}
           supportsProviders={supportsProviders}
           busy={s.busy || s.isStreaming}
@@ -737,6 +745,19 @@ export default function App() {
       />
 
       <ProvidersModal isOpen={s.providersOpen} onClose={() => s.setProvidersOpen(false)} agentId={s.activeAgentId} />
+
+      <CustomAgentModal
+        isOpen={customOpen}
+        onClose={() => setCustomOpen(false)}
+        agents={agents}
+        onChanged={() => invalidateAgents(qc)}
+      />
+
+      <GitChangesModal
+        isOpen={changesOpen}
+        onClose={() => setChangesOpen(false)}
+        cwd={sessionCwd}
+      />
 
       <ModelBrowserModal
         isOpen={s.modelsOpen}

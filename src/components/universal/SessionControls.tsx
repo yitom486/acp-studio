@@ -1,5 +1,5 @@
 import React from "react";
-import { List, PlusCircle, Trash2, XCircle, Gauge, Command, Settings2, GitFork, Cpu } from "lucide-react";
+import { List, PlusCircle, Trash2, XCircle, Gauge, Command, Settings2, GitFork, Cpu, FileDiff } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 
@@ -20,6 +20,8 @@ export interface SessionControlsProps {
   onInsertCommand: (name: string) => void;
   onForkSession: () => void;
   onOpenProviders: () => void;
+  onOpenChanges: () => void;
+  hasChangesCwd: boolean;
   supportsFork: boolean;
   supportsProviders: boolean;
   busy: boolean;
@@ -46,6 +48,7 @@ export const SessionControls: React.FC<SessionControlsProps> = (p) => {
         {p.supportsProviders && (
           <Button size="sm" variant="outline" onClick={p.onOpenProviders} disabled={p.busy} title="Providers（模型通道）" className="h-6 text-[11px] gap-1"><Cpu className="w-3 h-3" />providers</Button>
         )}
+        <Button size="sm" variant="outline" onClick={p.onOpenChanges} disabled={p.busy || !p.hasChangesCwd} title="查看工作区代码变更（git diff）" className="h-6 text-[11px] gap-1"><FileDiff className="w-3 h-3" />变更</Button>
         <Button size="sm" variant="outline" onClick={p.onListSessions} disabled={p.busy} className="h-6 text-[11px] gap-1"><List className="w-3 h-3" />list</Button>
         <Button size="sm" variant="outline" onClick={p.onCloseSession} disabled={p.busy || !p.sessionId} className="h-6 text-[11px] gap-1"><XCircle className="w-3 h-3" />close</Button>
         <Button size="sm" variant="outline" onClick={p.onDeleteSession} disabled={p.busy || !p.sessionId} className="h-6 text-[11px] gap-1 text-destructive"><Trash2 className="w-3 h-3" />delete</Button>

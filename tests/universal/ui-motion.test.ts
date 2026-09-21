@@ -7,6 +7,8 @@ import { Skeleton } from "../../src/components/ui/skeleton";
 import { BlurFade } from "../../src/components/magicui/blur-fade";
 import { AnimatedShinyText } from "../../src/components/magicui/animated-shiny-text";
 import { Markdown } from "../../src/components/universal/Markdown";
+import { CodeComparison } from "../../src/components/magicui/code-comparison";
+import { parseUnifiedDiff, guessLanguage } from "../../src/lib/universal-api";
 import { reportError, subscribeErrors, dismissError, clearErrors } from "../../src/lib/error-bus";
 import { ErrorBoundary } from "../../src/components/ErrorBoundary";
 
@@ -70,5 +72,28 @@ describe("motion primitives (shadcn + magic ui)", () => {
     expect(fs.existsSync(path.join(root, cfg.tailwind.css))).toBe(true);
     expect(fs.existsSync(path.join(root, "src/components/ui"))).toBe(true);
     expect(fs.existsSync(path.join(root, "src/components/magicui"))).toBe(true);
+  });
+
+  it("CodeComparison renders filename plus both panes (fallback path)", () => {
+    const html = renderToString(
+      h(CodeComparison, { beforeCode: "const a = 1;", afterCode: "const a = 2;", language: "typescript", filename: "a.ts" })
+    );
+    expect(html).toContain("a.ts");
+    expect(html).toContain("before");
+    expect(html).toContain("after");
+    expect(html).toContain("const a = 1;");
+  });
+
+  it("parseUnifiedDiff classifies hunks, adds, dels and context", () => {
+    const lines = parseUnifiedDiff("diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n-old\n+new\n ctx\n");
+    expect(lines).toEqual([
+      { kind: "hunk", text: "@@ -1,2 +1,2 @@" },
+      { kind: "del", text: "old" },
+      { kind: "add", text: "new" },
+      { kind: "ctx", text: "ctx" },
+    ]);
+    expect(parseUnifiedDiff(null)).toEqual([]);
+    expect(guessLanguage("app.tsx")).toBe("tsx");
+    expect(guessLanguage("nope.unknownext")).toBe("text");
   });
 });

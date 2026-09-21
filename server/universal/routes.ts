@@ -1,5 +1,8 @@
 import { universalRegistry } from "./registry";
 import { isAuthRequiredError, acpErrorCode } from "./errors";
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 function corsHeaders() {
   return {
@@ -19,6 +22,125 @@ async function readJson(req: Request): Promise<Record<string, unknown>> {
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: corsHeaders() });
+}
+
+/**
+ * Workspace git inspection for the "view code changes" UI.
+ * Same trust level as the fs/terminal client capabilities (local dev tool).
+ * Guards: cwd must exist + be a git repo; file must stay inside cwd;
+ * outputs are byte-capped.
+ */
+const GIT_MAX_BYTES = 300_000;
+
+function runGit(cwd: string, args: string[]): { ok: boolean; out: string } {
+  try {
+    const r = spawnSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      timeout: 15000,
+      maxBuffer: GIT_MAX_BYTES * 2,
+      windowsHide: true,
+    });
+    if (r.error) return { ok: false, out: String(r.error.message || r.error) };
+    const out = typeof r.stdout === "string" ? r.stdout : "";
+    return { ok: r.status === 0, out: out.slice(0, GIT_MAX_BYTES) };
+  } catch (err) {
+    return { ok: false, out: (err as Error).message };
+  }
+}
+
+function resolveRepo(cwd: string): { repo?: string; error?: string } {
+  if (!cwd || !fs.existsSync(cwd)) return { error: "cwd 不存在" };
+  const top = runGit(cwd, ["rev-parse", "--show-toplevel"]);
+  if (!top.ok || !top.out.trim()) return { error: "该目录不是 git 仓库" };
+  // Normalize Windows separators for reliable prefix checks.
+  return { repo: path.normalize(top.out.trim()) };
+}
+
+export interface GitFileChange {
+  path: string;
+  status: string;
+  staged: boolean;
+}
+
+function parsePorcelain(out: string): GitFileChange[] {
+  const changes: GitFileChange[] = [];
+  for (const line of out.split("\n")) {
+    if (!line.trim()) continue;
+    // Format: XY SP path (rename: "old" -> "new")
+    const x = line[0] || " ";
+    const y = line[1] || " ";
+    let p = line.slice(3).trim();
+    const arrow = p.indexOf(" -> ");
+    if (arrow >= 0) p = p.slice(arrow + 4).trim();
+    if ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith("'") && p.endsWith("'"))) {
+      p = p.slice(1, -1);
+    }
+    const staged = x !== " " && x !== "?";
+    const status = x === "?" ? "?" : (x !== " " ? x : y);
+    changes.push({ path: p, status, staged });
+  }
+  return changes.slice(0, 500);
+}
+
+function handleGit(req: Request, url: URL): Response | null {
+  const p = url.pathname;
+  if (p !== "/api/universal/git/status" && p !== "/api/universal/git/file") return null;
+  if (req.method !== "GET") return json({ ok: false, error: "method not allowed" }, 405);
+
+  const cwd = url.searchParams.get("cwd") || "";
+  const resolved = resolveRepo(cwd);
+  if (!resolved.repo) return json({ ok: false, error: resolved.error }, 400);
+  const repo = resolved.repo;
+
+  if (p === "/api/universal/git/status") {
+    const branch = runGit(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+    const porcelain = runGit(repo, ["status", "--porcelain=v1", "-uall"]);
+    if (!porcelain.ok) return json({ ok: false, error: porcelain.out.slice(0, 300) || "git status 失败" }, 500);
+    return json({
+      ok: true,
+      repo,
+      branch: branch.ok ? branch.out.trim() : "",
+      files: parsePorcelain(porcelain.out),
+    });
+  }
+
+  // /api/universal/git/file?cwd=&file= : before (HEAD) + after (worktree) texts.
+  const file = url.searchParams.get("file") || "";
+  const abs = path.normalize(path.join(repo, file));
+  if (!file || abs !== repo && !abs.startsWith(repo + path.sep)) {
+    return json({ ok: false, error: "file 必须位于仓库内" }, 400);
+  }
+  const rel = path.relative(repo, abs);
+  const numstat = runGit(repo, ["diff", "--numstat", "--", rel]);
+  const binary = numstat.ok && numstat.out.split("\n").some((l) => l.startsWith("-\t-\t"));
+  let before: string | null = null;
+  let after: string | null = null;
+  let unified: string | null = null;
+  if (!binary) {
+    const show = runGit(repo, ["show", `HEAD:${rel}`]);
+    if (show.ok) before = show.out.slice(0, GIT_MAX_BYTES);
+    try {
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+        const buf = fs.readFileSync(abs);
+        if (!buf.includes(0)) after = buf.toString("utf8").slice(0, GIT_MAX_BYTES);
+      }
+    } catch {
+      after = null;
+    }
+    const diff = runGit(repo, ["diff", "HEAD", "--no-color", "-U3", "--", rel]);
+    if (diff.ok && diff.out.trim()) unified = diff.out.slice(0, GIT_MAX_BYTES);
+  }
+  return json({
+    ok: true,
+    repo,
+    file: rel,
+    binary,
+    truncated: (before?.length || 0) >= GIT_MAX_BYTES || (after?.length || 0) >= GIT_MAX_BYTES,
+    before,
+    after,
+    unified,
+  });
 }
 
 /**
@@ -88,10 +210,13 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
         name: String(body.name || body.id || ""),
         title: String(body.title || body.id || ""),
         description: body.description as string | undefined,
+        homepage: body.homepage as string | undefined,
         command: String(body.command || ""),
         args: Array.isArray(body.args) ? (body.args as unknown[]).map(String) : [],
         env: (body.env as Record<string, string>) || {},
         defaultCwd: body.defaultCwd as string | undefined,
+        authHint: body.authHint as string | undefined,
+        installHint: body.installHint as string | undefined,
       });
       return json({ ok: true, agent: saved });
     } catch (err) {
@@ -395,6 +520,9 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
       },
     });
   }
+
+  const gitRes = handleGit(req, url);
+  if (gitRes) return gitRes;
 
   return json({ ok: false, error: `Unknown universal route ${req.method} ${p}` }, 404);
 }

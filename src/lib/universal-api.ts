@@ -11,6 +11,8 @@ export interface AgentSummary {
   command: string;
   args?: string[];
   builtin?: boolean;
+  authHint?: string;
+  installHint?: string;
   status: {
     connected: boolean;
     pid?: number | null;
@@ -148,6 +150,78 @@ function throwGatewayError(data: any, fallback: string, status = 500): never {
   });
 }
 
+export interface GitFileChange {
+  path: string;
+  status: string;
+  staged: boolean;
+}
+
+export interface GitStatusResult {
+  repo: string;
+  branch: string;
+  files: GitFileChange[];
+}
+
+export interface GitFileResult {
+  repo: string;
+  file: string;
+  binary: boolean;
+  truncated: boolean;
+  before: string | null;
+  after: string | null;
+  unified: string | null;
+}
+
+export async function gitStatus(cwd: string): Promise<GitStatusResult> {
+  const res = await fetch(`/api/universal/git/status?cwd=${encodeURIComponent(cwd)}`);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "git status 失败");
+  return data;
+}
+
+export async function gitFile(cwd: string, file: string): Promise<GitFileResult> {
+  const res = await fetch(`/api/universal/git/file?cwd=${encodeURIComponent(cwd)}&file=${encodeURIComponent(file)}`);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "git diff 失败");
+  return data;
+}
+
+export type UnifiedDiffLine =
+  | { kind: "hunk"; text: string }
+  | { kind: "add"; text: string }
+  | { kind: "del"; text: string }
+  | { kind: "ctx"; text: string };
+
+/** Parse unified diff into classified lines (skips file headers). */
+export function parseUnifiedDiff(unified: string | null): UnifiedDiffLine[] {
+  if (!unified) return [];
+  const out: UnifiedDiffLine[] = [];
+  for (const raw of unified.split("\n")) {
+    if (raw.startsWith("--- ") || raw.startsWith("+++ ") || raw.startsWith("diff --git") || raw.startsWith("index ")) continue;
+    if (raw.startsWith("@@")) out.push({ kind: "hunk", text: raw });
+    else if (raw.startsWith("+")) out.push({ kind: "add", text: raw.slice(1) });
+    else if (raw.startsWith("-")) out.push({ kind: "del", text: raw.slice(1) });
+    else if (raw.startsWith(" ")) out.push({ kind: "ctx", text: raw.slice(1) });
+    else if (raw === "") continue;
+    else if (raw.startsWith("\\")) continue;
+    else out.push({ kind: "ctx", text: raw });
+  }
+  return out.slice(0, 2000);
+}
+
+export function guessLanguage(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = {
+    ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
+    json: "json", md: "markdown", mdx: "mdx", py: "python",
+    rs: "rust", go: "go", css: "css", html: "html",
+    yaml: "yaml", yml: "yaml", toml: "toml", sh: "bash",
+    ps1: "powershell", c: "c", h: "c", cpp: "cpp", java: "java",
+    cs: "csharp", sql: "sql", xml: "xml", vue: "vue",
+  };
+  return map[ext] || "text";
+}
+
 export interface ActivityEvent {
   kind: string;
   detail?: any;
@@ -190,6 +264,37 @@ export async function connectAgent(agentId: string) {
 export async function agentStatus(agentId: string) {
   const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/status`);
   return res.json();
+}
+
+export interface CustomAgentInput {
+  id: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  homepage?: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  defaultCwd?: string;
+  authHint?: string;
+  installHint?: string;
+}
+
+export async function upsertAgentProfile(input: CustomAgentInput) {
+  const res = await fetch("/api/universal/agents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "upsert agent failed");
+  return data.agent;
+}
+
+export async function deleteAgentProfile(agentId: string) {
+  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "delete agent failed");
 }
 
 export async function authenticateAgent(agentId: string, methodId: string, extra?: Record<string, unknown>) {

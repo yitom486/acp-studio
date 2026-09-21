@@ -41,6 +41,10 @@
    `ui/`：button badge card input skeleton（全部为 CLI 官方版；
    唯一特批扩展是 badge 的 `success`/`warning` 变体，token 实现，
    见该文件注释）；
+   `magicui/`：blur-fade animated-shiny-text code-comparison
+  （code-comparison 需 `shiki` + `@shikijs/transformers` 依赖，
+   已安装；移植时去掉 `next-themes`（本应用纯深色，主题固定）、
+   diff 行底色改用变量，特例见该文件头注释）。
    `magicui/`：blur-fade animated-shiny-text。
 3. **禁止事项**：禁止新建 `ui/*`、`magicui/*` 之外的通用基础组件；
    禁止在业务组件（`universal/*`、`ChatArea` 等）里手写 keyframes、
