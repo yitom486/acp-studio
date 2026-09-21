@@ -1,21 +1,35 @@
-# Antigravity ACP Studio & @yitom/agy-acp-map 版本规范与发版铁律
+# acp-studio 版本规范与发版铁律
 
-本规则适用于本仓库所有关于 `@yitom/agy-acp-map` 及相关适配器的发版和版本控制。
+本规则适用于本仓库（acp-studio，`package.json` 当前 `0.1.0` 起步）。
+日常只允许 **Patch 线性递增**（`0.1.0` → `0.1.1` → `0.1.2` …），
+功能往上加也先走 patch；Minor / Major 跃迁以后另行许可。
 
-## 一、版本号自增铁律（严禁擅自跳级）
-1. **严格遵循 Patch 线性递增**：
-   - 默认所有的日常发版、Bug 修复、协议对齐，只能自增末尾的 **Patch** 位（如 `0.1.3` -> `0.1.4` -> `0.1.5` -> `0.1.6` ...）。
-2. **严禁未经用户许可跃迁 Minor / Major 大版本**：
-   - 严禁任何 Agent / AI 助手或脚本擅自将版本提升至 `0.2.x`、`0.3.x`、`0.5.x` 或 `1.0.x`。
-   - 只有在用户在对话中给出了**显式、无歧义的明确许可**（如“我允许升级到 0.2”或传入 `ALLOW_MINOR_BUMP=true`）后，方可调整中间位或大版本。
+## 一、版本号铁律
 
-## 二、单一事实源（Single Source of Truth）
-1. `package.json` 中的 `version` 字段为全局版本事实源。
-2. `src/agent-sdk.ts` 中的 `AGENT_INFO.version`、UI 状态展示（Header / ChatInput / AuthModal）必须与 `package.json` 保持 100% 实时同步。
-3. 发版时必须使用标准工具：
+1. **默认只能 +0.0.1**：日常发版、Bug 修复、ACP 协议对齐、小功能，
+   一律 `bun run release:patch`（可附 `--notes "..."`）。
+2. **Minor / Major 必须显式放行**：`release:minor` 需 `--allow-minor`
+   （或 `ALLOW_MINOR_BUMP=true`），`release:major` 需 `--allow-major`
+   （或 `ALLOW_MAJOR_BUMP=true`）；无放行脚本直接报错退出。
+   放行只能由用户在对话中明确许可，Agent 不得自行决定跃迁。
+3. 内核桥接库 `@yitom/agy-acp-map`（子仓库）沿用其自有 Patch 纪律，
+   与本仓库版本互不绑定。
+
+## 二、单一事实源与 CHANGELOG 自动同步
+
+1. `package.json` 的 `version` 为全局唯一事实源；UI、文档、打包配置
+   一律运行时读取，禁止硬编码版本号。
+2. `CHANGELOG.md` 由发版脚本自动维护：
+   - 日常开发只往 `## [Unreleased]` 下加条目（Added/Fixed/Changed）；
+   - 发版时脚本把 Unreleased 归档为 `## [x.y.z] - 日期` 新小节，
+     同步改写 `package.json`，并更新底部版本链接；
+   - Unreleased 为空且无 `--notes` 时脚本拒绝执行。
+3. 发版后手动提交并打 tag（脚本会打印确切命令）：
    ```bash
-   # 仅在需要发布新 Patch 时执行（全自动自增、同步代码、构建并跑通 104 项测试）：
-   bun run release:patch
-   # 或自动发布至 npm：
-   bun run release:publish
+   bun run release:patch --notes "fix: xxx"
+   git add package.json CHANGELOG.md
+   git commit -m "chore(release): v0.1.1"
+   git tag v0.1.1   # 触发 Release 工作流出安装包
    ```
+4. 发版前门禁：`bunx tsc --noEmit`、`bunx vitest run tests/universal`、
+   `bun run build` 全绿（与 CI 一致）。

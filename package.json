@@ -1,6 +1,6 @@
 {
   "name": "acp-studio",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "type": "module",
   "workspaces": [
     "scratch/repos/yitom486-agy-acp-map"
@@ -38,7 +38,10 @@
     "dev:electron": "ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:5188 electron electron-dist/main.cjs",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "release:patch": "bun scripts/release.ts patch",
+    "release:minor": "bun scripts/release.ts minor",
+    "release:major": "bun scripts/release.ts major"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.0.0",
