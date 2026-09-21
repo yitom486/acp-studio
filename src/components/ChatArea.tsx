@@ -27,6 +27,7 @@ export interface ChatAreaProps {
   selectedModel: string;
   selectedMode: string;
   onSelectSuggestion: (prompt: string) => void;
+  agentName?: string;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -35,6 +36,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   selectedModel,
   selectedMode,
   onSelectSuggestion,
+  agentName = "Agent",
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
@@ -51,14 +53,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const suggestions = [
     {
-      title: "查看实时 Token 配额",
-      prompt: "/usage",
-      desc: "直接调用 ACP 快捷命令检查您的 Google 账户限额与余量",
+      title: "查看可用命令",
+      prompt: "/status",
+      desc: "调用 Agent 广播的 slash 命令查看状态与配额",
     },
     {
       title: "解释当前目录工程结构",
       prompt: "请简要分析当前项目目录下有哪些关键文件和模块，架构是如何组织的？",
-      desc: "使用 Antigravity Agent 读取并解析本地文件系统",
+      desc: "使用 Agent 读取并解析本地文件系统",
     },
     {
       title: "写一个 ACP 客户端测试用例",
@@ -82,10 +84,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <Sparkles className="w-8 h-8" />
             </div>
             <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-              Google Antigravity <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">Studio</span>
+              {agentName} <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">Studio</span>
             </h2>
             <p className="text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
-              基于原生 <strong>Google Antigravity CLI (agy.exe)</strong> 引擎。零临时磁盘解压占用，毫秒级响应，支持多轮会话上下文流式输出与自主工具调用。
+              基于 <strong>Agent Client Protocol (ACP)</strong> 的通用智能体工作台。支持多轮会话流式输出、思考过程折叠、工具调用审计、图片与文件附件直注。
             </p>
           </div>
 
@@ -137,7 +139,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 <div className="flex items-center justify-between gap-4 text-[11px] pb-1 border-b border-white/10">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-slate-200">
-                      {msg.role === "user" ? "You" : "Antigravity Agent"}
+                      {msg.role === "user" ? "You" : msg.role === "system" ? "System" : agentName}
                     </span>
                     {msg.model && (
                       <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">

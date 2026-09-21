@@ -183,6 +183,50 @@ export default function App() {
     }
   };
 
+  /** Create a session on demand (e.g. user tweaks model/thinking before chatting). */
+  const ensureSession = async (): Promise<string | null> => {
+    if (sessionId) return sessionId;
+    if (isStreaming || busy) return null;
+    try {
+      if (!activeAgent?.status?.connected) await connectAgent(activeAgentId);
+      const res: any = await sessionNew(activeAgentId, {});
+      applyNewSessionResult(res);
+      setAuthOk((prev) => ({ ...prev, [activeAgentId]: true }));
+      await refreshSessions();
+      return res?.sessionId || null;
+    } catch (e: any) {
+      if (/auth/i.test(String(e?.message || ""))) {
+        setAuthOk((prev) => ({ ...prev, [activeAgentId]: false }));
+        setAuthOpen(true);
+      } else {
+        alert(`创建会话失败: ${e.message}`);
+      }
+      return null;
+    }
+  };
+
+  /** Shared session/set_config_option with correct select/boolean shapes. */
+  const setSessionConfig = async (configId: string, value: unknown) => {
+    const sid = sessionId || (await ensureSession());
+    if (!sid) return;
+    try {
+      const opt = configOptions?.find((c) => c.id === configId);
+      const body: Record<string, unknown> =
+        opt?.type === "boolean" || typeof value === "boolean"
+          ? { sessionId: sid, configId, type: "boolean", value }
+          : { sessionId: sid, configId, value };
+      const res: any = await sessionRpc(activeAgentId, "set_config", body);
+      if (res?.configOptions) setConfigOptions(res.configOptions);
+      else if (Array.isArray(res)) setConfigOptions(res);
+      else {
+        // Optimistic local update when the agent returns void.
+        setConfigOptions((prev) => prev?.map((c) => (c.id === configId ? { ...c, currentValue: value } : c)) || prev);
+      }
+    } catch (e: any) {
+      alert(`set_config 失败: ${e.message}`);
+    }
+  };
+
   const handleCreateSession = async (s: SessionSettings) => {
     setBusy(true);
     try {
@@ -575,21 +619,7 @@ export default function App() {
               alert(`set_mode 失败: ${e.message}`);
             }
           }}
-          onSetConfig={async (configId, value) => {
-            if (!sessionId) return;
-            try {
-              const opt = configOptions?.find((c) => c.id === configId);
-              const body: Record<string, unknown> =
-                opt?.type === "boolean" || typeof value === "boolean"
-                  ? { sessionId, configId, type: "boolean", value }
-                  : { sessionId, configId, value };
-              const res: any = await sessionRpc(activeAgentId, "set_config", body);
-              if (res?.configOptions) setConfigOptions(res.configOptions);
-              else if (Array.isArray(res)) setConfigOptions(res);
-            } catch (e: any) {
-              alert(`set_config 失败: ${e.message}`);
-            }
-          }}
+          onSetConfig={(configId, value) => setSessionConfig(configId, value)}
           onInsertCommand={(cmd) => setInput((prev) => (prev ? prev + " " + cmd : cmd))}
           onForkSession={() => handleForkSession()}
           onOpenProviders={() => setProvidersOpen(true)}
@@ -614,6 +644,7 @@ export default function App() {
           selectedModel={activeAgent?.title || activeAgentId}
           selectedMode={modes?.currentModeId || ""}
           onSelectSuggestion={(p) => handleSend(p)}
+          agentName={activeAgent?.title || activeAgent?.name || "Agent"}
         />
 
         <UniversalComposer
@@ -628,6 +659,8 @@ export default function App() {
           attachments={attachments}
           setAttachments={setAttachments}
           agentTitle={activeAgent?.title || activeAgentId}
+          configOptions={configOptions}
+          onSetConfig={(configId, value) => setSessionConfig(configId, value)}
         />
       </div>
 
