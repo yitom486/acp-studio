@@ -144,9 +144,22 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
               additionalDirectories: body.additionalDirectories as string[] | undefined,
             });
             break;
-          case "load":
-            result = await conn.loadSession(body);
+          case "load": {
+            const loaded = await conn.loadSession(body);
+            return json({ ok: true, result: loaded.result, replayed: loaded.replayed });
+          }
+          case "fork": {
+            // UNSTABLE session/fork: {sessionId, cwd, additionalDirectories?, mcpServers?}
+            const sid = String(body.sessionId || "");
+            if (!sid) return json({ ok: false, error: "sessionId is required" }, 400);
+            result = await conn.forkSession({
+              sessionId: sid,
+              cwd: (body.cwd as string) || process.cwd(),
+              ...(body.additionalDirectories ? { additionalDirectories: body.additionalDirectories } : {}),
+              ...(body.mcpServers ? { mcpServers: body.mcpServers } : {}),
+            });
             break;
+          }
           case "resume":
             result = await conn.resumeSession(body);
             break;
@@ -180,12 +193,26 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
 
     if (rest.startsWith("/session/") && req.method === "POST") {
       const action = rest.slice("/session/".length);
-      if (["new", "load", "resume", "list", "delete", "close", "cancel"].includes(action)) {
+      if (["new", "load", "resume", "list", "delete", "close", "cancel", "fork"].includes(action)) {
         return sessionAction(action);
       }
       if (action === "set_mode" || action === "set-mode") return sessionAction("set_mode");
       if (action === "set_config" || action === "set-config" || action === "set_config_option") {
         return sessionAction("set_config");
+      }
+    }
+
+    // UNSTABLE providers/* (e.g. codex): list / set / disable
+    const provMatch = rest.match(/^\/providers\/(list|set|disable)$/);
+    if (provMatch && req.method === "POST") {
+      const body = await readJson(req);
+      try {
+        const conn = getConn();
+        await conn.connect().catch(() => undefined);
+        const result = await conn.providersRpc(provMatch[1] as "list" | "set" | "disable", body);
+        return json({ ok: true, result });
+      } catch (err) {
+        return json({ ok: false, error: (err as Error).message }, 500);
       }
     }
 

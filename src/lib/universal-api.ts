@@ -55,6 +55,11 @@ export interface PendingElicitation {
   schema: any;
 }
 
+export interface ActivityEvent {
+  kind: string;
+  detail?: any;
+}
+
 export interface UniversalHandlers {
   onSessionId?: (sid: string) => void;
   onTextChunk?: (chunk: string, messageId?: string) => void;
@@ -67,6 +72,8 @@ export interface UniversalHandlers {
   onConfigUpdate?: (option: any) => void;
   onSessionInfo?: (info: any) => void;
   onUsage?: (usage: { used: number; size: number; cost?: { amount: number; currency: string } }) => void;
+  /** fs/terminal/compaction and any unrecognized update kinds land here. */
+  onActivity?: (a: ActivityEvent) => void;
   onPermissionRequest?: (p: PendingPermission) => void;
   onElicitationRequest?: (e: PendingElicitation) => void;
   onDone?: (stopReason?: string, response?: any) => void;
@@ -129,6 +136,35 @@ export async function sessionRpc(agentId: string, action: string, body: Record<s
   });
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || `${action} failed`);
+  return data.result;
+}
+
+/** session/load with replayed history (result + replayed session/update list). */
+export async function loadSession(agentId: string, body: Record<string, unknown> = {}): Promise<{ result: any; replayed: any[] }> {
+  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/session/load`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "session/load failed");
+  return { result: data.result, replayed: data.replayed || [] };
+}
+
+/** UNSTABLE session/fork. */
+export async function forkSession(agentId: string, body: Record<string, unknown> = {}) {
+  return sessionRpc(agentId, "fork", body);
+}
+
+/** UNSTABLE providers/* (list | set | disable). */
+export async function providersRpc(agentId: string, action: "list" | "set" | "disable", body: Record<string, unknown> = {}) {
+  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/providers/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || `providers/${action} failed`);
   return data.result;
 }
 
@@ -234,7 +270,20 @@ export async function consumeUniversalChat(
             handlers.onSessionInfo?.(u.sessionInfo || u);
           } else if (kind === "usage_update") {
             handlers.onUsage?.({ used: u.used, size: u.size, cost: u.cost });
+          } else if (kind === "plan_update") {
+            // UNSTABLE: plan content patch — entries array when present.
+            if (Array.isArray(u.plan?.entries)) handlers.onPlan?.(u.plan.entries as PlanEntry[]);
+            else handlers.onActivity?.({ kind: "plan_update", detail: u.plan ?? u });
+          } else if (kind === "plan_removed") {
+            handlers.onActivity?.({ kind: "plan_removed", detail: u });
+          } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
+            handlers.onActivity?.({ kind, detail: u });
+          } else {
+            // Forward-compatible: never silently drop unknown update kinds.
+            handlers.onActivity?.({ kind: kind || "unknown_update", detail: u });
           }
+        } else if (payload.type === "activity") {
+          handlers.onActivity?.({ kind: payload.kind || "activity", detail: payload.detail });
         } else if (payload.type === "permission_request") {
           handlers.onPermissionRequest?.({
             permissionId: payload.permissionId,
@@ -288,4 +337,87 @@ function mapToolStatus(s: unknown): ToolCallItem["status"] {
   if (s === "cancelled") return "cancelled";
   if (s === "pending") return "pending";
   return "running";
+}
+
+export interface RebuiltTranscript {
+  messages: Array<{
+    role: "user" | "assistant";
+    content: string;
+    thought?: string;
+    toolCalls?: ToolCallItem[];
+    messageId?: string;
+  }>;
+  plan: PlanEntry[];
+  usage: { used: number; size: number; cost?: { amount: number; currency: string } } | null;
+  availableCommands: Array<{ name: string; description?: string }>;
+  currentModeId: string | null;
+  activities: ActivityEvent[];
+}
+
+/**
+ * Rebuild a readable transcript from session/load replayed updates.
+ * Groups message chunks by messageId; tool/plan/usage/commands fold into state.
+ */
+export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
+  const out: RebuiltTranscript = { messages: [], plan: [], usage: null, availableCommands: [], currentModeId: null, activities: [] };
+  const byId = new Map<string, { role: "user" | "assistant"; content: string; thought?: string; toolCalls?: ToolCallItem[]; messageId?: string }>();
+  const order: string[] = [];
+  let seq = 0;
+  const key = (mid?: string) => {
+    if (mid && byId.has(mid)) return mid;
+    const k = mid || `replay-${seq++}`;
+    if (!byId.has(k)) {
+      byId.set(k, { role: "assistant", content: "", messageId: mid });
+      order.push(k);
+    }
+    return k;
+  };
+  const textOf = (u: any): string => {
+    const c = u?.content;
+    if (!c) return "";
+    if (c.type === "text" && typeof c.text === "string") return c.text;
+    if (Array.isArray(c)) return c.filter((b) => b?.type === "text").map((b) => b.text).join("");
+    return "";
+  };
+
+  for (const u of replayed || []) {
+    const kind = u?.sessionUpdate as string;
+    if (kind === "user_message_chunk") {
+      const k = key(u.messageId);
+      const m = byId.get(k)!;
+      m.role = "user";
+      m.content += textOf(u);
+    } else if (kind === "agent_message_chunk") {
+      const k = key(u.messageId);
+      byId.get(k)!.content += textOf(u);
+    } else if (kind === "agent_thought_chunk") {
+      const k = key(u.messageId);
+      const m = byId.get(k)!;
+      m.thought = (m.thought || "") + textOf(u);
+    } else if (kind === "tool_call") {
+      const k = key(undefined);
+      const m = byId.get(k)!;
+      m.toolCalls = [...(m.toolCalls || []), { id: u.toolCallId, title: u.title || "Tool call", kind: u.kind, status: (u.status as ToolCallItem["status"]) || "pending" }];
+    } else if (kind === "tool_call_update") {
+      for (const m of byId.values()) {
+        const t = m.toolCalls?.find((x) => x.id === u.toolCallId);
+        if (t) {
+          Object.assign(t, { title: u.title || t.title, kind: u.kind ?? t.kind, status: mapToolStatus(u.status) });
+          break;
+        }
+      }
+    } else if (kind === "plan") {
+      out.plan = (u.entries || []) as PlanEntry[];
+    } else if (kind === "available_commands_update") {
+      out.availableCommands = u.availableCommands || [];
+    } else if (kind === "current_mode_update" && u.currentModeId) {
+      out.currentModeId = u.currentModeId;
+    } else if (kind === "usage_update") {
+      out.usage = { used: u.used, size: u.size, cost: u.cost };
+    } else if (kind) {
+      out.activities.push({ kind, detail: u });
+    }
+  }
+  out.messages = order.map((k) => byId.get(k)!).filter((m) => m.content || m.thought || (m.toolCalls && m.toolCalls.length > 0));
+  return out;
 }

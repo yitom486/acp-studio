@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { consumeUniversalChat } from "../../src/lib/universal-api";
+import { consumeUniversalChat, buildTranscriptFromReplay } from "../../src/lib/universal-api";
 
 function sseResponse(frames: unknown[]): Response {
   const enc = new TextEncoder();
@@ -27,6 +27,9 @@ describe("consumeUniversalChat (v1 full updates)", () => {
       { type: "update", update: { sessionUpdate: "current_mode_update", currentModeId: "agent" } },
       { type: "update", update: { sessionUpdate: "usage_update", used: 100, size: 200 } },
       { type: "permission_request", agentId: "codex", sessionId: "sess-1", permissionId: "perm-1", toolCall: {}, options: [] },
+      { type: "activity", kind: "fs_read", detail: { path: "/tmp/a.txt" } },
+      { type: "update", update: { sessionUpdate: "plan_update", plan: { entries: [{ content: "s", status: "completed" }] } } },
+      { type: "update", update: { sessionUpdate: "compaction_update", compactionId: "c1", status: "in_progress" } },
       { type: "done", sessionId: "sess-1", stopReason: "end_turn" },
     ];
     vi.stubGlobal("fetch", vi.fn(async () => sseResponse(frames)));
@@ -45,6 +48,7 @@ describe("consumeUniversalChat (v1 full updates)", () => {
         onModeUpdate: (m) => seen.push("mode:" + m),
         onUsage: (u) => seen.push(`usage:${u.used}/${u.size}`),
         onPermissionRequest: (p) => seen.push("perm:" + p.permissionId),
+        onActivity: (a) => seen.push("activity:" + a.kind),
         onDone: (s) => seen.push("done:" + s),
       }
     );
@@ -56,6 +60,31 @@ describe("consumeUniversalChat (v1 full updates)", () => {
     expect(seen).toContain("plan:1");
     expect(seen).toContain("usage:100/200");
     expect(seen).toContain("perm:perm-1");
+    expect(seen).toContain("activity:fs_read");
+    expect(seen).toContain("activity:compaction_update");
     expect(seen).toContain("done:end_turn");
+  });
+
+  it("rebuilds transcripts from session/load replay", () => {
+    const t = buildTranscriptFromReplay([
+      { sessionUpdate: "user_message_chunk", messageId: "m1", content: { type: "text", text: "hello" } },
+      { sessionUpdate: "agent_message_chunk", messageId: "m2", content: { type: "text", text: "hi " } },
+      { sessionUpdate: "agent_message_chunk", messageId: "m2", content: { type: "text", text: "there" } },
+      { sessionUpdate: "agent_thought_chunk", messageId: "m2", content: { type: "text", text: "hmm" } },
+      { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read", status: "pending" },
+      { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed" },
+      { sessionUpdate: "plan", entries: [{ content: "step", status: "completed" }] },
+      { sessionUpdate: "usage_update", used: 10, size: 100 },
+      { sessionUpdate: "available_commands_update", availableCommands: [{ name: "/status" }] },
+      { sessionUpdate: "current_mode_update", currentModeId: "agent" },
+    ]);
+    expect(t.messages).toHaveLength(3);
+    expect(t.messages[0]).toMatchObject({ role: "user", content: "hello" });
+    expect(t.messages[1]).toMatchObject({ role: "assistant", content: "hi there", thought: "hmm" });
+    expect(t.messages[2].toolCalls?.[0]).toMatchObject({ id: "t1", status: "completed" });
+    expect(t.plan).toHaveLength(1);
+    expect(t.usage).toMatchObject({ used: 10, size: 100 });
+    expect(t.availableCommands).toHaveLength(1);
+    expect(t.currentModeId).toBe("agent");
   });
 });

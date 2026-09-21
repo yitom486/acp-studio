@@ -201,8 +201,9 @@ antigravity-acp/ (acp-studio)
 `acp-studio` 已从“Antigravity 专用”升级为**通用 ACP 客户端**：后端新增 `server/universal/` 独立网关，基于 `@agentclientprotocol/sdk@1.4` 的 `client().connect(ndJsonStream)` 直连任意 ACP stdio agent，前端已重写为多 Agent 工作台。
 
 - 内置 presets：`codex` (`npx -y @agentclientprotocol/codex-acp`)、`antigravity-stdio`、`gemini`、`claude`、`opencode`、`copilot`、`cursor`；可通过 `ACP_AGENTS_JSON` 环境变量或 `POST /api/universal/agents` 追加自定义 `{id,command,args,env}`。
-- 完整 v1 客户端能力：`fs/read+write` 真实文件透传、`terminal/*` 真实进程托管、`session/request_permission` 转前端审批、`elicitation/create` 转前端表单、`initialize/authenticate/logout`、`session/new/load/resume/list/close/delete`、`session/set_mode`、`session/set_config_option`、`session/prompt+cancel`。
-- 全量 `session/update` 渲染：`agent/user/thought` chunks、`tool_call(+update)`、`plan`、`available_commands`、`current_mode`、`config_option`、`session_info`、`usage`（token/费用）。
+- 完整 v1 客户端能力：`fs/read+write` 真实文件透传、`terminal/*` 真实进程托管、`session/request_permission` 转前端审批、`elicitation/create` 转前端表单（JSON Schema 渲染 + 原始 JSON 回退）、`initialize/authenticate/logout`、`session/new/load(历史回放)/resume/list/close/delete`、`session/set_mode`、`session/set_config_option`（select/boolean 形态）、`session/prompt+cancel`，另有 `session/fork` 与 `providers/list|set|disable` 透传（能力协商，有则启用）。
+- 全量 `session/update` 渲染：`agent/user/thought` chunks、`tool_call(+update)`、`plan(+unstable plan_update)`、`available_commands`（输入框 `/` 联想）、`current_mode`、`config_option`、`session_info`、`usage`（token/费用），`fs/terminal/compaction` 进动态信息流，未知类型永不静默丢弃。
+- Studio 工作台：左侧 Agents + Sessions 侧边栏（标题/时间、打开/fork/删除）、新会话设置（cwd、additionalDirectories、MCP servers JSON）、Providers 模型通道面板、附件发送（文本→embedded resource、图片→image block、其他→resource_link）、本地登录复用探测（codex 自动读取 `~/.codex/auth.json`，显示「本地已登录」）。
 - 旧 Antigravity 路由 (`/api/status`、`/api/chat` 等) 完整保留，向后兼容。
 
 ```bash

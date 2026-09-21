@@ -227,11 +227,11 @@ export class UniversalAgentConnection {
         return (await self.handlePermissionRequest(params)) as never;
       })
       .onRequest(acp.methods.client.fs.readTextFile, async (ctx: unknown) => {
-        const params = (ctx as { params: { path: string; line?: number; limit?: number } }).params;
+        const params = (ctx as { params: { sessionId?: string; path: string; line?: number; limit?: number } }).params;
         return (await self.handleReadFile(params)) as never;
       })
       .onRequest(acp.methods.client.fs.writeTextFile, async (ctx: unknown) => {
-        const params = (ctx as { params: { path: string; content: string } }).params;
+        const params = (ctx as { params: { sessionId?: string; path: string; content: string } }).params;
         return (await self.handleWriteFile(params)) as never;
       })
       .onRequest(acp.methods.client.terminal.create, async (ctx: unknown) => {
@@ -243,15 +243,15 @@ export class UniversalAgentConnection {
         return (await self.handleTerminalOutput(params)) as never;
       })
       .onRequest(acp.methods.client.terminal.release, async (ctx: unknown) => {
-        const params = (ctx as { params: { terminalId: string } }).params;
+        const params = (ctx as { params: { sessionId?: string; terminalId: string } }).params;
         return (await self.handleTerminalRelease(params)) as never;
       })
       .onRequest(acp.methods.client.terminal.waitForExit, async (ctx: unknown) => {
-        const params = (ctx as { params: { terminalId: string } }).params;
+        const params = (ctx as { params: { sessionId?: string; terminalId: string } }).params;
         return (await self.handleTerminalWait(params)) as never;
       })
       .onRequest(acp.methods.client.terminal.kill, async (ctx: unknown) => {
-        const params = (ctx as { params: { terminalId: string } }).params;
+        const params = (ctx as { params: { sessionId?: string; terminalId: string } }).params;
         return (await self.handleTerminalKill(params)) as never;
       })
       .onRequest(acp.methods.client.elicitation.create, async (ctx: unknown) => {
@@ -368,17 +368,43 @@ export class UniversalAgentConnection {
     } as unknown as never);
   }
 
-  async loadSession(args: Record<string, unknown>): Promise<unknown> {
+  async loadSession(args: Record<string, unknown>): Promise<{ result: unknown; replayed: unknown[] }> {
     const conn = this.ensureConn();
-    this.assertCap("loadSession", (this.initResult as unknown as { agentCapabilities?: { loadSession?: boolean } })?.agentCapabilities?.loadSession);
-    // session/load replays history via session/update notifications -> route into sinks
     const sessionId = String((args as { sessionId?: string }).sessionId || "");
-    return conn.agent.request(acp.methods.agent.session.load, args as unknown as never, {
-      // route replayed updates while load is in-flight
-      onNotification: undefined as unknown as never,
-    } as unknown as never).catch((e) => {
-      throw e;
-    }).then((r) => r);
+    // session/load replays history via session/update notifications before
+    // responding. Collect them so HTTP clients can rebuild the transcript.
+    const replayed: unknown[] = [];
+    const unsub = sessionId ? this.subscribe(sessionId, (evt) => {
+      if ((evt as { type?: string }).type === "update") replayed.push((evt as { update?: unknown }).update);
+    }) : () => undefined;
+    try {
+      const result = await conn.agent.request(acp.methods.agent.session.load, args as unknown as never);
+      return { result, replayed };
+    } finally {
+      unsub();
+    }
+  }
+
+  /** UNSTABLE session/fork (advertised via sessionCapabilities.fork, e.g. codex). */
+  async forkSession(args: Record<string, unknown>): Promise<unknown> {
+    const conn = this.ensureConn();
+    return conn.agent.request(acp.methods.agent.session.fork, args as unknown as never);
+  }
+
+  /** UNSTABLE providers/* (advertised via providers capability, e.g. codex). */
+  async providersRpc(action: "list" | "set" | "disable", body: Record<string, unknown>): Promise<unknown> {
+    const conn = this.ensureConn();
+    const method =
+      action === "list" ? acp.methods.agent.providers.list
+      : action === "set" ? acp.methods.agent.providers.set
+      : acp.methods.agent.providers.disable;
+    return conn.agent.request(method, body as unknown as never);
+  }
+
+  /** Broadcast an fs/terminal/compaction activity line into session sinks. */
+  private emitActivity(sessionId: string, kind: string, detail?: unknown) {
+    if (!sessionId) return;
+    this.broadcast(sessionId, { type: "activity", agentId: this.profile.id, sessionId, kind, detail });
   }
 
   async resumeSession(args: Record<string, unknown>): Promise<unknown> {
@@ -415,7 +441,14 @@ export class UniversalAgentConnection {
 
   async setConfigOption(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
-    return conn.agent.request(acp.methods.agent.session.setConfigOption, args as unknown as never);
+    // Normalize to SetSessionConfigOptionRequest shapes:
+    // select -> {sessionId, configId, value: "<valueId>"} (value_id variant),
+    // boolean -> {sessionId, configId, type: "boolean", value: bool}.
+    const normalized: Record<string, unknown> = { ...args };
+    if (typeof normalized.value === "boolean" && !normalized.type) {
+      normalized.type = "boolean";
+    }
+    return conn.agent.request(acp.methods.agent.session.setConfigOption, normalized as unknown as never);
   }
 
   async cancel(sessionId: string): Promise<void> {
@@ -518,7 +551,8 @@ export class UniversalAgentConnection {
     return { outcome: { outcome: "cancelled" } };
   }
 
-  private async handleReadFile(params: { path: string; line?: number; limit?: number }): Promise<unknown> {
+  private async handleReadFile(params: { sessionId?: string; path: string; line?: number; limit?: number }): Promise<unknown> {
+    this.emitActivity(params.sessionId || "", "fs_read", { path: params.path, line: params.line, limit: params.limit });
     try {
       const content = await fsp.readFile(params.path, "utf8");
       const lines = content.split("\n");
@@ -533,7 +567,8 @@ export class UniversalAgentConnection {
     }
   }
 
-  private async handleWriteFile(params: { path: string; content: string }): Promise<unknown> {
+  private async handleWriteFile(params: { sessionId?: string; path: string; content: string }): Promise<unknown> {
+    this.emitActivity(params.sessionId || "", "fs_write", { path: params.path, bytes: Buffer.byteLength(params.content || "") });
     try {
       await fsp.mkdir(path.dirname(params.path), { recursive: true });
       await fsp.writeFile(params.path, params.content, "utf8");
@@ -555,6 +590,8 @@ export class UniversalAgentConnection {
     }
     const outputByteLimit = typeof params.outputByteLimit === "number" ? params.outputByteLimit : 256 * 1024;
     const id = `term-${Date.now()}-${this.termSeq++}`;
+    const sessionId = String(params.sessionId || "");
+    this.emitActivity(sessionId, "terminal_create", { terminalId: id, command, args, cwd });
     const proc = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: false });
     const rec: TerminalRecord = { id, proc, output: "", outputBytes: 0, cwd };
     this.terminals.set(id, rec);
@@ -587,7 +624,8 @@ export class UniversalAgentConnection {
     return { output: rec.output, exitStatus: rec.exited ? { code: rec.exited.code ?? 0 } : undefined };
   }
 
-  private async handleTerminalRelease(params: { terminalId: string }): Promise<unknown> {
+  private async handleTerminalRelease(params: { sessionId?: string; terminalId: string }): Promise<unknown> {
+    this.emitActivity(params.sessionId || "", "terminal_release", { terminalId: params.terminalId });
     const rec = this.terminals.get(params.terminalId);
     if (rec) {
       this.terminals.delete(params.terminalId);
@@ -610,7 +648,8 @@ export class UniversalAgentConnection {
     return { code };
   }
 
-  private async handleTerminalKill(params: { terminalId: string }): Promise<unknown> {
+  private async handleTerminalKill(params: { sessionId?: string; terminalId: string }): Promise<unknown> {
+    this.emitActivity(params.sessionId || "", "terminal_kill", { terminalId: params.terminalId });
     const rec = this.terminals.get(params.terminalId);
     if (!rec) throw new Error(`Unknown terminal ${params.terminalId}`);
     try {

@@ -1,5 +1,5 @@
 import React from "react";
-import { List, PlusCircle, Trash2, XCircle, Gauge, Command, Settings2 } from "lucide-react";
+import { List, PlusCircle, Trash2, XCircle, Gauge, Command, Settings2, GitFork, Cpu } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 
@@ -18,6 +18,10 @@ export interface SessionControlsProps {
   onSetMode: (modeId: string) => void;
   onSetConfig: (configId: string, value: unknown) => void;
   onInsertCommand: (name: string) => void;
+  onForkSession: () => void;
+  onOpenProviders: () => void;
+  supportsFork: boolean;
+  supportsProviders: boolean;
   busy: boolean;
 }
 
@@ -36,6 +40,12 @@ export const SessionControls: React.FC<SessionControlsProps> = (p) => {
         )}
         <div className="flex-1" />
         <Button size="sm" variant="outline" onClick={p.onNewSession} disabled={p.busy} className="h-6 text-[11px] gap-1"><PlusCircle className="w-3 h-3" />new</Button>
+        {p.supportsFork && (
+          <Button size="sm" variant="outline" onClick={p.onForkSession} disabled={p.busy || !p.sessionId} title="Fork 当前会话" className="h-6 text-[11px] gap-1"><GitFork className="w-3 h-3" />fork</Button>
+        )}
+        {p.supportsProviders && (
+          <Button size="sm" variant="outline" onClick={p.onOpenProviders} disabled={p.busy} title="Providers（模型通道）" className="h-6 text-[11px] gap-1"><Cpu className="w-3 h-3" />providers</Button>
+        )}
         <Button size="sm" variant="outline" onClick={p.onListSessions} disabled={p.busy} className="h-6 text-[11px] gap-1"><List className="w-3 h-3" />list</Button>
         <Button size="sm" variant="outline" onClick={p.onCloseSession} disabled={p.busy || !p.sessionId} className="h-6 text-[11px] gap-1"><XCircle className="w-3 h-3" />close</Button>
         <Button size="sm" variant="outline" onClick={p.onDeleteSession} disabled={p.busy || !p.sessionId} className="h-6 text-[11px] gap-1 text-rose-300"><Trash2 className="w-3 h-3" />delete</Button>
