@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ShieldAlert, Check } from "lucide-react";
 import { Button } from "../ui/button";
+import { BlurFade } from "../magicui/blur-fade";
 import type { PendingPermission } from "../../lib/universal-api";
 
 export interface PermissionDialogProps {
@@ -13,8 +14,10 @@ export const PermissionDialog: React.FC<PermissionDialogProps> = ({ pending, onR
   if (pending.length === 0) return null;
   return (
     <div className="px-4 pt-2 space-y-2">
-      {pending.map((p) => (
-        <PermissionCard key={p.permissionId} p={p} onRespond={onRespond} busy={respondingId === p.permissionId} />
+      {pending.map((p, i) => (
+        <BlurFade key={p.permissionId} delay={0.05 * Math.min(i, 3)}>
+          <PermissionCard p={p} onRespond={onRespond} busy={respondingId === p.permissionId} />
+        </BlurFade>
       ))}
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { Button } from "../ui/button";
+import { BlurFade } from "../magicui/blur-fade";
 import type { PendingElicitation } from "../../lib/universal-api";
 
 export interface ElicitationCardProps {
@@ -88,6 +89,7 @@ export const ElicitationCard: React.FC<ElicitationCardProps> = ({ e, onRespond, 
   };
 
   return (
+    <BlurFade>
     <div className="rounded-xl border border-sky-500/40 bg-sky-950/30 p-3 text-xs space-y-2">
       <div className="font-semibold text-sky-300">{title || e.message}</div>
       {description && <div className="text-sky-200/70">{description}</div>}
@@ -172,5 +174,6 @@ export const ElicitationCard: React.FC<ElicitationCardProps> = ({ e, onRespond, 
         <pre className="font-mono text-[10px] whitespace-pre-wrap max-h-32 overflow-y-auto">{JSON.stringify(e.schema, null, 2).slice(0, 2000)}</pre>
       </details>
     </div>
+    </BlurFade>
   );
 };

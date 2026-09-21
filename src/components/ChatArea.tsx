@@ -1,6 +1,10 @@
 import React, { useEffect, useRef } from "react";
+import { motion } from "framer-motion";
 import { User, Sparkles, Terminal, Copy, Check, Wrench, ShieldAlert, FileText, ArrowRight } from "lucide-react";
 import { Badge } from "./ui/badge";
+import { Skeleton } from "./ui/skeleton";
+import { BlurFade } from "./magicui/blur-fade";
+import { AnimatedShinyText } from "./magicui/animated-shiny-text";
 
 export interface Message {
   id: string;
@@ -113,9 +117,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       ) : (
         /* Messages Thread */
         <div className="max-w-4xl mx-auto space-y-6">
-          {messages.map((msg) => (
-            <div
+          {messages.map((msg, index) => {
+            const awaitingFirstToken =
+              msg.role === "assistant" &&
+              !!msg.isStreaming &&
+              !msg.content &&
+              !msg.thought &&
+              !(msg.toolCalls && msg.toolCalls.length > 0);
+            return (
+            <BlurFade
               key={msg.id}
+              delay={0.03 * Math.min(index, 4)}
               className={`flex gap-3.5 ${
                 msg.role === "user" ? "justify-end" : "justify-start"
               }`}
@@ -171,8 +183,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 </div>
 
                 {/* Tool Calls (if emitted by ACP) */}
+                {msg.isStreaming && !msg.thought && msg.role === "assistant" && (
+                  <div className="text-xs">
+                    <AnimatedShinyText>正在思考…</AnimatedShinyText>
+                  </div>
+                )}
                 {msg.thought && (
-                  <details className="rounded-lg bg-slate-950/70 border border-purple-500/20 px-2.5 py-1.5 text-xs text-purple-200/90">
+                  <details className="rounded-lg bg-slate-950/70 border border-purple-500/20 px-2.5 py-1.5 text-xs text-purple-200/90" open={!!msg.isStreaming}>
                     <summary className="cursor-pointer font-medium text-purple-300">思考过程 ({msg.thought.length} 字)</summary>
                     <div className="pt-1 whitespace-pre-wrap font-sans break-words opacity-90">{msg.thought}</div>
                   </details>
@@ -199,7 +216,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs text-slate-300 font-mono"
                       >
                         <Wrench className="w-3.5 h-3.5 text-indigo-400" />
-                        <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>{tc.title}</span>
+                        {tc.status === "running" || tc.status === "pending" ? (
+                          <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>
+                            <AnimatedShinyText>{tc.title}</AnimatedShinyText>
+                          </span>
+                        ) : (
+                          <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>{tc.title}</span>
+                        )}
                         <span
                           className={`w-2 h-2 rounded-full ${
                             tc.status === "running" || tc.status === "pending"
@@ -223,13 +246,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   </div>
                 )}
 
-                {/* Message Body text */}
-                <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans break-words selection:bg-indigo-500/40">
-                  {msg.content}
-                  {msg.isStreaming && (
-                    <span className="inline-block w-2 h-4 ml-1 bg-indigo-400 animate-pulse align-middle" />
-                  )}
-                </div>
+                {/* Message Body text / waiting skeleton */}
+                {awaitingFirstToken ? (
+                  <div className="space-y-2 py-1">
+                    <Skeleton className="h-3.5 w-[92%]" />
+                    <Skeleton className="h-3.5 w-[78%]" />
+                    <Skeleton className="h-3.5 w-[64%]" />
+                    <AnimatedShinyText className="text-xs">正在等待 {agentName} 响应…</AnimatedShinyText>
+                  </div>
+                ) : (
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans break-words selection:bg-indigo-500/40">
+                    {msg.content}
+                    {msg.isStreaming && (
+                      <motion.span
+                        className="inline-block w-2 h-4 ml-1 bg-indigo-400 align-middle"
+                        animate={{ opacity: [1, 0.15, 1] }}
+                        transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
+                      />
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* User Avatar */}
@@ -238,8 +274,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   <User className="w-4 h-4" />
                 </div>
               )}
-            </div>
-          ))}
+            </BlurFade>
+            );
+          })}
 
           <div ref={bottomRef} />
         </div>
