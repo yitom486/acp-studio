@@ -79,3 +79,12 @@ code, pre {
   border: 1px solid hsl(var(--border));
   box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
 }
+
+/* Electron window drag & safe area helpers */
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}

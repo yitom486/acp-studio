@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from "react";
-import { Send, Square, Trash2, Paperclip, ImagePlus, X, Command, Cpu, Brain, ShieldCheck, LayoutGrid } from "lucide-react";
+import { Send, Square, Trash2, Paperclip, ImagePlus, X, Command, Cpu, Brain, ShieldCheck, LayoutGrid, Settings2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { configCurrentValue, findConfigOption, type Attachment, type ConfigOptionLike, type ModelCatalogEntry } from "../../lib/universal-api";
 
@@ -202,6 +202,9 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
   const modelOpt = pickRole(p.configOptions, "model");
   const thinkOpt = pickRole(p.configOptions, "thinking");
   const permOpt = pickRole(p.configOptions, "permission");
+  const otherOpts = (p.configOptions || []).filter(
+    (o) => o !== modelOpt && o !== thinkOpt && o !== permOpt
+  );
 
   const muted = (text: string, title?: string) => (
     <span className="text-[11px] text-muted-foreground font-mono" title={title}>
@@ -216,10 +219,10 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
         <button
           type="button"
           onClick={() => p.onEnsureSession?.()}
-          title="创建会话以加载模型配置"
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary"
+          title="点击创建会话以加载可用模型"
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors cursor-pointer"
         >
-          <Cpu className="w-3.5 h-3.5" />模型：获取中…
+          <Cpu className="w-3.5 h-3.5" />点击加载模型
         </button>
       );
     }
@@ -350,6 +353,19 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
               >
                 +
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!p.input.trim().startsWith("/")) {
+                    p.setInput("/" + p.input.trimStart());
+                  }
+                  textareaRef.current?.focus();
+                }}
+                title="唤出 Slash 快捷命令菜单"
+                className="px-1.5 py-1 rounded-md text-xs font-mono font-bold text-muted-foreground hover:text-primary hover:bg-muted/80 transition-colors leading-none"
+              >
+                /
+              </button>
             </div>
             {p.connected && (
               <>
@@ -362,6 +378,26 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 {permOpt
                   ? renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-warning shrink-0" />, "权限")
                   : muted("权限：—", "该 Agent 未提供权限配置")}
+                {otherOpts.map((opt) =>
+                  opt.type === "boolean" ? (
+                    <label
+                      key={opt.id}
+                      className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none"
+                      title={opt.description || opt.name}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(opt.currentValue)}
+                        disabled={p.isStreaming}
+                        onChange={(e) => p.onSetConfig?.(opt.id, e.target.checked)}
+                        className="rounded border-border text-primary focus:ring-primary/20"
+                      />
+                      <span className="text-[11px] font-medium">{opt.name || opt.id}</span>
+                    </label>
+                  ) : (
+                    renderSelect(opt, <Settings2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />, opt.name || opt.id)
+                  )
+                )}
               </>
             )}
             {p.onBrowseModels && (

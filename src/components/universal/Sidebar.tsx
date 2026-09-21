@@ -40,11 +40,11 @@ function shortCwd(cwd?: string): string {
 
 export const Sidebar: React.FC<SidebarProps> = (p) => {
   return (
-    <aside className="w-64 shrink-0 border-r border-border/80 bg-background/90 flex flex-col text-xs overflow-hidden">
+    <aside className="w-64 shrink-0 border-r border-border/80 bg-background/90 flex flex-col text-xs overflow-hidden select-none">
       {/* Agents */}
-      <div className="px-3 pt-3 pb-2 flex items-center justify-between">
+      <div className="px-3.5 pt-4 pb-2.5 flex items-center justify-between app-drag">
         <span className="font-bold text-muted-foreground tracking-wide">AGENTS</span>
-        <button onClick={p.onManageCustom} title="添加 / 管理自定义 agent" className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+        <button onClick={p.onManageCustom} title="添加 / 管理自定义 agent" className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground app-no-drag">
           <PlusCircle className="w-3.5 h-3.5" />自定
         </button>
       </div>

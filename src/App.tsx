@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChatArea } from "./components/ChatArea";
-import { AgentBar } from "./components/universal/AgentBar";
+import { StudioHeader } from "./components/universal/StudioHeader";
 import { Sidebar, type SessionItem } from "./components/universal/Sidebar";
-import { SessionControls } from "./components/universal/SessionControls";
 import { SessionSettingsModal, type SessionSettings } from "./components/universal/SessionSettingsModal";
 import { ProvidersModal } from "./components/universal/ProvidersModal";
 import { PermissionDialog } from "./components/universal/PermissionDialog";
@@ -159,12 +158,10 @@ export default function App() {
       invalidateAgents(qc);
       await probeAuth(id);
       invalidateSessions(qc, id);
-      // Auto-create a session so model/thinking/permission selectors
+      // Auto-create or ensure an active session so model/thinking/permission selectors
       // (which come from session configOptions) show up immediately.
-      if (id === useStudioStore.getState().activeAgentId && !useStudioStore.getState().sessionId) {
-        ensuredRef.current = id;
-        await ensureSession(id);
-      }
+      ensuredRef.current = id;
+      await ensureSession(id, true);
     } catch (e: any) {
       const msg = e?.message && e.message !== "null" ? e.message : "连接超时或进程异常退出";
       alert(`连接 ${id} 失败: ${msg}`);
@@ -226,15 +223,18 @@ export default function App() {
   };
 
   const appendActivity = (a: ActivityEvent) => {
+    // Internal metadata / control events should never be dumped as raw chat messages
+    if (!a?.kind || a.kind === "session_info_update" || a.kind.endsWith("_update") || a.kind === "plan") return;
     const icon =
       a.kind === "fs_read" ? "📖" : a.kind === "fs_write" ? "📝" : a.kind.startsWith("terminal") ? "▶️" : a.kind.startsWith("compaction") ? "🗜️" : a.kind.startsWith("plan") ? "📋" : "🔧";
     let summary = "";
     try {
       const d: any = a.detail || {};
-      summary = d.path || d.command || d.terminalId || d.status || JSON.stringify(d).slice(0, 160);
+      summary = d.path || d.command || d.terminalId || d.status || (typeof d === "string" ? d : "");
     } catch {
       summary = "";
     }
+    if (!summary) return;
     const line = `${icon} [${a.kind}] ${summary}`.trim();
     useStudioStore.getState().appendMessage({ id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: "system", content: line, timestamp: now() });
   };
@@ -257,6 +257,13 @@ export default function App() {
         const t = buildTranscriptFromReplay(replayed || []);
         const cur = useStudioStore.getState();
         cur.setSessionId(item.sessionId);
+        if (t.sessionTitle || t.sessionGoal !== undefined) {
+          cur.setSessionInfo({
+            ...(cur.sessionInfo || {}),
+            title: t.sessionTitle || item.title || cur.sessionInfo?.title,
+            goal: t.sessionGoal !== undefined ? t.sessionGoal : cur.sessionInfo?.goal,
+          });
+        }
         cur.setMessages(
           t.messages.map((m, i) => ({
             id: `hist-${Date.now()}-${i}`,
@@ -596,23 +603,10 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="h-14 border-b border-border/80 bg-background/80 px-5 flex items-center gap-3 shrink-0">
-          <div>
-            <h1 className="font-bold text-sm">ACP Studio <span className="text-primary">Universal</span></h1>
-            <p className="text-[10px] text-muted-foreground font-mono">
-              {activeAgent?.title || s.activeAgentId} · ACP v{activeAgent?.status?.protocolVersion ?? "?"}
-              {s.sessionId ? ` · ${s.sessionId.slice(0, 13)}…` : " · 无会话"}
-            </p>
-          </div>
-          <div className="flex-1" />
-          <button onClick={() => s.setSettingsOpen(true)} disabled={s.isStreaming || s.busy} className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40">新会话</button>
-          <button onClick={() => !s.isStreaming && s.setMessages([])} disabled={s.isStreaming} className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40">清空</button>
-        </div>
-
-        <AgentBar
+        <StudioHeader
           agents={agents}
           activeAgentId={s.activeAgentId}
-          onSelect={handleSelectAgent}
+          onSelectAgent={handleSelectAgent}
           onConnect={() => handleConnect()}
           connecting={s.connectingId === s.activeAgentId}
           onOpenAuth={() => s.setAuthOpen(true)}
@@ -625,17 +619,18 @@ export default function App() {
             }
           }}
           authOk={s.authOk[s.activeAgentId] ?? null}
-        />
-
-        <SessionControls
           sessionId={s.sessionId}
-          modes={s.modes}
-          configOptions={s.configOptions}
-          availableCommands={s.availableCommands}
+          sessionTitle={s.sessionInfo?.title}
           usage={s.usage}
-          sessionInfo={s.sessionInfo}
-          capabilities={activeAgent?.status?.agentCapabilities}
+          hasChangesCwd={!!sessionCwd}
+          supportsFork={supportsFork}
+          supportsProviders={supportsProviders}
+          busy={s.busy || s.isStreaming}
+          isStreaming={s.isStreaming}
           onNewSession={() => s.setSettingsOpen(true)}
+          onForkSession={() => handleForkSession()}
+          onOpenProviders={() => s.setProvidersOpen(true)}
+          onOpenChanges={() => setChangesOpen(true)}
           onCloseSession={async () => {
             const cur = useStudioStore.getState();
             if (!cur.sessionId) return;
@@ -652,28 +647,7 @@ export default function App() {
             cur.resetThread();
             invalidateSessions(qc, cur.activeAgentId);
           }}
-          onListSessions={async () => {
-            invalidateSessions(qc, useStudioStore.getState().activeAgentId);
-          }}
-          onSetMode={async (modeId) => {
-            const cur = useStudioStore.getState();
-            if (!cur.sessionId) return;
-            try {
-              await sessionRpc(cur.activeAgentId, "set_mode", { sessionId: cur.sessionId, modeId });
-              if (cur.modes) cur.setModes({ ...cur.modes, currentModeId: modeId });
-            } catch (e: any) {
-              alert(`set_mode 失败: ${e.message}`);
-            }
-          }}
-          onSetConfig={(configId, value) => setSessionConfig(configId, value)}
-          onInsertCommand={(cmd) => useStudioStore.getState().setInput(`${useStudioStore.getState().input ? useStudioStore.getState().input + " " : ""}${cmd}`)}
-          onForkSession={() => handleForkSession()}
-          onOpenProviders={() => s.setProvidersOpen(true)}
-          onOpenChanges={() => setChangesOpen(true)}
-          hasChangesCwd={!!sessionCwd}
-          supportsFork={supportsFork}
-          supportsProviders={supportsProviders}
-          busy={s.busy || s.isStreaming}
+          onClearMessages={() => !s.isStreaming && s.setMessages([])}
         />
 
         <PermissionDialog pending={s.pendingPerms.filter((p) => !s.sessionId || p.sessionId === s.sessionId)} onRespond={handlePermRespond} respondingId={s.respondingId} />

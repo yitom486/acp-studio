@@ -83,10 +83,14 @@ describe("consumeUniversalChat (v1 full updates)", () => {
       { sessionUpdate: "available_commands_update", availableCommands: [{ name: "/status" }] },
       { sessionUpdate: "current_mode_update", currentModeId: "agent" },
     ]);
-    expect(t.messages).toHaveLength(3);
+    expect(t.messages).toHaveLength(2);
     expect(t.messages[0]).toMatchObject({ role: "user", content: "hello" });
-    expect(t.messages[1]).toMatchObject({ role: "assistant", content: "hi there", thought: "hmm" });
-    expect(t.messages[2].toolCalls?.[0]).toMatchObject({ id: "t1", status: "completed" });
+    expect(t.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "hi there",
+      thought: "hmm",
+    });
+    expect(t.messages[1].toolCalls?.[0]).toMatchObject({ id: "t1", status: "completed" });
     expect(t.plan).toHaveLength(1);
     expect(t.usage).toMatchObject({ used: 10, size: 100 });
     expect(t.availableCommands).toHaveLength(1);

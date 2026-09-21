@@ -119,55 +119,81 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         /* Messages Thread */
         <div className="max-w-4xl mx-auto space-y-6">
           {messages.map((msg, index) => {
+            if (msg.role === "user") {
+              return (
+                <BlurFade
+                  key={msg.id}
+                  delay={0.03 * Math.min(index, 4)}
+                  className="flex gap-3 justify-end items-start group"
+                >
+                  <div className="flex flex-col items-end gap-1 max-w-[80%]">
+                    {/* User message bubble: comfortable padding, rounded tail, break words, no overflow */}
+                    <div className="rounded-2xl rounded-tr-xs bg-primary text-primary-foreground px-4 py-2.5 shadow-sm break-words whitespace-pre-wrap text-sm leading-relaxed font-sans selection:bg-background/25">
+                      {msg.content}
+                    </div>
+                    {/* Timestamp & subtle copy on hover */}
+                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60 px-1 font-mono">
+                      <span>{msg.timestamp}</span>
+                      <button
+                        onClick={() => handleCopy(msg.id, msg.content)}
+                        className="opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity"
+                        title="复制内容"
+                      >
+                        {copiedId === msg.id ? (
+                          <Check className="w-3 h-3 text-success" />
+                        ) : (
+                          <Copy className="w-3 h-3" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  {/* User Avatar */}
+                  <div className="shrink-0 w-8 h-8 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shadow-sm mt-0.5">
+                    <User className="w-4 h-4" />
+                  </div>
+                </BlurFade>
+              );
+            }
+
             const awaitingFirstToken =
               msg.role === "assistant" &&
               !!msg.isStreaming &&
               !msg.content &&
               !msg.thought &&
               !(msg.toolCalls && msg.toolCalls.length > 0);
+
             return (
-            <BlurFade
-              key={msg.id}
-              delay={0.03 * Math.min(index, 4)}
-              className={`flex gap-3.5 ${
-                msg.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              {/* Agent Avatar */}
-              {msg.role === "assistant" && (
-                <div className="shrink-0 w-8 h-8 rounded-xl bg-primary flex items-center justify-center text-primary-foreground mt-1">
+              <BlurFade
+                key={msg.id}
+                delay={0.03 * Math.min(index, 4)}
+                className="flex gap-3.5 justify-start items-start group"
+              >
+                {/* Agent Avatar */}
+                <div className="shrink-0 w-8 h-8 rounded-xl bg-primary flex items-center justify-center text-primary-foreground mt-1 shadow-sm">
                   <Sparkles className="w-4 h-4" />
                 </div>
-              )}
 
-              {/* Message Content Container */}
-              <div
-                className={`max-w-[85%] rounded-2xl p-4.5 space-y-2.5 shadow-lg ${
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground rounded-tr-sm"
-                    : "bg-card/90 border border-border text-foreground rounded-tl-sm backdrop-blur-md"
-                }`}
-              >
-                {/* Meta info header */}
-                <div className="flex items-center justify-between gap-4 text-[11px] pb-1 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-foreground">
-                      {msg.role === "user" ? "You" : msg.role === "system" ? "System" : agentName}
-                    </span>
-                    {msg.model && (
-                      <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">
-                        {msg.model}
-                      </Badge>
-                    )}
-                    {msg.mode && msg.mode !== "default" && (
-                      <Badge variant="warning" className="text-[10px] h-4 px-1.5 font-mono">
-                        {msg.mode}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <span>{msg.timestamp}</span>
-                    {msg.role === "assistant" && (
+                {/* Message Content Container */}
+                <div className="max-w-[85%] rounded-2xl rounded-tl-xs p-4 sm:p-5 space-y-3 shadow-md bg-card/90 border border-border text-foreground backdrop-blur-md">
+                  {/* Meta info header */}
+                  <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-foreground">
+                        {msg.role === "system" ? "System" : agentName}
+                      </span>
+                      {msg.model && (
+                        <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">
+                          {msg.model}
+                        </Badge>
+                      )}
+                      {msg.mode && msg.mode !== "default" && (
+                        <Badge variant="warning" className="text-[10px] h-4 px-1.5 font-mono">
+                          {msg.mode}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <span>{msg.timestamp}</span>
                       <button
                         onClick={() => handleCopy(msg.id, msg.content)}
                         className="hover:text-foreground transition-colors"
@@ -179,107 +205,95 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           <Copy className="w-3.5 h-3.5" />
                         )}
                       </button>
-                    )}
+                    </div>
                   </div>
-                </div>
 
-                {/* Tool Calls (if emitted by ACP) */}
-                {msg.isStreaming && !msg.thought && msg.role === "assistant" && (
-                  <div className="text-xs">
-                    <AnimatedShinyText>正在思考…</AnimatedShinyText>
-                  </div>
-                )}
-                {msg.thought && (
-                  <details className="rounded-lg bg-background/70 border border-primary/20 px-2.5 py-1.5 text-xs text-primary/90" open={!!msg.isStreaming}>
-                    <summary className="cursor-pointer font-medium text-primary">思考过程 ({msg.thought.length} 字)</summary>
-                    <div className="pt-1 whitespace-pre-wrap font-sans break-words opacity-90">{msg.thought}</div>
-                  </details>
-                )}
+                  {/* Tool Calls (if emitted by ACP) */}
+                  {msg.isStreaming && !msg.thought && (
+                    <div className="text-xs">
+                      <AnimatedShinyText>正在思考…</AnimatedShinyText>
+                    </div>
+                  )}
+                  {msg.thought && (
+                    <details className="rounded-lg bg-background/70 border border-primary/20 px-3 py-2 text-xs text-primary/90" open={!!msg.isStreaming}>
+                      <summary className="cursor-pointer font-medium text-primary">思考过程 ({msg.thought.length} 字)</summary>
+                      <div className="pt-1.5 whitespace-pre-wrap font-sans break-words opacity-90">{msg.thought}</div>
+                    </details>
+                  )}
 
-                {msg.plan && msg.plan.length > 0 && (
-                  <div className="rounded-lg bg-background/70 border border-border px-2.5 py-1.5 text-xs space-y-1">
-                    <div className="font-semibold text-muted-foreground">执行计划</div>
-                    {msg.plan.map((pl, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-muted-foreground">
-                        <span className={`w-1.5 h-1.5 rounded-full ${pl.status === "completed" ? "bg-success" : pl.status === "in_progress" ? "bg-warning animate-pulse" : "bg-muted-foreground"}`} />
-                        <span className="flex-1 truncate">{pl.content}</span>
-                        {pl.priority && <span className="font-mono text-[10px] text-muted-foreground">{pl.priority}</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  {msg.plan && msg.plan.length > 0 && (
+                    <div className="rounded-lg bg-background/70 border border-border px-3 py-2 text-xs space-y-1.5">
+                      <div className="font-semibold text-muted-foreground">执行计划</div>
+                      {msg.plan.map((pl, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-muted-foreground">
+                          <span className={`w-1.5 h-1.5 rounded-full ${pl.status === "completed" ? "bg-success" : pl.status === "in_progress" ? "bg-warning animate-pulse" : "bg-muted-foreground"}`} />
+                          <span className="flex-1 truncate">{pl.content}</span>
+                          {pl.priority && <span className="font-mono text-[10px] text-muted-foreground">{pl.priority}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-                {msg.toolCalls && msg.toolCalls.length > 0 && (
-                  <div className="space-y-1.5 pt-1">
-                    {msg.toolCalls.map((tc, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-background/80 border border-border text-xs text-muted-foreground font-mono"
-                      >
-                        <Wrench className="w-3.5 h-3.5 text-primary" />
-                        {tc.status === "running" || tc.status === "pending" ? (
-                          <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>
-                            <AnimatedShinyText>{tc.title}</AnimatedShinyText>
-                          </span>
-                        ) : (
-                          <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>{tc.title}</span>
-                        )}
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            tc.status === "running" || tc.status === "pending"
-                              ? "bg-warning animate-pulse"
-                              : tc.status === "completed"
-                              ? "bg-success"
-                              : tc.status === "cancelled"
-                              ? "bg-muted-foreground"
-                              : "bg-destructive"
-                          }`}
+                  {msg.toolCalls && msg.toolCalls.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {msg.toolCalls.map((tc, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-background/80 border border-border text-xs text-muted-foreground font-mono"
+                        >
+                          <Wrench className="w-3.5 h-3.5 text-primary" />
+                          {tc.status === "running" || tc.status === "pending" ? (
+                            <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>
+                              <AnimatedShinyText>{tc.title}</AnimatedShinyText>
+                            </span>
+                          ) : (
+                            <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>{tc.title}</span>
+                          )}
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              tc.status === "running" || tc.status === "pending"
+                                ? "bg-warning animate-pulse"
+                                : tc.status === "completed"
+                                ? "bg-success"
+                                : tc.status === "cancelled"
+                                ? "bg-muted-foreground"
+                                : "bg-destructive"
+                            }`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {msg.usage && (
+                    <div className="font-mono text-[10px] text-muted-foreground">
+                      context {msg.usage.used.toLocaleString()}/{msg.usage.size.toLocaleString()}
+                      {msg.usage.cost ? ` · $${msg.usage.cost.amount} ${msg.usage.cost.currency}` : ""}
+                    </div>
+                  )}
+
+                  {/* Message Body text / waiting skeleton */}
+                  {awaitingFirstToken ? (
+                    <div className="space-y-2 py-1">
+                      <Skeleton className="h-3.5 w-[92%]" />
+                      <Skeleton className="h-3.5 w-[78%]" />
+                      <Skeleton className="h-3.5 w-[64%]" />
+                      <AnimatedShinyText className="text-xs">正在等待 {agentName} 响应…</AnimatedShinyText>
+                    </div>
+                  ) : (
+                    <div>
+                      <Markdown text={msg.content} />
+                      {msg.isStreaming && (
+                        <motion.span
+                          className="inline-block w-2 h-4 ml-1 bg-primary align-middle"
+                          animate={{ opacity: [1, 0.15, 1] }}
+                          transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
                         />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {msg.usage && (
-                  <div className="font-mono text-[10px] text-muted-foreground">
-                    context {msg.usage.used.toLocaleString()}/{msg.usage.size.toLocaleString()}
-                    {msg.usage.cost ? ` · $${msg.usage.cost.amount} ${msg.usage.cost.currency}` : ""}
-                  </div>
-                )}
-
-                {/* Message Body text / waiting skeleton */}
-                {awaitingFirstToken ? (
-                  <div className="space-y-2 py-1">
-                    <Skeleton className="h-3.5 w-[92%]" />
-                    <Skeleton className="h-3.5 w-[78%]" />
-                    <Skeleton className="h-3.5 w-[64%]" />
-                    <AnimatedShinyText className="text-xs">正在等待 {agentName} 响应…</AnimatedShinyText>
-                  </div>
-                ) : msg.role === "assistant" ? (
-                  <div>
-                    <Markdown text={msg.content} />
-                    {msg.isStreaming && (
-                      <motion.span
-                        className="inline-block w-2 h-4 ml-1 bg-primary align-middle"
-                        animate={{ opacity: [1, 0.15, 1] }}
-                        transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans break-words selection:bg-primary/40">
-                    {msg.content}
-                  </div>
-                )}
-              </div>
-
-              {/* User Avatar */}
-              {msg.role === "user" && (
-                <div className="shrink-0 w-8 h-8 rounded-xl bg-muted border border-border flex items-center justify-center text-muted-foreground shadow-md mt-1">
-                  <User className="w-4 h-4" />
+                      )}
+                    </div>
+                  )}
                 </div>
-              )}
-            </BlurFade>
+              </BlurFade>
             );
           })}
 

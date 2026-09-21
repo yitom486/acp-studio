@@ -556,6 +556,7 @@ function mapToolStatus(s: unknown): ToolCallItem["status"] {
 
 export interface RebuiltTranscript {
   messages: Array<{
+    id?: string;
     role: "user" | "assistant";
     content: string;
     thought?: string;
@@ -566,60 +567,123 @@ export interface RebuiltTranscript {
   usage: { used: number; size: number; cost?: { amount: number; currency: string } } | null;
   availableCommands: Array<{ name: string; description?: string }>;
   currentModeId: string | null;
+  sessionTitle?: string;
+  sessionGoal?: string | null;
   activities: ActivityEvent[];
 }
 
 /**
+ * Polymorphic text extractor compatible with all ACP and vendor implementations:
+ * supports { text }, { type: "text", text }, raw strings, arrays, or nested { content }.
+ */
+export function extractText(val: any): string {
+  if (val === null || val === undefined) return "";
+  if (typeof val === "string") return val;
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  if (Array.isArray(val)) {
+    return val.map(extractText).join("");
+  }
+  if (typeof val === "object") {
+    if (typeof val.text === "string") return val.text;
+    if (val.content !== undefined) return extractText(val.content);
+    if (typeof val.value === "string") return val.value;
+  }
+  return "";
+}
+
+/**
  * Rebuild a readable transcript from session/load replayed updates.
- * Groups message chunks by messageId; tool/plan/usage/commands fold into state.
+ * Groups message chunks by messageId or conversational turn; aggregates
+ * tool calls into the active assistant turn; folds plan/usage/commands/session_info
+ * into metadata instead of cluttering chat history.
  */
 export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
-  const out: RebuiltTranscript = { messages: [], plan: [], usage: null, availableCommands: [], currentModeId: null, activities: [] };
-  const byId = new Map<string, { role: "user" | "assistant"; content: string; thought?: string; toolCalls?: ToolCallItem[]; messageId?: string }>();
+  const out: RebuiltTranscript = {
+    messages: [],
+    plan: [],
+    usage: null,
+    availableCommands: [],
+    currentModeId: null,
+    activities: [],
+  };
+
+  const byId = new Map<string, {
+    role: "user" | "assistant";
+    content: string;
+    thought?: string;
+    toolCalls?: ToolCallItem[];
+    messageId?: string;
+  }>();
   const order: string[] = [];
   let seq = 0;
-  const key = (mid?: string) => {
-    if (mid && byId.has(mid)) return mid;
-    const k = mid || `replay-${seq++}`;
+  let lastUserKey: string | null = null;
+  let lastAssistantKey: string | null = null;
+
+  const ensureMessage = (role: "user" | "assistant", mid?: string) => {
+    if (mid && byId.has(mid)) {
+      const existing = byId.get(mid)!;
+      existing.role = role;
+      return mid;
+    }
+    const k = mid || `${role}-replay-${seq++}`;
     if (!byId.has(k)) {
-      byId.set(k, { role: "assistant", content: "", messageId: mid });
+      byId.set(k, { role, content: "", messageId: mid, toolCalls: [] });
       order.push(k);
     }
     return k;
   };
-  const textOf = (u: any): string => {
-    const c = u?.content;
-    if (!c) return "";
-    if (c.type === "text" && typeof c.text === "string") return c.text;
-    if (Array.isArray(c)) return c.filter((b) => b?.type === "text").map((b) => b.text).join("");
-    return "";
-  };
 
   for (const u of replayed || []) {
     const kind = u?.sessionUpdate as string;
+
     if (kind === "user_message_chunk") {
-      const k = key(u.messageId);
+      const k = u.messageId ? ensureMessage("user", u.messageId) : (lastUserKey || ensureMessage("user"));
+      lastUserKey = k;
+      lastAssistantKey = null; // Reset assistant turn
       const m = byId.get(k)!;
       m.role = "user";
-      m.content += textOf(u);
+      m.content += extractText(u);
     } else if (kind === "agent_message_chunk") {
-      const k = key(u.messageId);
-      byId.get(k)!.content += textOf(u);
+      const k = u.messageId ? ensureMessage("assistant", u.messageId) : (lastAssistantKey || ensureMessage("assistant"));
+      lastAssistantKey = k;
+      const m = byId.get(k)!;
+      m.content += extractText(u);
     } else if (kind === "agent_thought_chunk") {
-      const k = key(u.messageId);
+      const k = u.messageId ? ensureMessage("assistant", u.messageId) : (lastAssistantKey || ensureMessage("assistant"));
+      lastAssistantKey = k;
       const m = byId.get(k)!;
-      m.thought = (m.thought || "") + textOf(u);
+      m.thought = (m.thought || "") + extractText(u);
     } else if (kind === "tool_call") {
-      const k = key(undefined);
+      // Aggregate tool calls into current assistant turn
+      const k = lastAssistantKey || ensureMessage("assistant", u.messageId);
+      lastAssistantKey = k;
       const m = byId.get(k)!;
-      m.toolCalls = [...(m.toolCalls || []), { id: u.toolCallId, title: u.title || "Tool call", kind: u.kind, status: (u.status as ToolCallItem["status"]) || "pending" }];
+      const newTool: ToolCallItem = {
+        id: u.toolCallId || `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        title: u.title || (u.rawInput?.command ? String(u.rawInput.command) : "Tool call"),
+        kind: u.kind,
+        status: (u.status as ToolCallItem["status"]) || "pending",
+      };
+      m.toolCalls = [...(m.toolCalls || []), newTool];
     } else if (kind === "tool_call_update") {
       for (const m of byId.values()) {
         const t = m.toolCalls?.find((x) => x.id === u.toolCallId);
         if (t) {
-          Object.assign(t, { title: u.title || t.title, kind: u.kind ?? t.kind, status: mapToolStatus(u.status) });
+          Object.assign(t, {
+            title: u.title || t.title,
+            kind: u.kind ?? t.kind,
+            status: mapToolStatus(u.status),
+          });
           break;
         }
+      }
+    } else if (kind === "session_info_update") {
+      // Extract session title / goal without polluting the chat stream with raw JSON
+      if (u.title && typeof u.title === "string") {
+        out.sessionTitle = u.title;
+      }
+      if (u._meta?.goal !== undefined) {
+        out.sessionGoal = u._meta.goal;
       }
     } else if (kind === "plan") {
       out.plan = (u.entries || []) as PlanEntry[];
@@ -630,9 +694,14 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
     } else if (kind === "usage_update") {
       out.usage = { used: u.used, size: u.size, cost: u.cost };
     } else if (kind) {
+      // Only generic unhandled activities
       out.activities.push({ kind, detail: u });
     }
   }
-  out.messages = order.map((k) => byId.get(k)!).filter((m) => m.content || m.thought || (m.toolCalls && m.toolCalls.length > 0));
+
+  out.messages = order
+    .map((k) => byId.get(k)!)
+    .filter((m) => m.content || m.thought || (m.toolCalls && m.toolCalls.length > 0));
+
   return out;
 }
