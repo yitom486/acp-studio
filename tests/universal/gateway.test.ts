@@ -26,11 +26,13 @@ afterAll(() => {
 });
 
 describe("Universal ACP gateway (v1)", () => {
-  it("ships codex-acp preset with stdio npx command", () => {
+  it("ships codex-acp preset with stdio command (local or npx fallback)", () => {
     const codex = resolveBuiltin("codex");
     expect(codex).toBeDefined();
-    expect(codex!.command.toLowerCase()).toContain("npx");
-    expect(codex!.args!.join(" ")).toContain("@agentclientprotocol/codex-acp");
+    const cmd = codex!.command.toLowerCase();
+    expect(cmd.includes("npx") || cmd.includes("node") || cmd.includes("bun")).toBe(true);
+    const argsNormalized = codex!.args!.join(" ").replace(/\\/g, "/");
+    expect(argsNormalized).toContain("@agentclientprotocol/codex-acp");
   });
 
   it("ships all expected builtins (official CLI entries)", () => {

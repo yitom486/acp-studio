@@ -149,7 +149,8 @@ function handleGit(req: Request, url: URL): Response | null {
  * auth flow without sniffing message text.
  */
 export function gatewayErrorBody(err: unknown): { status: number; body: Record<string, unknown> } {
-  const message = err instanceof Error ? err.message : String(err ?? "request failed");
+  const rawMsg = err instanceof Error ? err.message : String(err ?? "request failed");
+  const message = (rawMsg && rawMsg !== "null" && rawMsg !== "undefined") ? rawMsg : "request failed";
   const code = acpErrorCode(err);
   const authRequired = isAuthRequiredError(err);
   return {
@@ -237,7 +238,10 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
         const init = await conn.connect();
         return json({ ok: true, status: conn.status(), init });
       } catch (err) {
-        return json({ ok: false, error: (err as Error).message, status: getConn().status() }, 500);
+        const st = getConn().status();
+        const rawMsg = err instanceof Error ? err.message : String(err ?? "");
+        const error = (rawMsg && rawMsg !== "null" && rawMsg !== "undefined") ? rawMsg : (st.lastError || "Agent connection failed");
+        return json({ ok: false, error, status: st }, 500);
       }
     }
 

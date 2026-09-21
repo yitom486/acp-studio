@@ -143,7 +143,11 @@ export class GatewayError extends Error {
 }
 
 function throwGatewayError(data: any, fallback: string, status = 500): never {
-  throw new GatewayError(data?.error || fallback, {
+  const errMsg =
+    typeof data?.error === "string" && data.error.trim() && data.error !== "null" && data.error !== "undefined"
+      ? data.error
+      : fallback;
+  throw new GatewayError(errMsg, {
     authRequired: !!data?.authRequired,
     status,
     code: typeof data?.code === "number" ? data.code : undefined,
@@ -254,11 +258,24 @@ export async function fetchAgents(): Promise<AgentSummary[]> {
   return data.agents;
 }
 
+const inFlightConnect = new Map<string, Promise<any>>();
+
 export async function connectAgent(agentId: string) {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/connect`, { method: "POST" });
-  const data = await res.json();
-  if (!data.ok) throwGatewayError(data, "connect failed", res.status);
-  return data;
+  if (inFlightConnect.has(agentId)) {
+    return inFlightConnect.get(agentId)!;
+  }
+  const promise = (async () => {
+    try {
+      const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/connect`, { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) throwGatewayError(data, "connect failed", res.status);
+      return data;
+    } finally {
+      inFlightConnect.delete(agentId);
+    }
+  })();
+  inFlightConnect.set(agentId, promise);
+  return promise;
 }
 
 export async function agentStatus(agentId: string) {

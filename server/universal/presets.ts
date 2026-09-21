@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+import * as fs from "node:fs";
 import type { AgentProfile } from "./types";
 
 /**
@@ -16,6 +18,26 @@ function npxArgs(pkg: string, extra: string[] = []): string[] {
 
 const npx = () => (process.platform === "win32" ? "npx.cmd" : "npx");
 
+export function resolveNpxOrLocal(pkg: string, extra: string[] = []): { command: string; args: string[] } {
+  try {
+    const meta = (import.meta as unknown as { url?: string })?.url;
+    const req = meta ? createRequire(meta) : (globalThis as any).require;
+    const resolved = req?.resolve?.(pkg);
+    if (resolved && fs.existsSync(resolved)) {
+      return {
+        command: process.execPath,
+        args: [resolved, ...extra],
+      };
+    }
+  } catch {
+    // fallback to npx
+  }
+  return {
+    command: npx(),
+    args: npxArgs(pkg, extra),
+  };
+}
+
 export const BUILTIN_AGENTS: AgentProfile[] = [
   {
     id: "codex",
@@ -24,8 +46,7 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
     description: "OpenAI Codex via @agentclientprotocol/codex-acp (stdio). Supports modes, models, slash commands.",
     homepage: "https://github.com/agentclientprotocol/codex-acp",
     builtin: true,
-    command: npx(),
-    args: npxArgs("@agentclientprotocol/codex-acp"),
+    ...resolveNpxOrLocal("@agentclientprotocol/codex-acp"),
     env: {},
     authHint: "复用本地 ChatGPT 登录（~/.codex/auth.json）或 CODEX_API_KEY / OPENAI_API_KEY（环境透传）。",
     installHint: "npm i -g @agentclientprotocol/codex-acp，或先装 Codex CLI 并完成登录。",
@@ -34,11 +55,11 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
     id: "antigravity-stdio",
     name: "antigravity-acp-stdio",
     title: "Antigravity (stdio)",
-    description: "Local Antigravity ACP stdio server (server/acp-stdio.ts). Keeps existing agy flow but via universal gateway.",
+    description: "Official Antigravity ACP stdio server via @yitom/agy-acp-map (sdk-server.ts).",
     homepage: "https://antigravity.google",
     builtin: true,
     command: process.platform === "win32" ? "bun.exe" : "bun",
-    args: ["run", "server/acp-stdio.ts"],
+    args: ["run", "scratch/repos/yitom486-agy-acp-map/src/sdk-server.ts"],
     env: {},
     authHint: "复用 Antigravity CLI 本地登录态（~/.gemini/），零额外配置。",
   },
@@ -75,8 +96,7 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
     description: "社区 ACP 适配器（cursor-agent-acp），桥接 cursor-agent CLI。官方 CLI 不可用时的备选。",
     homepage: "https://github.com/konsumer/cursor-agent-acp",
     builtin: true,
-    command: npx(),
-    args: npxArgs("cursor-agent-acp"),
+    ...resolveNpxOrLocal("cursor-agent-acp"),
     env: {},
     authHint: "复用 `cursor-agent login` 的本地登录（可用 CURSOR_AGENT_EXECUTABLE 覆盖二进制路径）。",
     installHint: "先装好 cursor-agent 并跑一次 `cursor-agent login`。",
@@ -112,8 +132,7 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
     title: "Claude Code",
     description: "Claude Code via @agentclientprotocol/claude-agent-acp。",
     builtin: true,
-    command: npx(),
-    args: npxArgs("@agentclientprotocol/claude-agent-acp"),
+    ...resolveNpxOrLocal("@agentclientprotocol/claude-agent-acp"),
     env: {},
     authHint: "复用本地 Claude Code 登录态或 ANTHROPIC_API_KEY（环境透传）。",
     installHint: "先装好 Claude Code 并完成一次登录。",

@@ -30,7 +30,7 @@
     "dev:server": "bun --watch server/index.ts",
     "dev:server:node": "bun build server/node.ts --target=node --outdir=.tmp-node && node .tmp-node/node.js",
     "dev:client": "vite",
-    "acp:stdio": "bun run server/acp-stdio.ts",
+    "acp:stdio": "bun run scratch/repos/yitom486-agy-acp-map/src/sdk-server.ts",
     "build": "tsc && vite build",
     "build:electron": "bun desktop/build.ts",
     "package:win": "bunx electron-builder --win nsis dir --publish never",
@@ -66,6 +66,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@agentclientprotocol/codex-acp": "^1.12.0",
     "@types/bun": "latest",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

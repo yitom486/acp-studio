@@ -8,8 +8,7 @@
 ```text
 Electron main (Node, electron-dist/main.cjs)
  └─ in-process gateway (server/gateway.ts, Hono, WinterCG Request/Response)
-     ├─ /api/universal/*  → 各 agent stdio 子进程（codex / gemini / …）
-     ├─ /api/*            → legacy Antigravity 桥（library 模式）
+     ├─ /api/universal/*  → 通用 Agent stdio 适配器（codex / antigravity / opencode / …）
      └─ /*                → dist/ 前端静态文件（ACP_PUBLIC_DIR 覆盖，见下）
 ```
 

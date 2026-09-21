@@ -12,7 +12,11 @@ function sseResponse(frames: unknown[]): Response {
   return new Response(body, { status: 200 });
 }
 
-afterEach(() => vi.restoreAllMocks());
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  vi.restoreAllMocks();
+});
 
 describe("consumeUniversalChat (v1 full updates)", () => {
   it("parses text/thought/tool/plan/usage/permission/done", async () => {
@@ -32,7 +36,8 @@ describe("consumeUniversalChat (v1 full updates)", () => {
       { type: "update", update: { sessionUpdate: "compaction_update", compactionId: "c1", status: "in_progress" } },
       { type: "done", sessionId: "sess-1", stopReason: "end_turn" },
     ];
-    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(frames)));
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => sseResponse(frames)) as unknown as typeof fetch;
 
     const seen: string[] = [];
     const out = await consumeUniversalChat(

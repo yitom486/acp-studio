@@ -128,7 +128,8 @@ export default function App() {
         st.setAuthOk(agentId, false);
         st.setAuthOpen(true);
       } else {
-        alert(`创建会话失败: ${e.message}`);
+        const msg = e?.message && e.message !== "null" ? e.message : "无法创建会话（Agent进程未连接或异常）";
+        alert(`创建会话失败: ${msg}`);
       }
       return null;
     }
@@ -165,7 +166,8 @@ export default function App() {
         await ensureSession(id);
       }
     } catch (e: any) {
-      alert(`连接 ${id} 失败: ${e.message}`);
+      const msg = e?.message && e.message !== "null" ? e.message : "连接超时或进程异常退出";
+      alert(`连接 ${id} 失败: ${msg}`);
     } finally {
       useStudioStore.getState().setConnectingId(null);
     }
@@ -517,7 +519,8 @@ export default function App() {
           c2.setAuthOpen(true);
         }
         const prev = c2.messages.find((m) => m.id === assistantId)?.content || "";
-        c2.patchMessage(assistantId, { content: prev + `\n\n> ❌ [连接异常] ${e.message}`, isStreaming: false });
+        const msg = e?.message && e.message !== "null" ? e.message : "连接异常或请求超时";
+        c2.patchMessage(assistantId, { content: prev + `\n\n> ❌ [连接异常] ${msg}`, isStreaming: false });
       }
     } finally {
       const c2 = useStudioStore.getState();

@@ -139,6 +139,7 @@ export class UniversalAgentConnection {
   private lastError: string | null = null;
   private stderrTail: string[] = [];
 
+  private connectInFlight: Promise<unknown> | null = null;
   private sessionSinks = new Map<string, Set<SseSend>>();
   private pendingPermissions = new Map<string, PendingPermission>();
   private pendingElicitations = new Map<string, PendingElicitation>();
@@ -263,8 +264,18 @@ export class UniversalAgentConnection {
 
   async connect(): Promise<unknown> {
     if (this.connected && this.initResult) return this.initResult;
-    await this.spawn();
-    return this.initResult;
+    if (this.connectInFlight) return this.connectInFlight;
+
+    this.connectInFlight = (async () => {
+      try {
+        await this.spawn();
+        return this.initResult;
+      } finally {
+        this.connectInFlight = null;
+      }
+    })();
+
+    return this.connectInFlight;
   }
 
   private async spawn(): Promise<void> {
@@ -312,6 +323,10 @@ export class UniversalAgentConnection {
         p.reject(new Error(`Agent exited (code ${code}) while elicitation ${id} pending`));
       }
       this.conn = null;
+      if (!this.lastError && (code !== 0 || signal)) {
+        const details = this.stderrTail.length ? `: ${this.stderrTail.slice(-3).join(" | ")}` : "";
+        this.lastError = `Agent process exited unexpectedly (code ${code}, signal ${signal})${details}`;
+      }
     });
     proc.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
@@ -406,7 +421,9 @@ export class UniversalAgentConnection {
         `[UniversalACP:${this.profile.id}] initialize ok protocol=${(this.initResult as unknown as { protocolVersion?: number }).protocolVersion}`
       );
     } catch (err) {
-      this.lastError = `initialize failed: ${(err as Error).message}. stderr: ${this.stderrTail.slice(-5).join(" | ")}`;
+      const msg = err instanceof Error ? err.message : String(err ?? "ACP connection failed");
+      const stderr = this.stderrTail.length ? `. stderr: ${this.stderrTail.slice(-5).join(" | ")}` : "";
+      this.lastError = `initialize failed: ${msg}${stderr}`;
       console.error(`[UniversalACP:${this.profile.id}]`, this.lastError);
       await this.disconnect().catch(() => undefined);
       throw new Error(this.lastError);
@@ -614,6 +631,7 @@ export class UniversalAgentConnection {
       return res;
     } finally {
       if (opts?.signal && onAbort) opts.signal.removeEventListener("abort", onAbort);
+      await new Promise((r) => setTimeout(r, 50));
       unsub();
     }
   }
