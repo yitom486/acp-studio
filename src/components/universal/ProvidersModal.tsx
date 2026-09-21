@@ -80,15 +80,15 @@ export const ProvidersModal: React.FC<ProvidersModalProps> = ({ isOpen, onClose,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md" onClick={onClose}>
-      <div className="w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900 p-5 text-slate-100 space-y-3 text-xs max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-          <h2 className="font-bold text-sm flex items-center gap-2"><Cpu className="w-4 h-4 text-indigo-400" /> Providers · {agentId}</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-5 text-foreground space-y-3 text-xs max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border pb-2">
+          <h2 className="font-bold text-sm flex items-center gap-2"><Cpu className="w-4 h-4 text-primary" /> Providers · {agentId}</h2>
           <div className="flex items-center gap-1">
-            <button onClick={refresh} title="刷新" className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800">
+            <button onClick={refresh} title="刷新" className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted">
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             </button>
-            <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+            <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -98,45 +98,45 @@ export const ProvidersModal: React.FC<ProvidersModalProps> = ({ isOpen, onClose,
           const ed = editing[pr.providerId];
           const disabled = pr.current == null;
           return (
-            <div key={pr.providerId} className="p-3 rounded-xl border border-slate-700 bg-slate-950/60 space-y-2">
+            <div key={pr.providerId} className="p-3 rounded-xl border border-border bg-background/60 space-y-2">
               <div className="flex items-center gap-2">
                 <span className="font-mono font-semibold">{pr.providerId}</span>
                 {pr.required && <Badge variant="outline" className="text-[10px]">required</Badge>}
                 {disabled ? <Badge variant="warning" className="text-[10px]">disabled</Badge> : <Badge variant="success" className="text-[10px]">active</Badge>}
-                <span className="ml-auto font-mono text-[10px] text-slate-500">{(pr.supported || []).join(", ")}</span>
+                <span className="ml-auto font-mono text-[10px] text-muted-foreground">{(pr.supported || []).join(", ")}</span>
               </div>
               {ed && (
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1">
-                    <span className="text-slate-400">apiType</span>
+                    <span className="text-muted-foreground">apiType</span>
                     <select
                       value={ed.apiType}
                       onChange={(e) => setEditing((prev) => ({ ...prev, [pr.providerId]: { ...ed, apiType: e.target.value } }))}
-                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 outline-none"
+                      className="w-full rounded-lg bg-card border border-border px-2 py-1 outline-none"
                     >
                       {(pr.supported?.length ? pr.supported : [ed.apiType]).map((t) => (
-                        <option key={t} value={t} className="bg-slate-900">{t}</option>
+                        <option key={t} value={t} className="bg-card">{t}</option>
                       ))}
                     </select>
                   </label>
                   <label className="space-y-1">
-                    <span className="text-slate-400">baseUrl</span>
+                    <span className="text-muted-foreground">baseUrl</span>
                     <input
                       value={ed.baseUrl}
                       onChange={(e) => setEditing((prev) => ({ ...prev, [pr.providerId]: { ...ed, baseUrl: e.target.value } }))}
                       spellCheck={false}
                       placeholder="https://..."
-                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 font-mono text-[11px] outline-none"
+                      className="w-full rounded-lg bg-card border border-border px-2 py-1 font-mono text-[11px] outline-none"
                     />
                   </label>
                   <label className="col-span-2 space-y-1">
-                    <span className="text-slate-400">headers（JSON）</span>
+                    <span className="text-muted-foreground">headers（JSON）</span>
                     <textarea
                       value={ed.headers}
                       onChange={(e) => setEditing((prev) => ({ ...prev, [pr.providerId]: { ...ed, headers: e.target.value } }))}
                       rows={2}
                       spellCheck={false}
-                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 font-mono text-[11px] outline-none"
+                      className="w-full rounded-lg bg-card border border-border px-2 py-1 font-mono text-[11px] outline-none"
                     />
                   </label>
                 </div>
@@ -152,8 +152,8 @@ export const ProvidersModal: React.FC<ProvidersModalProps> = ({ isOpen, onClose,
             </div>
           );
         })}
-        {providers.length === 0 && !loading && <div className="text-slate-500">无 providers 数据。</div>}
-        {msg && <div className="p-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-300">{msg}</div>}
+        {providers.length === 0 && !loading && <div className="text-muted-foreground">无 providers 数据。</div>}
+        {msg && <div className="p-2 rounded-lg bg-background border border-border text-muted-foreground">{msg}</div>}
       </div>
     </div>
   );

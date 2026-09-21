@@ -15,17 +15,17 @@ function Badge({
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
         {
-          "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30":
+          "bg-primary/15 text-primary border border-primary/30":
             variant === "default",
-          "bg-slate-800 text-slate-300 border border-slate-700":
+          "bg-muted text-muted-foreground border border-border":
             variant === "secondary",
-          "bg-rose-500/20 text-rose-300 border border-rose-500/30":
+          "bg-destructive/15 text-destructive border border-destructive/30":
             variant === "destructive",
-          "text-slate-300 border border-slate-700":
+          "text-muted-foreground border border-border":
             variant === "outline",
-          "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30":
+          "bg-success/15 text-success border border-success/30":
             variant === "success",
-          "bg-amber-500/20 text-amber-300 border border-amber-500/30":
+          "bg-warning/15 text-warning border border-warning/30":
             variant === "warning",
         },
         className

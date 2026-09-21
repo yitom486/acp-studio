@@ -32,25 +32,25 @@ export const AgentBar: React.FC<AgentBarProps> = ({
   const proto = active?.status?.protocolVersion;
 
   return (
-    <div className="flex items-center gap-2.5 px-4 py-2 border-b border-slate-800/70 bg-slate-950/70 backdrop-blur text-xs">
-      <div className="flex items-center gap-1.5 text-slate-400">
-        <Bot className="w-3.5 h-3.5 text-indigo-400" />
+    <div className="flex items-center gap-2.5 px-4 py-2 border-b border-border/70 bg-background/70 backdrop-blur text-xs">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <Bot className="w-3.5 h-3.5 text-primary" />
         <span className="font-semibold">Agent</span>
       </div>
       <select
         value={activeAgentId}
         onChange={(e) => onSelect(e.target.value)}
-        className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-100 outline-none text-xs max-w-[220px]"
+        className="bg-card border border-border rounded-lg px-2 py-1.5 text-foreground outline-none text-xs max-w-[220px]"
       >
         {agents.map((a) => (
-          <option key={a.id} value={a.id} className="bg-slate-900">
+          <option key={a.id} value={a.id} className="bg-card">
             {a.title} ({a.id}) {a.status?.connected ? "●" : ""}
           </option>
         ))}
       </select>
-      <span className={`w-2 h-2 rounded-full ${connected ? "bg-emerald-500" : "bg-slate-600"}`} title={connected ? "connected" : "disconnected"} />
+      <span className={`w-2 h-2 rounded-full ${connected ? "bg-success" : "bg-muted-foreground"}`} title={connected ? "connected" : "disconnected"} />
       {active?.status?.agentInfo && (
-        <span className="font-mono text-[11px] text-slate-400 truncate max-w-[260px]">
+        <span className="font-mono text-[11px] text-muted-foreground truncate max-w-[260px]">
           {(active.status.agentInfo as any).title || (active.status.agentInfo as any).name} v{(active.status.agentInfo as any).version} · ACP v{proto ?? "?"}
         </span>
       )}
@@ -61,7 +61,7 @@ export const AgentBar: React.FC<AgentBarProps> = ({
       )}
       <div className="flex-1" />
       {active?.status?.lastError && !connected && (
-        <span className="text-[11px] text-rose-400 truncate max-w-[320px]" title={active.status.lastError}>
+        <span className="text-[11px] text-destructive truncate max-w-[320px]" title={active.status.lastError}>
           {active.status.lastError.slice(0, 120)}
         </span>
       )}
@@ -88,10 +88,10 @@ export const AgentBar: React.FC<AgentBarProps> = ({
         </Badge>
       )}
       <Button size="sm" variant="outline" onClick={onOpenAuth} className="h-7 text-xs gap-1.5">
-        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+        <ShieldCheck className="w-3.5 h-3.5 text-success" />
         认证
       </Button>
-      <button onClick={onLogout} title="logout" className="p-1.5 rounded-lg text-slate-500 hover:text-rose-300 hover:bg-slate-800">
+      <button onClick={onLogout} title="logout" className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-muted">
         <LogOut className="w-3.5 h-3.5" />
       </button>
     </div>

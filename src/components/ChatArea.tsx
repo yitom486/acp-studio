@@ -5,6 +5,7 @@ import { Badge } from "./ui/badge";
 import { Skeleton } from "./ui/skeleton";
 import { BlurFade } from "./magicui/blur-fade";
 import { AnimatedShinyText } from "./magicui/animated-shiny-text";
+import { Markdown } from "./universal/Markdown";
 
 export interface Message {
   id: string;
@@ -84,13 +85,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         /* Empty / Welcome Hero */
         <div className="max-w-3xl mx-auto py-8 md:py-12 space-y-8 animate-in fade-in duration-300">
           <div className="text-center space-y-3">
-            <div className="inline-flex p-3 rounded-2xl bg-gradient-to-tr from-indigo-500/20 via-purple-500/20 to-pink-500/20 border border-indigo-500/30 text-indigo-400 mb-2 shadow-inner">
+            <div className="inline-flex p-3 rounded-2xl bg-primary/10 border border-primary/25 text-primary mb-2">
               <Sparkles className="w-8 h-8" />
             </div>
-            <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-              {agentName} <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">Studio</span>
+            <h2 className="text-2xl md:text-3xl font-extrabold text-foreground tracking-tight">
+              {agentName} <span className="text-primary">Studio</span>
             </h2>
-            <p className="text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
+            <p className="text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
               基于 <strong>Agent Client Protocol (ACP)</strong> 的通用智能体工作台。支持多轮会话流式输出、思考过程折叠、工具调用审计、图片与文件附件直注。
             </p>
           </div>
@@ -101,15 +102,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <div
                 key={idx}
                 onClick={() => onSelectSuggestion(item.prompt)}
-                className="group p-4 rounded-xl border border-slate-800/80 bg-slate-900/60 hover:bg-slate-800/80 hover:border-indigo-500/40 transition-all duration-200 cursor-pointer text-left space-y-1.5 shadow-sm hover:shadow-indigo-500/10"
+                className="group p-4 rounded-xl border border-border/80 bg-card/60 hover:bg-muted/80 hover:border-primary/40 transition-all duration-200 cursor-pointer text-left space-y-1.5 shadow-sm hover:shadow-primary/10"
               >
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold text-slate-200 group-hover:text-indigo-300 transition-colors">
+                  <h4 className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">
                     {item.title}
                   </h4>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400 transition-transform group-hover:translate-x-0.5" />
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-transform group-hover:translate-x-0.5" />
                 </div>
-                <p className="text-[11px] text-slate-400 leading-snug">{item.desc}</p>
+                <p className="text-[11px] text-muted-foreground leading-snug">{item.desc}</p>
               </div>
             ))}
           </div>
@@ -134,7 +135,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             >
               {/* Agent Avatar */}
               {msg.role === "assistant" && (
-                <div className="shrink-0 w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 mt-1">
+                <div className="shrink-0 w-8 h-8 rounded-xl bg-primary flex items-center justify-center text-primary-foreground mt-1">
                   <Sparkles className="w-4 h-4" />
                 </div>
               )}
@@ -143,14 +144,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <div
                 className={`max-w-[85%] rounded-2xl p-4.5 space-y-2.5 shadow-lg ${
                   msg.role === "user"
-                    ? "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-tr-sm"
-                    : "bg-slate-900/90 border border-slate-800 text-slate-100 rounded-tl-sm backdrop-blur-md"
+                    ? "bg-primary text-primary-foreground rounded-tr-sm"
+                    : "bg-card/90 border border-border text-foreground rounded-tl-sm backdrop-blur-md"
                 }`}
               >
                 {/* Meta info header */}
-                <div className="flex items-center justify-between gap-4 text-[11px] pb-1 border-b border-white/10">
+                <div className="flex items-center justify-between gap-4 text-[11px] pb-1 border-b border-border">
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-slate-200">
+                    <span className="font-semibold text-foreground">
                       {msg.role === "user" ? "You" : msg.role === "system" ? "System" : agentName}
                     </span>
                     {msg.model && (
@@ -164,16 +165,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       </Badge>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 text-slate-400">
+                  <div className="flex items-center gap-2 text-muted-foreground">
                     <span>{msg.timestamp}</span>
                     {msg.role === "assistant" && (
                       <button
                         onClick={() => handleCopy(msg.id, msg.content)}
-                        className="hover:text-white transition-colors"
+                        className="hover:text-foreground transition-colors"
                         title="复制内容"
                       >
                         {copiedId === msg.id ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <Check className="w-3.5 h-3.5 text-success" />
                         ) : (
                           <Copy className="w-3.5 h-3.5" />
                         )}
@@ -189,20 +190,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   </div>
                 )}
                 {msg.thought && (
-                  <details className="rounded-lg bg-slate-950/70 border border-purple-500/20 px-2.5 py-1.5 text-xs text-purple-200/90" open={!!msg.isStreaming}>
-                    <summary className="cursor-pointer font-medium text-purple-300">思考过程 ({msg.thought.length} 字)</summary>
+                  <details className="rounded-lg bg-background/70 border border-primary/20 px-2.5 py-1.5 text-xs text-primary/90" open={!!msg.isStreaming}>
+                    <summary className="cursor-pointer font-medium text-primary">思考过程 ({msg.thought.length} 字)</summary>
                     <div className="pt-1 whitespace-pre-wrap font-sans break-words opacity-90">{msg.thought}</div>
                   </details>
                 )}
 
                 {msg.plan && msg.plan.length > 0 && (
-                  <div className="rounded-lg bg-slate-950/70 border border-slate-700 px-2.5 py-1.5 text-xs space-y-1">
-                    <div className="font-semibold text-slate-300">执行计划</div>
+                  <div className="rounded-lg bg-background/70 border border-border px-2.5 py-1.5 text-xs space-y-1">
+                    <div className="font-semibold text-muted-foreground">执行计划</div>
                     {msg.plan.map((pl, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-slate-400">
-                        <span className={`w-1.5 h-1.5 rounded-full ${pl.status === "completed" ? "bg-emerald-400" : pl.status === "in_progress" ? "bg-amber-400 animate-pulse" : "bg-slate-600"}`} />
+                      <div key={idx} className="flex items-center gap-2 text-muted-foreground">
+                        <span className={`w-1.5 h-1.5 rounded-full ${pl.status === "completed" ? "bg-success" : pl.status === "in_progress" ? "bg-warning animate-pulse" : "bg-muted-foreground"}`} />
                         <span className="flex-1 truncate">{pl.content}</span>
-                        {pl.priority && <span className="font-mono text-[10px] text-slate-500">{pl.priority}</span>}
+                        {pl.priority && <span className="font-mono text-[10px] text-muted-foreground">{pl.priority}</span>}
                       </div>
                     ))}
                   </div>
@@ -213,9 +214,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     {msg.toolCalls.map((tc, idx) => (
                       <div
                         key={idx}
-                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs text-slate-300 font-mono"
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-background/80 border border-border text-xs text-muted-foreground font-mono"
                       >
-                        <Wrench className="w-3.5 h-3.5 text-indigo-400" />
+                        <Wrench className="w-3.5 h-3.5 text-primary" />
                         {tc.status === "running" || tc.status === "pending" ? (
                           <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>
                             <AnimatedShinyText>{tc.title}</AnimatedShinyText>
@@ -226,12 +227,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         <span
                           className={`w-2 h-2 rounded-full ${
                             tc.status === "running" || tc.status === "pending"
-                              ? "bg-amber-400 animate-pulse"
+                              ? "bg-warning animate-pulse"
                               : tc.status === "completed"
-                              ? "bg-emerald-400"
+                              ? "bg-success"
                               : tc.status === "cancelled"
-                              ? "bg-slate-500"
-                              : "bg-rose-400"
+                              ? "bg-muted-foreground"
+                              : "bg-destructive"
                           }`}
                         />
                       </div>
@@ -240,7 +241,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 )}
 
                 {msg.usage && (
-                  <div className="font-mono text-[10px] text-slate-500">
+                  <div className="font-mono text-[10px] text-muted-foreground">
                     context {msg.usage.used.toLocaleString()}/{msg.usage.size.toLocaleString()}
                     {msg.usage.cost ? ` · $${msg.usage.cost.amount} ${msg.usage.cost.currency}` : ""}
                   </div>
@@ -254,23 +255,27 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     <Skeleton className="h-3.5 w-[64%]" />
                     <AnimatedShinyText className="text-xs">正在等待 {agentName} 响应…</AnimatedShinyText>
                   </div>
-                ) : (
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans break-words selection:bg-indigo-500/40">
-                    {msg.content}
+                ) : msg.role === "assistant" ? (
+                  <div>
+                    <Markdown text={msg.content} />
                     {msg.isStreaming && (
                       <motion.span
-                        className="inline-block w-2 h-4 ml-1 bg-indigo-400 align-middle"
+                        className="inline-block w-2 h-4 ml-1 bg-primary align-middle"
                         animate={{ opacity: [1, 0.15, 1] }}
                         transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
                       />
                     )}
+                  </div>
+                ) : (
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans break-words selection:bg-primary/40">
+                    {msg.content}
                   </div>
                 )}
               </div>
 
               {/* User Avatar */}
               {msg.role === "user" && (
-                <div className="shrink-0 w-8 h-8 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 shadow-md mt-1">
+                <div className="shrink-0 w-8 h-8 rounded-xl bg-muted border border-border flex items-center justify-center text-muted-foreground shadow-md mt-1">
                   <User className="w-4 h-4" />
                 </div>
               )}

@@ -27,13 +27,13 @@ function PermissionCard({ p, onRespond, busy }: { p: PendingPermission; onRespon
   const [selected, setSelected] = useState<string>(p.options?.[0]?.optionId || "");
   const tool = p.toolCall as any;
   return (
-    <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 p-3 text-xs space-y-2">
-      <div className="flex items-center gap-2 text-amber-300 font-semibold">
+    <div className="rounded-xl border border-warning/40 bg-warning/30 p-3 text-xs space-y-2">
+      <div className="flex items-center gap-2 text-warning font-semibold">
         <ShieldAlert className="w-4 h-4" />
         <span>需要授权 · {tool?.title || tool?.toolCallId || p.permissionId}</span>
-        <span className="ml-auto font-mono text-[10px] text-amber-400/70">{p.sessionId.slice(0, 8)}</span>
+        <span className="ml-auto font-mono text-[10px] text-warning/70">{p.sessionId.slice(0, 8)}</span>
       </div>
-      {tool?.kind && <div className="text-amber-200/70 font-mono text-[11px]">kind: {tool.kind}</div>}
+      {tool?.kind && <div className="text-warning/70 font-mono text-[11px]">kind: {tool.kind}</div>}
       <div className="flex flex-wrap gap-1.5">
         {(p.options || []).map((o) => (
           <button
@@ -41,8 +41,8 @@ function PermissionCard({ p, onRespond, busy }: { p: PendingPermission; onRespon
             onClick={() => setSelected(o.optionId)}
             className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
               selected === o.optionId
-                ? "bg-amber-500 text-black border-amber-400"
-                : "border-amber-500/30 text-amber-200 hover:border-amber-400"
+                ? "bg-warning text-warning-foreground border-warning"
+                : "border-warning/30 text-warning hover:border-warning"
             }`}
           >
             {o.name} ({o.kind || o.optionId})

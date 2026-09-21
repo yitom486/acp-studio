@@ -4,25 +4,32 @@
 
 @layer base {
   :root {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 246 80% 65%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 14%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 70% 50%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 18%;
-    --input: 217 33% 18%;
-    --ring: 246 80% 65%;
+    /* Blue-gray minimal tech theme. All UI colors MUST come from these
+       variables via tailwind tokens (bg-background, text-primary, ...).
+       Literal palette classes (slate-*, indigo-*, purple-*, ...) are banned. */
+    --background: 222 26% 7%;
+    --foreground: 214 22% 92%;
+    --card: 222 22% 10%;
+    --card-foreground: 214 22% 92%;
+    --popover: 222 22% 11%;
+    --popover-foreground: 214 22% 92%;
+    --primary: 213 76% 62%;
+    --primary-foreground: 222 26% 8%;
+    --secondary: 222 16% 15%;
+    --secondary-foreground: 214 18% 86%;
+    --muted: 222 16% 12%;
+    --muted-foreground: 218 13% 60%;
+    --accent: 222 16% 15%;
+    --accent-foreground: 214 18% 86%;
+    --success: 160 42% 42%;
+    --success-foreground: 222 26% 8%;
+    --warning: 38 78% 55%;
+    --warning-foreground: 222 26% 8%;
+    --destructive: 0 60% 55%;
+    --destructive-foreground: 214 22% 94%;
+    --border: 222 14% 17%;
+    --input: 222 14% 17%;
+    --ring: 213 76% 62%;
     --radius: 0.75rem;
   }
 }
@@ -44,40 +51,31 @@ code, pre {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
+  background: hsl(var(--muted-foreground) / 0.25);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: hsl(var(--muted-foreground) / 0.45);
 }
 
-/* Glassmorphism helpers */
+/* Surface helpers (variable-driven, no literal palette) */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.7);
+  background: color-mix(in srgb, hsl(var(--card)) 78%, transparent);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid hsl(var(--border));
 }
 
 .glass-card {
-  background: rgba(18, 26, 47, 0.55);
+  background: color-mix(in srgb, hsl(var(--card)) 60%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid hsl(var(--border));
 }
 
 .glass-dropdown {
-  background: rgba(15, 23, 42, 0.92);
+  background: color-mix(in srgb, hsl(var(--card)) 94%, transparent);
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid hsl(var(--border));
   box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
-}
-
-/* Glowing text and borders */
-.glow-primary {
-  box-shadow: 0 0 25px -4px rgba(99, 102, 241, 0.35);
-}
-
-.glow-emerald {
-  box-shadow: 0 0 20px -3px rgba(16, 185, 129, 0.4);
 }

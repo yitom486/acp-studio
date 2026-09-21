@@ -212,7 +212,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
   const permOpt = pickRole(p.configOptions, "permission");
 
   const muted = (text: string, title?: string) => (
-    <span className="text-[11px] text-slate-600 font-mono" title={title}>
+    <span className="text-[11px] text-muted-foreground font-mono" title={title}>
       {text}
     </span>
   );
@@ -225,23 +225,23 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
           type="button"
           onClick={() => p.onEnsureSession?.()}
           title="创建会话以加载模型配置"
-          className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-indigo-300"
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary"
         >
           <Cpu className="w-3.5 h-3.5" />模型：获取中…
         </button>
       );
     }
     return (
-      <label className="flex items-center gap-1 text-xs text-slate-300" title="该 Agent 未提供模型配置项，使用会话模型目录切换">
-        <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+      <label className="flex items-center gap-1 text-xs text-muted-foreground" title="该 Agent 未提供模型配置项，使用会话模型目录切换">
+        <Cpu className="w-3.5 h-3.5 text-primary shrink-0" />
         <select
           value={p.fallbackCurrentModel || ""}
           disabled={p.isStreaming}
           onChange={(e) => e.target.value && p.onFallbackModel?.(e.target.value)}
-          className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-slate-200 outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-slate-800/80"
+          className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-muted/80"
         >
           {list.map((m) => (
-            <option key={m.modelId} value={m.modelId} className="bg-slate-900" title={m.description}>
+            <option key={m.modelId} value={m.modelId} className="bg-card" title={m.description}>
               {m.name || m.modelId}
             </option>
           ))}
@@ -250,16 +250,16 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
     );
   };
   const renderSelect = (opt: ConfigOptionLike, icon: React.ReactNode, label: string) => (
-    <label key={opt.id} className="flex items-center gap-1 text-xs text-slate-300" title={opt.description || opt.name}>
+    <label key={opt.id} className="flex items-center gap-1 text-xs text-muted-foreground" title={opt.description || opt.name}>
       {icon}
       <select
         value={curVal(opt)}
         disabled={p.isStreaming}
         onChange={(e) => p.onSetConfig?.(opt.id, e.target.value)}
-        className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-slate-200 outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-slate-800/80"
+        className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-muted/80"
       >
         {(opt.options || []).map((o) => (
-          <option key={String(o.value)} value={String(o.value)} className="bg-slate-900" title={o.description}>
+          <option key={String(o.value)} value={String(o.value)} className="bg-card" title={o.description}>
             {o.name || o.value}
           </option>
         ))}
@@ -268,21 +268,21 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
   );
 
   return (
-    <div className="p-4 md:p-5 bg-slate-950/90 border-t border-slate-800/80 shrink-0">
+    <div className="p-4 md:p-5 bg-background/90 border-t border-border/80 shrink-0">
       <div className="max-w-4xl mx-auto space-y-2">
         {p.attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {p.attachments.map((a) => (
-              <span key={a.id} className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-[11px] font-mono text-slate-300">
+              <span key={a.id} className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg bg-muted/80 border border-border text-[11px] font-mono text-muted-foreground">
                 {a.preview ? (
                   <img src={a.preview} alt={a.name} className="w-8 h-8 rounded object-cover" />
                 ) : String((a.block as any).type) === "image" ? (
-                  <ImagePlus className="w-3.5 h-3.5 text-indigo-400" />
+                  <ImagePlus className="w-3.5 h-3.5 text-primary" />
                 ) : (
-                  <Paperclip className="w-3.5 h-3.5 text-indigo-400" />
+                  <Paperclip className="w-3.5 h-3.5 text-primary" />
                 )}
                 <span className="max-w-[160px] truncate" title={`${a.name} (${a.mimeType}, ${(a.size / 1024).toFixed(1)}KB)`}>{a.name}</span>
-                <button onClick={() => removeAttachment(a.id)} className="text-slate-500 hover:text-rose-300">
+                <button onClick={() => removeAttachment(a.id)} className="text-muted-foreground hover:text-destructive">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -291,8 +291,8 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
         )}
 
         <div
-          className={`relative flex flex-col rounded-2xl border bg-slate-900/90 shadow-2xl focus-within:border-indigo-500/70 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all ${
-            dragOver ? "border-indigo-400 border-dashed" : "border-slate-700/80"
+          className={`relative flex flex-col rounded-2xl border bg-card/90 shadow-2xl focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-ring/20 transition-all ${
+            dragOver ? "border-primary border-dashed" : "border-border/80"
           }`}
           onDragOver={(e) => {
             e.preventDefault();
@@ -306,21 +306,21 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
           }}
         >
           {dragOver && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-indigo-950/70 text-sm text-indigo-200 pointer-events-none">
+            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-muted/70 text-sm text-primary pointer-events-none">
               松开以添加文件 / 图片附件
             </div>
           )}
           {slashOpen && (
-            <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-slate-700 bg-slate-950/95 shadow-xl overflow-hidden z-20">
+            <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-border bg-background/95 shadow-xl overflow-hidden z-20">
               {filtered.slice(0, 8).map((c, i) => (
                 <div
                   key={c.name}
                   onClick={() => applyCommand(c.name)}
-                  className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs ${i === slashIdx ? "bg-indigo-950/70 text-indigo-200" : "text-slate-300"}`}
+                  className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs ${i === slashIdx ? "bg-muted/70 text-primary" : "text-muted-foreground"}`}
                 >
-                  <Command className="w-3 h-3 text-slate-500" />
+                  <Command className="w-3 h-3 text-muted-foreground" />
                   <span className="font-mono font-semibold">/{c.name}</span>
-                  <span className="truncate text-slate-500">{c.description || ""}</span>
+                  <span className="truncate text-muted-foreground">{c.description || ""}</span>
                 </div>
               ))}
             </div>
@@ -337,7 +337,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 ? `${p.agentTitle} 正在响应中…可继续编辑，结束后发送`
                 : `随便问点什么，/ 可查看命令，拖拽/粘贴可添加图片文件…`
             }
-            className="w-full resize-none bg-transparent px-4 py-3.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none max-h-48 min-h-[48px]"
+            className="w-full resize-none bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none max-h-48 min-h-[48px]"
           />
           {/* Bottom toolbar: [+] model / thinking / permission ... send */}
           <div className="flex items-center gap-1.5 px-3.5 pb-2.5 pt-1 text-xs">
@@ -354,7 +354,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 title={p.supportImage ? "附加文件或图片（可拖拽 / 粘贴）" : "附加文本文件（该 Agent 不支持图片输入）"}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition-colors text-lg leading-none"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted/80 transition-colors text-lg leading-none"
               >
                 +
               </button>
@@ -362,13 +362,13 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
             {p.connected && (
               <>
                 {modelOpt
-                  ? renderSelect(modelOpt, <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />, "模型")
+                  ? renderSelect(modelOpt, <Cpu className="w-3.5 h-3.5 text-primary shrink-0" />, "模型")
                   : renderFallbackModel()}
                 {thinkOpt
-                  ? renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />, "思考")
+                  ? renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-primary shrink-0" />, "思考")
                   : muted("思考：—", "该 Agent 未提供思考等级配置")}
                 {permOpt
-                  ? renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />, "权限")
+                  ? renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-warning shrink-0" />, "权限")
                   : muted("权限：—", "该 Agent 未提供权限配置")}
               </>
             )}
@@ -377,13 +377,13 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 type="button"
                 onClick={p.onBrowseModels}
                 title={p.hasModelCatalog ? "浏览 / 重新发现模型库" : "发现可用模型"}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition-colors"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted/80 transition-colors"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
               </button>
             )}
             {!p.connected && (
-              <span className="font-mono text-[11px] text-slate-600 hidden sm:inline">Enter 发送 · Shift+Enter 换行 · / 命令联想</span>
+              <span className="font-mono text-[11px] text-muted-foreground hidden sm:inline">Enter 发送 · Shift+Enter 换行 · / 命令联想</span>
             )}
             <div className="flex-1" />
             <div className="flex items-center gap-2">
@@ -392,7 +392,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 onClick={p.onClear}
                 disabled={p.isStreaming}
                 title="清空聊天记录"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition-colors disabled:opacity-40"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-muted/80 transition-colors disabled:opacity-40"
               >
                 <Trash2 className="w-4 h-4" />
               </button>

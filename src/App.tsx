@@ -637,7 +637,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-[#070A12] text-slate-100 overflow-hidden select-text">
+    <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden select-text">
       <Sidebar
         agents={agents}
         activeAgentId={activeAgentId}
@@ -660,17 +660,17 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="h-14 border-b border-slate-800/80 bg-slate-950/80 px-5 flex items-center gap-3 shrink-0">
+        <div className="h-14 border-b border-border/80 bg-background/80 px-5 flex items-center gap-3 shrink-0">
           <div>
-            <h1 className="font-bold text-sm">ACP Studio <span className="text-indigo-400">Universal</span></h1>
-            <p className="text-[10px] text-slate-500 font-mono">
+            <h1 className="font-bold text-sm">ACP Studio <span className="text-primary">Universal</span></h1>
+            <p className="text-[10px] text-muted-foreground font-mono">
               {activeAgent?.title || activeAgentId} · ACP v{activeAgent?.status?.protocolVersion ?? "?"}
               {sessionId ? ` · ${sessionId.slice(0, 13)}…` : " · 无会话"}
             </p>
           </div>
           <div className="flex-1" />
-          <button onClick={() => setSettingsOpen(true)} disabled={isStreaming || busy} className="text-xs px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 disabled:opacity-40">新会话</button>
-          <button onClick={() => !isStreaming && setMessages([])} disabled={isStreaming} className="text-xs px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 disabled:opacity-40">清空</button>
+          <button onClick={() => setSettingsOpen(true)} disabled={isStreaming || busy} className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40">新会话</button>
+          <button onClick={() => !isStreaming && setMessages([])} disabled={isStreaming} className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-40">清空</button>
         </div>
 
         <AgentBar

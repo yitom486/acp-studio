@@ -57,42 +57,42 @@ export const UniversalAuthModal: React.FC<UniversalAuthModalProps> = ({ isOpen, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
-      <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-100 space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
+      <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 text-foreground space-y-4">
+        <div className="flex items-center justify-between border-b border-border pb-3">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+            <ShieldCheck className="w-5 h-5 text-success" />
             <div>
               <h2 className="font-bold">认证 · {agent?.title || agent?.id}</h2>
-              <p className="text-xs text-slate-400 font-mono">{agent?.command} {(agent?.args || []).join(" ")}</p>
+              <p className="text-xs text-muted-foreground font-mono">{agent?.command} {(agent?.args || []).join(" ")}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+          <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {authOk === true && (
-          <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs text-emerald-200">
+          <div className="p-3 rounded-xl bg-success/10 border border-success/30 text-xs text-success">
             本地登录态复用成功：该 Agent 可直接创建会话，无需再走 authenticate（如 codex 会自动读取你本地 ~/.codex/auth.json）。
           </div>
         )}
         {authOk === false && (
-          <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/30 text-xs text-amber-200">
+          <div className="p-3 rounded-xl bg-warning/30 border border-warning/30 text-xs text-warning">
             本地暂无可用登录态（探测 session/list 返回需认证），请在下方选择一种方式完成 authenticate。
           </div>
         )}
 
         {methods.length === 0 ? (
-          <p className="text-xs text-slate-400">该 Agent 未声明 authMethods（initialize.authMethods 为空），通常可直接创建会话。若实际遇到 auth_required，请在 Agent 文档中确认登录方式（如 codex 需先 `codex login` 或配置 OPENAI_API_KEY 后重连）。</p>
+          <p className="text-xs text-muted-foreground">该 Agent 未声明 authMethods（initialize.authMethods 为空），通常可直接创建会话。若实际遇到 auth_required，请在 Agent 文档中确认登录方式（如 codex 需先 `codex login` 或配置 OPENAI_API_KEY 后重连）。</p>
         ) : (
           <div className="space-y-2">
             {methods.map((m) => (
-              <label key={m.id} className={`flex gap-2 p-2.5 rounded-xl border cursor-pointer text-xs ${activeMethod === m.id ? "border-indigo-500 bg-indigo-950/40" : "border-slate-700"}`}>
+              <label key={m.id} className={`flex gap-2 p-2.5 rounded-xl border cursor-pointer text-xs ${activeMethod === m.id ? "border-primary bg-muted/40" : "border-border"}`}>
                 <input type="radio" name="authm" checked={activeMethod === m.id} onChange={() => setMethodId(m.id)} />
                 <div>
-                  <div className="font-semibold text-slate-100">{m.name || m.id} <span className="font-mono text-slate-400">{m.id}</span></div>
-                  {m.description && <div className="text-slate-400">{m.description}</div>}
+                  <div className="font-semibold text-foreground">{m.name || m.id} <span className="font-mono text-muted-foreground">{m.id}</span></div>
+                  {m.description && <div className="text-muted-foreground">{m.description}</div>}
                   {m.type && <Badge variant="outline" className="mt-1 text-[10px] font-mono">type: {m.type}</Badge>}
                 </div>
               </label>
@@ -101,27 +101,27 @@ export const UniversalAuthModal: React.FC<UniversalAuthModalProps> = ({ isOpen, 
         )}
 
         <div className="space-y-2 text-xs">
-          <div className="flex items-center gap-1.5 text-slate-300 font-semibold"><Key className="w-3.5 h-3.5" /> API Key 快捷填写（可选，适用于 api-key 方式）</div>
+          <div className="flex items-center gap-1.5 text-muted-foreground font-semibold"><Key className="w-3.5 h-3.5" /> API Key 快捷填写（可选，适用于 api-key 方式）</div>
           <input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="sk-... / CODEX_API_KEY"
-            className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs outline-none focus:border-indigo-500"
+            className="w-full rounded-lg bg-background border border-border px-3 py-1.5 text-xs outline-none focus:border-primary"
           />
-          <div className="text-slate-500">附加参数 JSON（可选，高级）</div>
+          <div className="text-muted-foreground">附加参数 JSON（可选，高级）</div>
           <textarea
             value={extraJson}
             onChange={(e) => setExtraJson(e.target.value)}
             rows={2}
             spellCheck={false}
-            className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 font-mono text-[11px] outline-none focus:border-indigo-500"
+            className="w-full rounded-lg bg-background border border-border px-3 py-1.5 font-mono text-[11px] outline-none focus:border-primary"
           />
         </div>
 
-        {msg && <div className="text-xs p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-300">{msg}</div>}
+        {msg && <div className="text-xs p-2.5 rounded-xl bg-background border border-border text-muted-foreground">{msg}</div>}
 
-        <div className="flex justify-between pt-2 border-t border-slate-800">
+        <div className="flex justify-between pt-2 border-t border-border">
           <Button size="sm" variant="outline" onClick={onLogout} className="text-xs gap-1.5">
             <LogOut className="w-3.5 h-3.5" /> logout
           </Button>

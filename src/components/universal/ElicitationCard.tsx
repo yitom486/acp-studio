@@ -90,9 +90,9 @@ export const ElicitationCard: React.FC<ElicitationCardProps> = ({ e, onRespond, 
 
   return (
     <BlurFade>
-    <div className="rounded-xl border border-sky-500/40 bg-sky-950/30 p-3 text-xs space-y-2">
-      <div className="font-semibold text-sky-300">{title || e.message}</div>
-      {description && <div className="text-sky-200/70">{description}</div>}
+    <div className="rounded-xl border border-primary/40 bg-primary/30 p-3 text-xs space-y-2">
+      <div className="font-semibold text-primary">{title || e.message}</div>
+      {description && <div className="text-primary/70">{description}</div>}
 
       {mode === "url" && url && (
         <Button size="sm" variant="outline" onClick={() => window.open(url, "_blank")} className="gap-1.5 h-7 text-[11px]">
@@ -104,15 +104,15 @@ export const ElicitationCard: React.FC<ElicitationCardProps> = ({ e, onRespond, 
         <div className="space-y-2">
           {fields.map((f) => (
             <label key={f.key} className="block space-y-1">
-              <span className="text-slate-300">
-                {f.title} {f.required && <span className="text-rose-400">*</span>}
-                <span className="ml-1 font-mono text-[10px] text-slate-500">{f.type}</span>
+              <span className="text-muted-foreground">
+                {f.title} {f.required && <span className="text-destructive">*</span>}
+                <span className="ml-1 font-mono text-[10px] text-muted-foreground">{f.type}</span>
               </span>
               {f.enum ? (
                 <select
                   value={values[f.key] ?? ""}
                   onChange={(ev) => setValues((prev) => ({ ...prev, [f.key]: ev.target.value }))}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5 outline-none"
+                  className="w-full rounded-lg bg-background border border-border px-2 py-1.5 outline-none"
                 >
                   <option value="">请选择…</option>
                   {f.enum.map((o) => (
@@ -123,7 +123,7 @@ export const ElicitationCard: React.FC<ElicitationCardProps> = ({ e, onRespond, 
                 <select
                   value={values[f.key] ?? ""}
                   onChange={(ev) => setValues((prev) => ({ ...prev, [f.key]: ev.target.value }))}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5 outline-none"
+                  className="w-full rounded-lg bg-background border border-border px-2 py-1.5 outline-none"
                 >
                   <option value="">请选择…</option>
                   <option value="true">true</option>
@@ -134,10 +134,10 @@ export const ElicitationCard: React.FC<ElicitationCardProps> = ({ e, onRespond, 
                   value={values[f.key] ?? ""}
                   onChange={(ev) => setValues((prev) => ({ ...prev, [f.key]: ev.target.value }))}
                   placeholder={f.description || ""}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5 outline-none"
+                  className="w-full rounded-lg bg-background border border-border px-2 py-1.5 outline-none"
                 />
               )}
-              {f.description && <div className="text-[11px] text-slate-500">{f.description}</div>}
+              {f.description && <div className="text-[11px] text-muted-foreground">{f.description}</div>}
             </label>
           ))}
         </div>
@@ -150,7 +150,7 @@ export const ElicitationCard: React.FC<ElicitationCardProps> = ({ e, onRespond, 
           placeholder='accept 时提交的 JSON content（可空 {}）'
           rows={2}
           spellCheck={false}
-          className="w-full rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5 font-mono text-[11px] outline-none"
+          className="w-full rounded-lg bg-background border border-border px-2 py-1.5 font-mono text-[11px] outline-none"
         />
       )}
 
@@ -163,13 +163,13 @@ export const ElicitationCard: React.FC<ElicitationCardProps> = ({ e, onRespond, 
         </Button>
         <div className="flex-1" />
         {fields.length > 0 && (
-          <button onClick={() => setUseRaw((v) => !v)} className="text-[11px] font-mono text-slate-500 hover:text-slate-300">
+          <button onClick={() => setUseRaw((v) => !v)} className="text-[11px] font-mono text-muted-foreground hover:text-muted-foreground">
             {useRaw ? "表单模式" : "原始 JSON"}
           </button>
         )}
       </div>
 
-      <details className="text-slate-500">
+      <details className="text-muted-foreground">
         <summary className="cursor-pointer text-[11px]">schema 详情</summary>
         <pre className="font-mono text-[10px] whitespace-pre-wrap max-h-32 overflow-y-auto">{JSON.stringify(e.schema, null, 2).slice(0, 2000)}</pre>
       </details>

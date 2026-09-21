@@ -117,22 +117,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-2xl border border-slate-700/80 bg-slate-900/95 p-6 shadow-2xl backdrop-blur-xl text-slate-100 space-y-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="relative w-full max-w-lg rounded-2xl border border-border/80 bg-card/95 p-6 shadow-2xl backdrop-blur-xl text-foreground space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="flex items-center justify-between pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <div className="p-2 rounded-xl bg-success/10 text-success border border-success/20">
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Google 官方 Antigravity ACP 认证</h2>
-              <p className="text-xs text-slate-400">Agent Client Protocol &bull; 官方服务管理</p>
+              <h2 className="text-base font-bold text-foreground">Google 官方 Antigravity ACP 认证</h2>
+              <p className="text-xs text-muted-foreground">Agent Client Protocol &bull; 官方服务管理</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="rounded-lg p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -141,12 +141,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Status details */}
         <div className="space-y-3.5">
           {/* Account Card */}
-          <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-2">
+          <div className="p-4 rounded-xl bg-background/60 border border-border/80 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">认证状态</span>
+              <span className="text-xs font-medium text-muted-foreground">认证状态</span>
               {isLoading ? (
-                <Badge variant="outline" className="gap-1.5 border-slate-700 bg-slate-800/80 text-indigo-300">
-                  <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
+                <Badge variant="outline" className="gap-1.5 border-border bg-muted/80 text-primary">
+                  <RefreshCw className="w-3 h-3 animate-spin text-primary" />
                   连接检测中...
                 </Badge>
               ) : isAuth ? (
@@ -161,23 +161,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-              <Key className="w-4 h-4 text-indigo-400" />
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Key className="w-4 h-4 text-primary" />
               <span>官方支持认证：oauth-personal / gemini-api-key</span>
             </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Google Antigravity 官方 CLI 引擎（<code className="text-slate-300 font-mono">agy.exe</code>）配合 <code className="text-indigo-400 font-mono">agy-acp-map</code> 桥接器直接负责鉴权与会话生命周期管理，凭据安全保存于本地原生环境（~/.gemini/）。
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Google Antigravity 官方 CLI 引擎（<code className="text-muted-foreground font-mono">agy.exe</code>）配合 <code className="text-primary font-mono">agy-acp-map</code> 桥接器直接负责鉴权与会话生命周期管理，凭据安全保存于本地原生环境（~/.gemini/）。
             </p>
           </div>
 
           {/* Tab Selector */}
-          <div className="flex rounded-xl bg-slate-950/80 p-1 border border-slate-800 text-xs">
+          <div className="flex rounded-xl bg-background/80 p-1 border border-border text-xs">
             <button
               onClick={() => setAuthTab("oauth")}
               className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
                 authTab === "oauth"
-                  ? "bg-indigo-600 text-white shadow"
-                  : "text-slate-400 hover:text-white"
+                  ? "bg-primary text-foreground shadow"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Google 账号授权 (推荐)
@@ -186,8 +186,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               onClick={() => setAuthTab("apikey")}
               className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
                 authTab === "apikey"
-                  ? "bg-indigo-600 text-white shadow"
-                  : "text-slate-400 hover:text-white"
+                  ? "bg-primary text-foreground shadow"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Gemini API Key
@@ -198,22 +198,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {authTab === "oauth" && (
             <div className="space-y-2.5">
               {isLoading ? (
-                <div className="p-3.5 rounded-xl bg-slate-950/40 border border-slate-800/80 text-xs space-y-2">
-                  <div className="flex items-center gap-2 text-indigo-400 font-medium">
+                <div className="p-3.5 rounded-xl bg-background/40 border border-border/80 text-xs space-y-2">
+                  <div className="flex items-center gap-2 text-primary font-medium">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     <span>正在连接官方 ACP 服务并读取凭据...</span>
                   </div>
-                  <p className="text-slate-400 text-[11px]">
+                  <p className="text-muted-foreground text-[11px]">
                     官方 ACP Server 正在进行握手检测与安全凭据加载，请稍候。
                   </p>
                 </div>
               ) : oauthUrl ? (
-                <div className="p-3.5 rounded-xl bg-indigo-950/40 border border-indigo-500/40 text-xs space-y-2.5">
+                <div className="p-3.5 rounded-xl bg-muted/40 border border-primary/40 text-xs space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-indigo-300">Google 网页授权会话已就绪</span>
+                    <span className="font-semibold text-primary">Google 网页授权会话已就绪</span>
                     <Badge variant="default" className="text-[10px]">待用户授权</Badge>
                   </div>
-                  <p className="text-slate-300 text-[11px] leading-relaxed">
+                  <p className="text-muted-foreground text-[11px] leading-relaxed">
                     官方 ACP Server 已生成授权链接，请在浏览器中打开并登录您的 Google 账号：
                   </p>
                   <div className="flex items-center gap-2">
@@ -230,38 +230,38 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       variant="outline"
                       size="sm"
                       onClick={handleCopyUrl}
-                      className="h-9 px-3 border-slate-700 hover:border-slate-500"
+                      className="h-9 px-3 border-border hover:border-muted-foreground"
                     >
-                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
                     </Button>
                   </div>
                 </div>
               ) : isAuth ? (
-                <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-2.5">
+                <div className="p-3.5 rounded-xl bg-success/30 border border-success/30 text-xs space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-emerald-300 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span className="font-semibold text-success flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-success" />
                       本地 Google 账号登录态已就绪
                     </span>
                     <Badge variant="success" className="text-[10px]">已复用本地配置</Badge>
                   </div>
-                  <p className="text-slate-300 text-[11px] leading-relaxed">
-                    已自动检测并接入 Google Antigravity CLI 本地登录态（原生安全凭据目录：<code className="text-slate-200 font-mono">~/.gemini/</code>）。官方 ACP 桥接服务已就绪，可直接发起 AI 问答与代码编辑。
+                  <p className="text-muted-foreground text-[11px] leading-relaxed">
+                    已自动检测并接入 Google Antigravity CLI 本地登录态（原生安全凭据目录：<code className="text-foreground font-mono">~/.gemini/</code>）。官方 ACP 桥接服务已就绪，可直接发起 AI 问答与代码编辑。
                   </p>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => handleTriggerAuth("oauth-personal")}
                     disabled={isVerifying}
-                    className="w-full gap-2 text-xs h-8 border-slate-700 hover:bg-slate-800 text-slate-300"
+                    className="w-full gap-2 text-xs h-8 border-border hover:bg-muted text-muted-foreground"
                   >
-                    <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
+                    <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
                     {isVerifying ? "正在请求官方服务..." : "重新发起 Google 账号授权 (可选)"}
                   </Button>
                 </div>
               ) : (
-                <div className="p-3.5 rounded-xl bg-slate-950/40 border border-slate-800/80 text-xs space-y-2">
-                  <p className="text-slate-400 text-[11px]">
+                <div className="p-3.5 rounded-xl bg-background/40 border border-border/80 text-xs space-y-2">
+                  <p className="text-muted-foreground text-[11px]">
                     点击下方按钮可向官方 ACP Server 发起 OAuth 授权请求。
                   </p>
                   <Button
@@ -271,7 +271,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     disabled={isVerifying}
                     className="w-full gap-2 text-xs h-9"
                   >
-                    <Key className="w-3.5 h-3.5 text-indigo-400" />
+                    <Key className="w-3.5 h-3.5 text-primary" />
                     {isVerifying ? "正在请求官方服务..." : "发起 Google 账号登录"}
                   </Button>
                 </div>
@@ -281,13 +281,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           {/* Mode 2: Gemini API Key */}
           {authTab === "apikey" && (
-            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs space-y-2.5">
-              <div className="flex items-center gap-1.5 text-indigo-300 font-semibold">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
+            <div className="p-3.5 rounded-xl bg-background/60 border border-border/80 text-xs space-y-2.5">
+              <div className="flex items-center gap-1.5 text-primary font-semibold">
+                <Sparkles className="w-4 h-4 text-primary" />
                 <span>配置 Gemini Developer API Key</span>
               </div>
-              <p className="text-slate-400 text-[11px]">
-                官方 ACP Server 同时支持通过 <code className="text-slate-300 font-mono">GEMINI_API_KEY</code> 进行认证。
+              <p className="text-muted-foreground text-[11px]">
+                官方 ACP Server 同时支持通过 <code className="text-muted-foreground font-mono">GEMINI_API_KEY</code> 进行认证。
               </p>
               <div className="flex gap-2">
                 <input
@@ -295,7 +295,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   placeholder="AIzaSy..."
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  className="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  className="flex-1 rounded-lg bg-card border border-border px-3 py-1.5 text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary"
                 />
                 <Button
                   variant="default"
@@ -311,50 +311,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
 
           {/* Engine & ACP Specs */}
-          <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1.5 text-xs">
-            <div className="flex items-center justify-between text-slate-400">
+          <div className="p-3.5 rounded-xl bg-background/60 border border-border/80 space-y-1.5 text-xs">
+            <div className="flex items-center justify-between text-muted-foreground">
               <span>官方 Agent 名称</span>
-              <span className="font-mono text-indigo-300 font-medium">
+              <span className="font-mono text-primary font-medium">
                 {status?.agentInfo?.title || "agy ACP (stream-json)"} (v{status?.packageVersion || "0.1.3"})
               </span>
             </div>
-            <div className="flex items-center justify-between text-slate-400">
+            <div className="flex items-center justify-between text-muted-foreground">
               <span>官方原生引擎</span>
-              <span className="font-mono text-emerald-400 text-[11px] truncate max-w-[240px]" title={status?.binary?.executablePath}>
+              <span className="font-mono text-success text-[11px] truncate max-w-[240px]" title={status?.binary?.executablePath}>
                 {status?.binary?.executablePath ? status.binary.executablePath.split("\\").pop() : "agy.exe"}
               </span>
             </div>
-            <div className="flex items-center justify-between text-slate-400">
+            <div className="flex items-center justify-between text-muted-foreground">
               <span>ACP 适配桥接器</span>
-              <span className="font-mono text-slate-200 text-[11px]">
+              <span className="font-mono text-foreground text-[11px]">
                 @yitom/agy-acp-map@{status?.packageVersion || "0.1.3"} ({status?.mode === "process" ? "外部应用模式" : "外部包模式"})
               </span>
             </div>
-            <div className="flex items-center justify-between text-slate-400">
+            <div className="flex items-center justify-between text-muted-foreground">
               <span>通信协议</span>
-              <span className="font-mono text-purple-300 font-medium">{status?.protocol || "Agent Client Protocol v2"}</span>
+              <span className="font-mono text-primary font-medium">{status?.protocol || "Agent Client Protocol v2"}</span>
             </div>
           </div>
 
           {/* Verification Feedback */}
           {verifyMessage && (
-            <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-200 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />
+            <div className="p-3 rounded-xl bg-primary/10 border border-primary/30 text-primary text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
               <span>{verifyMessage}</span>
             </div>
           )}
         </div>
 
         {/* Action buttons */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+        <div className="flex items-center justify-between pt-2 border-t border-border">
           <Button
             variant="outline"
             size="sm"
             onClick={() => handleTriggerAuth("oauth-personal")}
             disabled={isVerifying}
-            className="text-xs gap-1.5 border-slate-700"
+            className="text-xs gap-1.5 border-border"
           >
-            <Key className="w-3.5 h-3.5 text-indigo-400" />
+            <Key className="w-3.5 h-3.5 text-primary" />
             {isVerifying ? "处理中..." : isAuth ? "重新授权 (可选)" : "发起登录"}
           </Button>
 

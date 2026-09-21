@@ -45,10 +45,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   return (
-    <div className="p-4 md:p-6 bg-slate-950/90 border-t border-slate-800/80 backdrop-blur-xl shrink-0">
+    <div className="p-4 md:p-6 bg-background/90 border-t border-border/80 backdrop-blur-xl shrink-0">
       <div className="max-w-4xl mx-auto space-y-2">
         {/* Input box */}
-        <div className="relative flex flex-col rounded-2xl border border-slate-700/80 bg-slate-900/90 shadow-2xl focus-within:border-indigo-500/70 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
+        <div className="relative flex flex-col rounded-2xl border border-border/80 bg-card/90 shadow-2xl focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-ring/20 transition-all">
           <textarea
             ref={textareaRef}
             rows={1}
@@ -61,13 +61,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 : "输入给 Antigravity 的需求或指令 (例如：分析代码、/usage、编写功能)..."
             }
             disabled={isStreaming}
-            className="w-full resize-none bg-transparent px-4 py-3.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none max-h-48 min-h-[48px]"
+            className="w-full resize-none bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none max-h-48 min-h-[48px]"
           />
 
           {/* Bottom toolbar inside input card */}
           <div className="flex items-center justify-between px-3.5 pb-2.5 pt-1 text-xs">
-            <div className="flex items-center gap-2 text-slate-400">
-              <span className="font-mono text-[11px] text-slate-500 hidden sm:inline">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <span className="font-mono text-[11px] text-muted-foreground hidden sm:inline">
                 Enter 发送 &bull; Shift+Enter 换行
               </span>
             </div>
@@ -78,7 +78,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 onClick={onClear}
                 disabled={isStreaming}
                 title="清空聊天记录"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition-colors disabled:opacity-40"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-muted/80 transition-colors disabled:opacity-40"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -109,7 +109,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1">
           <div className="flex items-center gap-2">
             <span>运行内核：Google 官方 agy 原生引擎</span>
             <span>&bull;</span>
