@@ -190,6 +190,50 @@ export async function gitFile(cwd: string, file: string): Promise<GitFileResult>
   return data;
 }
 
+export async function gitStage(cwd: string, file: string): Promise<void> {
+  const res = await fetch("/api/universal/git/stage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, file }),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "git add 失败");
+}
+
+export async function gitRestore(cwd: string, file: string): Promise<void> {
+  const res = await fetch("/api/universal/git/restore", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, file }),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "git restore 失败");
+}
+
+export interface WorkspaceValidateResult {
+  ok: boolean;
+  path?: string;
+  name?: string;
+  isGit?: boolean;
+  error?: string;
+}
+
+export async function getWorkspaceDefault(): Promise<{ path: string; name: string }> {
+  const res = await fetch("/api/universal/workspace/default");
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "获取默认工作区失败");
+  return data;
+}
+
+export async function validateWorkspace(path: string): Promise<WorkspaceValidateResult> {
+  const res = await fetch("/api/universal/workspace/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  return res.json();
+}
+
 export type UnifiedDiffLine =
   | { kind: "hunk"; text: string }
   | { kind: "add"; text: string }

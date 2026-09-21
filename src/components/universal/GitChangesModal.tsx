@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { X, RefreshCw, FileDiff, Columns2, AlignLeft } from "lucide-react";
+import { X, RefreshCw, FileDiff, Columns2, AlignLeft, Plus, Undo2, Check } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { BlurFade } from "../magicui/blur-fade";
@@ -7,6 +7,8 @@ import { CodeComparison } from "../magicui/code-comparison";
 import {
   gitStatus,
   gitFile,
+  gitStage,
+  gitRestore,
   parseUnifiedDiff,
   guessLanguage,
   type GitFileChange,
@@ -17,6 +19,7 @@ export interface GitChangesModalProps {
   isOpen: boolean;
   onClose: () => void;
   cwd: string | null;
+  initialFilePath?: string | null;
 }
 
 function statusLabel(s: string): { text: string; variant: "success" | "warning" | "destructive" | "outline" } {
@@ -28,13 +31,19 @@ function statusLabel(s: string): { text: string; variant: "success" | "warning" 
   return { text: s, variant: "outline" };
 }
 
-export const GitChangesModal: React.FC<GitChangesModalProps> = ({ isOpen, onClose, cwd }) => {
+export const GitChangesModal: React.FC<GitChangesModalProps> = ({
+  isOpen,
+  onClose,
+  cwd,
+  initialFilePath,
+}) => {
   const [files, setFiles] = useState<GitFileChange[]>([]);
   const [branch, setBranch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<GitFileResult | null>(null);
   const [view, setView] = useState<"split" | "unified">("split");
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   const refresh = async () => {
@@ -45,10 +54,13 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({ isOpen, onClos
       const st = await gitStatus(cwd);
       setFiles(st.files);
       setBranch(st.branch);
-      if (st.files.length > 0 && !st.files.some((f) => f.path === selected)) {
+
+      // Prioritize initialFilePath if provided
+      if (initialFilePath && st.files.some((f) => f.path === initialFilePath)) {
+        setSelected(initialFilePath);
+      } else if (st.files.length > 0 && (!selected || !st.files.some((f) => f.path === selected))) {
         setSelected(st.files[0].path);
-      }
-      if (st.files.length === 0) {
+      } else if (st.files.length === 0) {
         setSelected(null);
         setDetail(null);
       }
@@ -58,6 +70,46 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({ isOpen, onClos
       setLoading(false);
     }
   };
+
+  const handleStage = async (file: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!cwd) return;
+    setActionLoading(file);
+    try {
+      await gitStage(cwd, file);
+      await refresh();
+    } catch (err: any) {
+      setMsg(err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRestore = async (file: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!cwd) return;
+    if (!confirm(`确定放弃对 ${file} 的修改吗？未保存的内容将丢失。`)) return;
+    setActionLoading(file);
+    try {
+      await gitRestore(cwd, file);
+      await refresh();
+    } catch (err: any) {
+      setMsg(err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (isOpen) {
@@ -133,12 +185,33 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({ isOpen, onClos
                 <div
                   key={f.path}
                   onClick={() => setSelected(f.path)}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer border ${
+                  className={`group/item flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer border ${
                     selected === f.path ? "bg-muted border-primary/40" : "border-transparent hover:bg-muted/60"
                   }`}
                 >
                   <Badge variant={lab.variant} className="text-[10px] px-1 h-4 shrink-0">{lab.text}</Badge>
-                  <span className="font-mono truncate flex-1" title={f.path}>{f.path}</span>
+                  <span className="font-mono truncate flex-1 text-[11px]" title={f.path}>{f.path}</span>
+                  {/* Actions on hover: stage and restore */}
+                  <div className="opacity-0 group-hover/item:opacity-100 flex items-center gap-1 shrink-0 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={(e) => handleStage(f.path, e)}
+                      disabled={actionLoading === f.path}
+                      title="暂存该文件 (git add)"
+                      className="p-1 rounded text-muted-foreground hover:text-success hover:bg-success/10 transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleRestore(f.path, e)}
+                      disabled={actionLoading === f.path}
+                      title="放弃更改 (git restore)"
+                      className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <Undo2 className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               );
             })}

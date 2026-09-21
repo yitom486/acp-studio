@@ -18,10 +18,13 @@ import {
   Info,
   ChevronDown,
   Sparkles,
+  Terminal,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import type { AgentSummary } from "../../lib/universal-api";
+import { WorkspaceDropdown } from "./WorkspaceDropdown";
+import type { RecentWorkspace } from "../../stores/useStudioStore";
 
 export interface StudioHeaderProps {
   agents: AgentSummary[];
@@ -36,6 +39,13 @@ export interface StudioHeaderProps {
   sessionId: string | null;
   sessionTitle?: string;
   usage?: { used: number; size: number; cost?: { amount: number; currency: string } } | null;
+
+  currentWorkspace: string | null;
+  recentWorkspaces: RecentWorkspace[];
+  onSelectWorkspace: (path: string, name?: string) => void;
+
+  terminalOpen: boolean;
+  onToggleTerminal: () => void;
 
   hasChangesCwd: boolean;
   supportsFork: boolean;
@@ -64,6 +74,11 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
   sessionId,
   sessionTitle,
   usage,
+  currentWorkspace,
+  recentWorkspaces,
+  onSelectWorkspace,
+  terminalOpen,
+  onToggleTerminal,
   hasChangesCwd,
   supportsFork,
   supportsProviders,
@@ -209,6 +224,12 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
             <span>需认证</span>
           </Button>
         )}
+        {/* Workspace Dropdown */}
+        <WorkspaceDropdown
+          currentWorkspace={currentWorkspace}
+          recentWorkspaces={recentWorkspaces}
+          onSelectWorkspace={onSelectWorkspace}
+        />
       </div>
 
       {/* CENTER: Current Session Title & Token Usage */}
@@ -234,7 +255,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
         )}
       </div>
 
-      {/* RIGHT: Actions (Changes, Providers, + New Session, More Menu) */}
+      {/* RIGHT: Actions (Changes, Terminal, Providers, + New Session, More Menu) */}
       <div className="flex items-center gap-1.5 shrink-0 app-no-drag">
         {/* Code Changes / Diff */}
         <Button
@@ -242,13 +263,27 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           variant="outline"
           onClick={onOpenChanges}
           disabled={busy || !hasChangesCwd}
-          title={hasChangesCwd ? "查看本地代码变更 (git diff)" : "当前目录无代码变更"}
+          title={hasChangesCwd ? "查看本地代码变更 (Ctrl+Shift+D)" : "当前目录无代码变更"}
           className={`h-7 px-2.5 text-xs gap-1.5 transition-colors ${
             hasChangesCwd ? "border-primary/40 text-primary hover:bg-primary/10" : "text-muted-foreground opacity-60"
           }`}
         >
           <FileDiff className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">变更</span>
+        </Button>
+
+        {/* Integrated Terminal Drawer */}
+        <Button
+          size="sm"
+          variant={terminalOpen ? "default" : "outline"}
+          onClick={onToggleTerminal}
+          title="集成终端 (Ctrl+`)"
+          className={`h-7 px-2.5 text-xs gap-1.5 transition-colors ${
+            terminalOpen ? "shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Terminal className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">终端</span>
         </Button>
 
         {/* Providers */}

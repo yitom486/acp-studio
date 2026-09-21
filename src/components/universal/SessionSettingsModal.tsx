@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { X, FolderGit2, Network, Boxes } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { X, FolderGit2, Network, Boxes, FolderOpen } from "lucide-react";
 import { Button } from "../ui/button";
 
 export interface SessionSettings {
@@ -23,12 +23,29 @@ const MCP_EXAMPLE = `[
 ]`;
 
 export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = (p) => {
-  const [cwd, setCwd] = useState("");
+  const [cwd, setCwd] = useState(p.defaultCwdHint || "");
   const [extraDirs, setExtraDirs] = useState("");
   const [mcpJson, setMcpJson] = useState("[]");
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (p.isOpen && !cwd && p.defaultCwdHint) {
+      setCwd(p.defaultCwdHint);
+    }
+  }, [p.isOpen, p.defaultCwdHint, cwd]);
+
   if (!p.isOpen) return null;
+
+  const handleBrowseCwd = async () => {
+    if (window.acpStudio?.openDirectory) {
+      try {
+        const chosen = await window.acpStudio.openDirectory();
+        if (chosen) setCwd(chosen);
+      } catch (err: any) {
+        setError("选择文件夹失败: " + err.message);
+      }
+    }
+  };
 
   const handleCreate = () => {
     setError(null);
@@ -60,16 +77,33 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = (p) => 
           </button>
         </div>
 
-        <label className="block space-y-1">
-          <span className="flex items-center gap-1.5 font-semibold text-muted-foreground"><FolderGit2 className="w-3.5 h-3.5" /> 工作目录 cwd（绝对路径，留空用网关默认）</span>
-          <input
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder={p.defaultCwdHint || "D:/project/..."}
-            spellCheck={false}
-            className="w-full rounded-lg bg-background border border-border px-3 py-1.5 font-mono text-[11px] outline-none focus:border-primary"
-          />
-        </label>
+        <div className="space-y-1">
+          <span className="flex items-center gap-1.5 font-semibold text-muted-foreground">
+            <FolderGit2 className="w-3.5 h-3.5" /> 工作目录 cwd（绝对路径，留空用工作区默认）
+          </span>
+          <div className="flex items-center gap-2">
+            <input
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder={p.defaultCwdHint || "D:/project/..."}
+              spellCheck={false}
+              className="flex-1 rounded-lg bg-background border border-border px-3 py-1.5 font-mono text-[11px] outline-none focus:border-primary"
+            />
+            {typeof window !== "undefined" && Boolean(window.acpStudio?.openDirectory) && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleBrowseCwd}
+                className="h-8 px-2.5 text-xs gap-1 shrink-0"
+                title="选择本地文件夹"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-primary" />
+                <span>浏览</span>
+              </Button>
+            )}
+          </div>
+        </div>
 
         {p.supportsAdditionalDirs && (
           <label className="block space-y-1">

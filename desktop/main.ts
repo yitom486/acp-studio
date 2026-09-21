@@ -3,7 +3,7 @@
  * Starts the Node gateway in-process, then opens the Studio window on it.
  * Dev: ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:5188 (external vite+gateway).
  */
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import * as path from "node:path";
 import { existsSync } from "node:fs";
 import { serve } from "@hono/node-server";
@@ -62,6 +62,22 @@ async function createWindow() {
     win = null;
   });
 }
+
+// Native Desktop IPC Handlers: Folder selection & system explorer reveal
+ipcMain.handle("dialog:openDirectory", async () => {
+  const targetWin = win || BrowserWindow.getFocusedWindow();
+  const res = await dialog.showOpenDialog(targetWin!, {
+    properties: ["openDirectory"],
+    title: "选择项目工作区目录",
+  });
+  if (res.canceled || res.filePaths.length === 0) return null;
+  return res.filePaths[0];
+});
+
+ipcMain.handle("shell:openPath", async (_event, targetPath: string) => {
+  if (!targetPath) return;
+  await shell.openPath(targetPath);
+});
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

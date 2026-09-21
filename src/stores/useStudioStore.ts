@@ -18,6 +18,12 @@ export interface UsageState {
   cost?: { amount: number; currency: string };
 }
 
+export interface RecentWorkspace {
+  path: string;
+  name: string;
+  lastOpened: number;
+}
+
 interface StudioState {
   // connection (client)
   activeAgentId: string;
@@ -49,7 +55,17 @@ interface StudioState {
   pendingElic: PendingElicitation[];
   respondingId: string | null;
 
+  // workspace & desktop tools
+  currentWorkspace: string | null;
+  recentWorkspaces: RecentWorkspace[];
+  terminalOpen: boolean;
+  gitChangesOpen: boolean;
+  gitDiffFile: string | null;
+
   // actions
+  setWorkspace: (path: string, name?: string) => void;
+  setTerminalOpen: (v: boolean) => void;
+  setGitChangesOpen: (v: boolean, file?: string | null) => void;
   setActiveAgentId: (id: string) => void;
   setConnectingId: (id: string | null) => void;
   setAuthOk: (agentId: string, ok: boolean | null) => void;
@@ -98,6 +114,19 @@ const initialThread = {
   attachments: [] as Attachment[],
 };
 
+function loadInitialWorkspaces(): { current: string | null; recents: RecentWorkspace[] } {
+  try {
+    const current = localStorage.getItem("acp_current_workspace");
+    const raw = localStorage.getItem("acp_recent_workspaces");
+    const recents = raw ? JSON.parse(raw) : [];
+    return { current: current || null, recents: Array.isArray(recents) ? recents : [] };
+  } catch {
+    return { current: null, recents: [] };
+  }
+}
+
+const initialWorkspaces = loadInitialWorkspaces();
+
 export const useStudioStore = create<StudioState>()((set) => ({
   activeAgentId: "codex",
   connectingId: null,
@@ -113,6 +142,32 @@ export const useStudioStore = create<StudioState>()((set) => ({
   providersOpen: false,
   modelsOpen: false,
   respondingId: null,
+
+  // workspace & desktop tools
+  currentWorkspace: initialWorkspaces.current,
+  recentWorkspaces: initialWorkspaces.recents,
+  terminalOpen: false,
+  gitChangesOpen: false,
+  gitDiffFile: null,
+
+  setWorkspace: (targetPath, optName) =>
+    set((s) => {
+      const name = optName || targetPath.split(/[/\\]/).filter(Boolean).pop() || targetPath;
+      const prevRecents = Array.isArray(s.recentWorkspaces) ? s.recentWorkspaces : [];
+      const filtered = prevRecents.filter((r) => r.path !== targetPath);
+      const nextRecents = [{ path: targetPath, name, lastOpened: Date.now() }, ...filtered].slice(0, 8);
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("acp_current_workspace", targetPath);
+          localStorage.setItem("acp_recent_workspaces", JSON.stringify(nextRecents));
+        }
+      } catch {
+        // ignore storage errors
+      }
+      return { currentWorkspace: targetPath, recentWorkspaces: nextRecents };
+    }),
+  setTerminalOpen: (v) => set({ terminalOpen: v }),
+  setGitChangesOpen: (v, file) => set({ gitChangesOpen: v, gitDiffFile: file ?? null }),
 
   setActiveAgentId: (id) => set({ activeAgentId: id }),
   setConnectingId: (id) => set({ connectingId: id }),
@@ -180,5 +235,8 @@ export const useStudioStore = create<StudioState>()((set) => ({
       providersOpen: false,
       modelsOpen: false,
       respondingId: null,
+      terminalOpen: false,
+      gitChangesOpen: false,
+      gitDiffFile: null,
     }),
 }));

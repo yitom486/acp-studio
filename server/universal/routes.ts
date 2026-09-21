@@ -83,8 +83,52 @@ function parsePorcelain(out: string): GitFileChange[] {
   return changes.slice(0, 500);
 }
 
-function handleGit(req: Request, url: URL): Response | null {
+async function handleGit(req: Request, url: URL): Promise<Response | null> {
   const p = url.pathname;
+  if (!p.startsWith("/api/universal/git/")) return null;
+
+  if (p === "/api/universal/git/stage" && req.method === "POST") {
+    try {
+      const body = await readJson(req);
+      const cwd = String(body.cwd || "");
+      const resolved = resolveRepo(cwd);
+      if (!resolved.repo) return json({ ok: false, error: resolved.error }, 400);
+      const repo = resolved.repo;
+      const file = String(body.file || "");
+      const abs = path.normalize(path.join(repo, file));
+      if (!file || (abs !== repo && !abs.startsWith(repo + path.sep))) {
+        return json({ ok: false, error: "file 必须位于仓库内" }, 400);
+      }
+      const rel = path.relative(repo, abs);
+      const res = runGit(repo, ["add", "--", rel]);
+      if (!res.ok) return json({ ok: false, error: res.out || "git add 失败" }, 500);
+      return json({ ok: true });
+    } catch (err: any) {
+      return json({ ok: false, error: err.message || "git add 失败" }, 400);
+    }
+  }
+
+  if (p === "/api/universal/git/restore" && req.method === "POST") {
+    try {
+      const body = await readJson(req);
+      const cwd = String(body.cwd || "");
+      const resolved = resolveRepo(cwd);
+      if (!resolved.repo) return json({ ok: false, error: resolved.error }, 400);
+      const repo = resolved.repo;
+      const file = String(body.file || "");
+      const abs = path.normalize(path.join(repo, file));
+      if (!file || (abs !== repo && !abs.startsWith(repo + path.sep))) {
+        return json({ ok: false, error: "file 必须位于仓库内" }, 400);
+      }
+      const rel = path.relative(repo, abs);
+      const res = runGit(repo, ["restore", "--", rel]);
+      if (!res.ok) return json({ ok: false, error: res.out || "git restore 失败" }, 500);
+      return json({ ok: true });
+    } catch (err: any) {
+      return json({ ok: false, error: err.message || "git restore 失败" }, 400);
+    }
+  }
+
   if (p !== "/api/universal/git/status" && p !== "/api/universal/git/file") return null;
   if (req.method !== "GET") return json({ ok: false, error: "method not allowed" }, 405);
 
@@ -525,7 +569,85 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
     });
   }
 
-  const gitRes = handleGit(req, url);
+  // ---- workspace ----
+  if (p === "/api/universal/workspace/default" && req.method === "GET") {
+    const cwd = process.cwd();
+    return json({
+      ok: true,
+      path: cwd,
+      name: path.basename(cwd),
+    });
+  }
+
+  if (p === "/api/universal/workspace/validate" && req.method === "POST") {
+    try {
+      const body = await readJson(req);
+      const target = String(body.path || "").trim();
+      if (!target) return json({ ok: false, error: "路径不能为空" }, 400);
+      const resolved = path.resolve(target);
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+        return json({ ok: false, error: "指定的路径不存在或不是有效目录" }, 400);
+      }
+      const isGit = fs.existsSync(path.join(resolved, ".git"));
+      return json({
+        ok: true,
+        path: resolved,
+        name: path.basename(resolved),
+        isGit,
+      });
+    } catch (err: any) {
+      return json({ ok: false, error: err.message || "校验工作区失败" }, 400);
+    }
+  }
+
+  // ---- terminal exec stream ----
+  if (p === "/api/universal/terminal/exec" && req.method === "POST") {
+    try {
+      const body = await readJson(req);
+      const cwd = String(body.cwd || process.cwd());
+      const cmd = String(body.command || "").trim();
+      if (!cmd) return json({ ok: true, output: "" });
+
+      const shellBin = process.platform === "win32" ? "powershell.exe" : "/bin/sh";
+      const shellArgs = process.platform === "win32" ? ["-NoProfile", "-Command", cmd] : ["-c", cmd];
+
+      const { spawn } = await import("node:child_process");
+      const targetCwd = fs.existsSync(cwd) && fs.statSync(cwd).isDirectory() ? cwd : process.cwd();
+      const proc = spawn(shellBin, shellArgs, {
+        cwd: targetCwd,
+        env: { ...process.env, TERM: "xterm-256color" },
+        windowsHide: true,
+      });
+
+      const stream = new ReadableStream({
+        start(controller) {
+          const enc = new TextEncoder();
+          proc.stdout.on("data", (chunk: Buffer) => controller.enqueue(chunk));
+          proc.stderr.on("data", (chunk: Buffer) => controller.enqueue(chunk));
+          proc.on("close", (code) => {
+            controller.enqueue(enc.encode(`\r\n\x1b[90m[Process finished with exit code ${code ?? 0}]\x1b[0m\r\n`));
+            controller.close();
+          });
+          proc.on("error", (err) => {
+            controller.enqueue(enc.encode(`\r\n\x1b[31m[Process error: ${err.message}]\x1b[0m\r\n`));
+            controller.close();
+          });
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          ...corsHeaders(),
+          "Content-Type": "application/octet-stream",
+          "Cache-Control": "no-cache",
+        },
+      });
+    } catch (err: any) {
+      return json({ ok: false, error: err.message }, 500);
+    }
+  }
+
+  const gitRes = await handleGit(req, url);
   if (gitRes) return gitRes;
 
   return json({ ok: false, error: `Unknown universal route ${req.method} ${p}` }, 404);

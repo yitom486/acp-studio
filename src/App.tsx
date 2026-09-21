@@ -11,6 +11,7 @@ import { UniversalAuthModal } from "./components/universal/AuthModal";
 import { UniversalComposer } from "./components/universal/UniversalComposer";
 import { CustomAgentModal } from "./components/universal/CustomAgentModal";
 import { GitChangesModal } from "./components/universal/GitChangesModal";
+import { TerminalDrawer } from "./components/universal/TerminalDrawer";
 import { ModelBrowserModal } from "./components/universal/ModelBrowserModal";
 import { useStudioStore } from "./stores/useStudioStore";
 import { useAgentsQuery, useSessionsQuery, invalidateAgents, invalidateSessions } from "./lib/acp-queries";
@@ -28,6 +29,8 @@ import {
   findConfigOption,
   parseModelId,
   isAuthRequiredError,
+  getWorkspaceDefault,
+  validateWorkspace,
   type PendingPermission,
   type PendingElicitation,
   type ActivityEvent,
@@ -43,7 +46,6 @@ export default function App() {
   const abortRef = useRef<AbortController | null>(null);
   const ensuredRef = useRef<string | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
-  const [changesOpen, setChangesOpen] = useState(false);
   const s = useStudioStore();
 
   // Server state (TanStack Query)
@@ -94,6 +96,68 @@ export default function App() {
 
   const now = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+  const effectiveCwd = s.currentWorkspace || sessionCwd;
+
+  // Initialize default workspace from server if empty
+  useEffect(() => {
+    if (!s.currentWorkspace) {
+      getWorkspaceDefault()
+        .then((res) => {
+          if (res?.path && !useStudioStore.getState().currentWorkspace) {
+            useStudioStore.getState().setWorkspace(res.path, res.name);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  // Global shortcuts (Ctrl+`, Ctrl+Shift+D, Ctrl+O)
+  useEffect(() => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      // Toggle Terminal: Ctrl + `
+      if ((e.ctrlKey || e.metaKey) && e.key === "`") {
+        e.preventDefault();
+        const cur = useStudioStore.getState();
+        cur.setTerminalOpen(!cur.terminalOpen);
+        return;
+      }
+      // Toggle Git diff: Ctrl + Shift + D
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "D" || e.key === "d")) {
+        e.preventDefault();
+        const cur = useStudioStore.getState();
+        cur.setGitChangesOpen(!cur.gitChangesOpen);
+        return;
+      }
+      // Open Directory: Ctrl + O
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "o" || e.key === "O")) {
+        e.preventDefault();
+        if (window.acpStudio?.openDirectory) {
+          try {
+            const dir = await window.acpStudio.openDirectory();
+            if (dir) {
+              useStudioStore.getState().setWorkspace(dir);
+            }
+          } catch (err: any) {
+            console.error("Open directory error:", err);
+          }
+        } else {
+          const input = prompt("请输入本地项目工作区绝对路径:", useStudioStore.getState().currentWorkspace || "");
+          if (input && input.trim()) {
+            const res = await validateWorkspace(input.trim());
+            if (res.ok && res.path) {
+              useStudioStore.getState().setWorkspace(res.path, res.name);
+            } else {
+              alert("无效目录: " + (res.error || "路径不存在"));
+            }
+          }
+        }
+        return;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   /**
    * Non-mutating local-auth probe: session/list succeeds without any
    * authenticate call iff the agent reuses local login state
@@ -116,7 +180,8 @@ export default function App() {
     try {
       const known = agents.find((a) => a.id === agentId)?.status?.connected;
       if (!known) await connectAgent(agentId);
-      const res: any = await sessionNew(agentId, {});
+      const reqCwd = st.currentWorkspace || undefined;
+      const res: any = await sessionNew(agentId, { ...(reqCwd ? { cwd: reqCwd } : {}) });
       st.applySessionResult(res);
       st.setAuthOk(agentId, true);
       invalidateSessions(qc, agentId);
@@ -177,8 +242,9 @@ export default function App() {
     try {
       const known = agents.find((a) => a.id === agentId)?.status?.connected;
       if (!known) await connectAgent(agentId);
+      const reqCwd = settings.cwd || st.currentWorkspace || undefined;
       const res: any = await sessionNew(agentId, {
-        ...(settings.cwd ? { cwd: settings.cwd } : {}),
+        ...(reqCwd ? { cwd: reqCwd } : {}),
         ...(settings.additionalDirectories.length > 0 ? { additionalDirectories: settings.additionalDirectories } : {}),
         mcpServers: settings.mcpServers,
       });
@@ -622,7 +688,12 @@ export default function App() {
           sessionId={s.sessionId}
           sessionTitle={s.sessionInfo?.title}
           usage={s.usage}
-          hasChangesCwd={!!sessionCwd}
+          currentWorkspace={s.currentWorkspace}
+          recentWorkspaces={s.recentWorkspaces}
+          onSelectWorkspace={(p, name) => s.setWorkspace(p, name)}
+          terminalOpen={s.terminalOpen}
+          onToggleTerminal={() => s.setTerminalOpen(!s.terminalOpen)}
+          hasChangesCwd={!!effectiveCwd}
           supportsFork={supportsFork}
           supportsProviders={supportsProviders}
           busy={s.busy || s.isStreaming}
@@ -630,7 +701,7 @@ export default function App() {
           onNewSession={() => s.setSettingsOpen(true)}
           onForkSession={() => handleForkSession()}
           onOpenProviders={() => s.setProvidersOpen(true)}
-          onOpenChanges={() => setChangesOpen(true)}
+          onOpenChanges={() => s.setGitChangesOpen(true)}
           onCloseSession={async () => {
             const cur = useStudioStore.getState();
             if (!cur.sessionId) return;
@@ -667,6 +738,7 @@ export default function App() {
           selectedMode={s.modes?.currentModeId || ""}
           onSelectSuggestion={(p) => handleSend(p)}
           agentName={activeAgent?.title || activeAgent?.name || "Agent"}
+          onOpenDiff={(file) => s.setGitChangesOpen(true, file)}
         />
 
         <UniversalComposer
@@ -717,6 +789,7 @@ export default function App() {
         onClose={() => s.setSettingsOpen(false)}
         onCreate={handleCreateSession}
         busy={s.busy}
+        defaultCwdHint={effectiveCwd || undefined}
         supportsAdditionalDirs={supportsAdditionalDirs}
         supportsMcpHttp={!!mcpCaps.http}
       />
@@ -731,9 +804,16 @@ export default function App() {
       />
 
       <GitChangesModal
-        isOpen={changesOpen}
-        onClose={() => setChangesOpen(false)}
-        cwd={sessionCwd}
+        isOpen={s.gitChangesOpen}
+        onClose={() => s.setGitChangesOpen(false)}
+        cwd={effectiveCwd}
+        initialFilePath={s.gitDiffFile}
+      />
+
+      <TerminalDrawer
+        isOpen={s.terminalOpen}
+        onClose={() => s.setTerminalOpen(false)}
+        cwd={effectiveCwd}
       />
 
       <ModelBrowserModal

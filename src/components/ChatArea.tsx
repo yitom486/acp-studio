@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { User, Sparkles, Terminal, Copy, Check, Wrench, ShieldAlert, FileText, ArrowRight } from "lucide-react";
+import { User, Sparkles, Terminal, Copy, Check, Wrench, ShieldAlert, FileText, ArrowRight, FileDiff } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Skeleton } from "./ui/skeleton";
 import { BlurFade } from "./magicui/blur-fade";
@@ -33,6 +33,23 @@ export interface ChatAreaProps {
   selectedMode: string;
   onSelectSuggestion: (prompt: string) => void;
   agentName?: string;
+  onOpenDiff?: (filePath?: string | null) => void;
+}
+
+function extractFileFromTool(title: string): string | null {
+  if (!title) return null;
+  const match = title.match(/([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]{1,10})/);
+  if (match) {
+    const candidate = match[1];
+    if (
+      candidate.includes("/") ||
+      candidate.includes("\\") ||
+      /\.(tsx?|jsx?|json|md|css|html|rs|py|go|cs)$/i.test(candidate)
+    ) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -42,6 +59,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   selectedMode,
   onSelectSuggestion,
   agentName = "Agent",
+  onOpenDiff,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
@@ -236,32 +254,52 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                   {msg.toolCalls && msg.toolCalls.length > 0 && (
                     <div className="space-y-1.5 pt-1">
-                      {msg.toolCalls.map((tc, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-background/80 border border-border text-xs text-muted-foreground font-mono"
-                        >
-                          <Wrench className="w-3.5 h-3.5 text-primary" />
-                          {tc.status === "running" || tc.status === "pending" ? (
-                            <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>
-                              <AnimatedShinyText>{tc.title}</AnimatedShinyText>
-                            </span>
-                          ) : (
-                            <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>{tc.title}</span>
-                          )}
-                          <span
-                            className={`w-2 h-2 rounded-full ${
-                              tc.status === "running" || tc.status === "pending"
-                                ? "bg-warning animate-pulse"
-                                : tc.status === "completed"
-                                ? "bg-success"
-                                : tc.status === "cancelled"
-                                ? "bg-muted-foreground"
-                                : "bg-destructive"
-                            }`}
-                          />
-                        </div>
-                      ))}
+                      {msg.toolCalls.map((tc, idx) => {
+                        const targetFile = extractFileFromTool(tc.title);
+                        const isFileTool = tc.kind === "edit" || tc.kind === "file" || tc.kind === "diff" || !!targetFile;
+
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-background/80 border border-border text-xs text-muted-foreground font-mono"
+                          >
+                            <Wrench className="w-3.5 h-3.5 text-primary shrink-0" />
+                            {tc.status === "running" || tc.status === "pending" ? (
+                              <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>
+                                <AnimatedShinyText>{tc.title}</AnimatedShinyText>
+                              </span>
+                            ) : (
+                              <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>
+                                {tc.title}
+                              </span>
+                            )}
+
+                            {onOpenDiff && isFileTool && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenDiff(targetFile)}
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-sans transition-colors shrink-0"
+                                title={targetFile ? `在 Git 审查中查看 ${targetFile}` : "在 Git 审查中查看变更"}
+                              >
+                                <FileDiff className="w-3 h-3" />
+                                <span>Diff</span>
+                              </button>
+                            )}
+
+                            <span
+                              className={`w-2 h-2 rounded-full shrink-0 ${
+                                tc.status === "running" || tc.status === "pending"
+                                  ? "bg-warning animate-pulse"
+                                  : tc.status === "completed"
+                                  ? "bg-success"
+                                  : tc.status === "cancelled"
+                                  ? "bg-muted-foreground"
+                                  : "bg-destructive"
+                              }`}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 

@@ -57,6 +57,32 @@ describe("git inspection routes", () => {
     expect(data.unified).toContain("+TWO");
   });
 
+  it("stages and restores a file change", async () => {
+    if (!hasGit || !repo) return;
+    // Stage new.txt
+    const stageReq = new Request("http://localhost/api/universal/git/stage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: repo, file: "new.txt" }),
+    });
+    const stageRes = (await handleUniversal(stageReq))!;
+    expect(stageRes.status).toBe(200);
+    expect((await stageRes.json()).ok).toBe(true);
+
+    // Verify a.txt restore
+    const restoreReq = new Request("http://localhost/api/universal/git/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: repo, file: "a.txt" }),
+    });
+    const restoreRes = (await handleUniversal(restoreReq))!;
+    expect(restoreRes.status).toBe(200);
+    expect((await restoreRes.json()).ok).toBe(true);
+
+    // a.txt should be reverted to original content
+    expect(fs.readFileSync(path.join(repo, "a.txt"), "utf8").replace(/\r\n/g, "\n")).toBe("one\ntwo\n");
+  });
+
   it("rejects non-repos and path escapes", async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "acp-nogit-"));
     try {
