@@ -198,14 +198,15 @@ const server = Bun.serve({
       }
     }
 
-    // 7. Toggle Bridge Mode (Library vs Process)
+    // 7. Bridge Mode (library-only since the hand-rolled process mode
+    // was removed; generic stdio agents live under /api/universal)
     if (url.pathname === "/api/bridge/mode" && req.method === "POST") {
-      const body = (await req.json().catch(() => ({}))) as { mode?: "library" | "process" };
+      const body = (await req.json().catch(() => ({}))) as { mode?: string };
       if (body.mode === "library" || body.mode === "process") {
-        agyBridge.setMode(body.mode);
+        agyBridge.setMode(body.mode as "library");
         return Response.json({ ok: true, mode: agyBridge.currentMode }, { headers: corsHeaders() });
       }
-      return Response.json({ ok: false, error: "Invalid mode. Use 'library' or 'process'" }, { status: 400, headers: corsHeaders() });
+      return Response.json({ ok: false, error: "Invalid mode. Only 'library' is supported" }, { status: 400, headers: corsHeaders() });
     }
 
     // 8. Chat Streaming via SSE (Transport: Web SSE ↔ ACP session/prompt)

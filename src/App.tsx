@@ -26,6 +26,7 @@ import {
   buildTranscriptFromReplay,
   findConfigOption,
   parseModelId,
+  isAuthRequiredError,
   type PendingPermission,
   type PendingElicitation,
   type ActivityEvent,
@@ -99,8 +100,7 @@ export default function App() {
       await sessionRpc(agentId, "list", {});
       useStudioStore.getState().setAuthOk(agentId, true);
     } catch (e: any) {
-      const msg = String(e?.message || "");
-      useStudioStore.getState().setAuthOk(agentId, /auth/i.test(msg) ? false : null);
+      useStudioStore.getState().setAuthOk(agentId, isAuthRequiredError(e) ? false : null);
     }
   };
 
@@ -119,7 +119,7 @@ export default function App() {
       invalidateAgents(qc);
       return res?.sessionId || null;
     } catch (e: any) {
-      if (/auth/i.test(String(e?.message || ""))) {
+      if (isAuthRequiredError(e)) {
         st.setAuthOk(agentId, false);
         st.setAuthOpen(true);
       } else {
@@ -185,7 +185,7 @@ export default function App() {
       invalidateAgents(qc);
       invalidateSessions(qc, agentId);
     } catch (e: any) {
-      if (/auth/i.test(String(e?.message || ""))) {
+      if (isAuthRequiredError(e)) {
         st.setAuthOk(agentId, false);
         st.setSettingsOpen(false);
         st.setAuthOpen(true);
@@ -488,7 +488,7 @@ export default function App() {
           onDone: () => useStudioStore.getState().patchMessage(assistantId, { isStreaming: false }),
           onError: (err) => {
             const c2 = useStudioStore.getState();
-            if (/auth/i.test(err.message)) {
+            if (isAuthRequiredError(err)) {
               c2.setAuthOk(agentId, false);
               c2.setAuthOpen(true);
             }
@@ -507,7 +507,7 @@ export default function App() {
     } catch (e: any) {
       if (e?.name !== "AbortError") {
         const c2 = useStudioStore.getState();
-        if (/auth/i.test(String(e?.message || ""))) {
+        if (isAuthRequiredError(e)) {
           c2.setAuthOk(agentId, false);
           c2.setAuthOpen(true);
         }

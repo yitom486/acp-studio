@@ -110,6 +110,44 @@ export interface Attachment {
   preview?: string;
 }
 
+/** ACP "Authentication required" (-32000, reserved ACP range -32000..-32099). */
+export const ACP_ERROR_AUTH_REQUIRED = -32000;
+
+export function acpErrorCode(err: unknown): number | null {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "number" ? code : null;
+}
+
+/** Prefer the gateway's authRequired flag / ACP -32000 code over message sniffing. */
+export function isAuthRequiredError(err: unknown): boolean {
+  if ((err as { authRequired?: unknown } | null)?.authRequired === true) return true;
+  if (acpErrorCode(err) === ACP_ERROR_AUTH_REQUIRED) return true;
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /auth_required|authentication required|need[s]? (to )?auth|unauthenticated|not (authenticated|logged in)|login required/i.test(msg);
+}
+
+/** Error thrown by gateway wrappers: carries HTTP status + authRequired flag. */
+export class GatewayError extends Error {
+  authRequired: boolean;
+  status: number;
+  code?: number;
+  constructor(message: string, opts?: { authRequired?: boolean; status?: number; code?: number }) {
+    super(message);
+    this.name = "GatewayError";
+    this.authRequired = !!opts?.authRequired;
+    this.status = opts?.status ?? 500;
+    if (opts?.code !== undefined) this.code = opts.code;
+  }
+}
+
+function throwGatewayError(data: any, fallback: string, status = 500): never {
+  throw new GatewayError(data?.error || fallback, {
+    authRequired: !!data?.authRequired,
+    status,
+    code: typeof data?.code === "number" ? data.code : undefined,
+  });
+}
+
 export interface ActivityEvent {
   kind: string;
   detail?: any;
@@ -145,7 +183,7 @@ export async function fetchAgents(): Promise<AgentSummary[]> {
 export async function connectAgent(agentId: string) {
   const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/connect`, { method: "POST" });
   const data = await res.json();
-  if (!data.ok) throw new Error(data.error || "connect failed");
+  if (!data.ok) throwGatewayError(data, "connect failed", res.status);
   return data;
 }
 
@@ -161,14 +199,14 @@ export async function authenticateAgent(agentId: string, methodId: string, extra
     body: JSON.stringify({ methodId, ...(extra || {}) }),
   });
   const data = await res.json();
-  if (!data.ok) throw new Error(data.error || "authenticate failed");
+  if (!data.ok) throwGatewayError(data, "authenticate failed", res.status);
   return data.result;
 }
 
 export async function logoutAgent(agentId: string) {
   const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/logout`, { method: "POST" });
   const data = await res.json();
-  if (!data.ok) throw new Error(data.error || "logout failed");
+  if (!data.ok) throwGatewayError(data, "logout failed", res.status);
   return data.result;
 }
 
@@ -179,7 +217,7 @@ export async function sessionNew(agentId: string, args: Record<string, unknown> 
     body: JSON.stringify({ cwd: undefined, mcpServers: [], ...args }),
   });
   const data = await res.json();
-  if (!data.ok) throw new Error(data.error || "session/new failed");
+  if (!data.ok) throwGatewayError(data, "session/new failed", res.status);
   return data.result;
 }
 
@@ -190,7 +228,7 @@ export async function sessionRpc(agentId: string, action: string, body: Record<s
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (!data.ok) throw new Error(data.error || `${action} failed`);
+  if (!data.ok) throwGatewayError(data, `${action} failed`, res.status);
   return data.result;
 }
 
@@ -202,7 +240,7 @@ export async function loadSession(agentId: string, body: Record<string, unknown>
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (!data.ok) throw new Error(data.error || "session/load failed");
+  if (!data.ok) throwGatewayError(data, "session/load failed", res.status);
   return { result: data.result, replayed: data.replayed || [] };
 }
 
@@ -219,7 +257,7 @@ export async function providersRpc(agentId: string, action: "list" | "set" | "di
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (!data.ok) throw new Error(data.error || `providers/${action} failed`);
+  if (!data.ok) throwGatewayError(data, `providers/${action} failed`, res.status);
   return data.result;
 }
 
@@ -257,7 +295,7 @@ export async function consumeUniversalChat(
   });
   if (!res.ok) {
     const errJson = await res.json().catch(() => null);
-    throw new Error(errJson?.error || `Server ${res.status}: ${res.statusText}`);
+    throwGatewayError(errJson, `Server ${res.status}: ${res.statusText}`, res.status);
   }
   if (!res.body) throw new Error("No response stream body");
 

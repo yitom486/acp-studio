@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { spawn, type ChildProcess } from "node:child_process";
 import {
   AgyAcpService,
   discoverAgyCatalog,
@@ -10,7 +9,7 @@ import {
   type SdkSession,
 } from "@yitom/agy-acp-map";
 
-export type BridgeMode = "library" | "process";
+export type BridgeMode = "library";
 
 export interface ModelOption {
   id: string;
@@ -101,7 +100,7 @@ export const DEFAULT_AGY_MODELS_CATALOG: ModelOption[] = [
 ];
 
 export class AgyAcpBridge {
-  private mode: BridgeMode;
+  private mode: BridgeMode = "library";
   private service: AgyAcpService | null = null;
   private cachedModels: ModelOption[] = [...DEFAULT_AGY_MODELS_CATALOG];
   private currentModelId = "gemini-3.8-flash-high";
@@ -109,20 +108,11 @@ export class AgyAcpBridge {
   private sessionModels = new Map<string, string>();
   private activeSessionsCount = 0;
 
-  // Process Mode State (when running in subprocess mode)
-  private processSubprocess: ChildProcess | null = null;
-  private processNextId = 1;
-  private processPending = new Map<number | string, { resolve: (val: any) => void; reject: (err: any) => void }>();
-  private processSessionListeners = new Map<string, (update: any) => void>();
-
-  constructor(workingDir: string = process.cwd(), mode?: BridgeMode) {
+  constructor(workingDir: string = process.cwd()) {
     this.workingDir = workingDir;
-    // Mode can be configured via env ACP_BRIDGE_MODE=process or default to library
-    this.mode = mode || (process.env.ACP_BRIDGE_MODE === "process" ? "process" : "library");
-
-    if (this.mode === "library") {
-      this.service = new AgyAcpService();
-    }
+    // Library-only since the hand-rolled process mode was removed:
+    // generic stdio agents go through server/universal instead.
+    this.service = new AgyAcpService();
   }
 
   public get currentMode(): BridgeMode {
@@ -130,10 +120,10 @@ export class AgyAcpBridge {
   }
 
   public setMode(newMode: BridgeMode) {
-    if (this.mode === newMode) return;
-    this.mode = newMode;
-    if (this.mode === "library" && !this.service) {
-      this.service = new AgyAcpService();
+    // Compat no-op: only "library" is supported. The legacy
+    // /api/bridge/mode endpoint keeps working and reports library.
+    if (newMode !== "library") {
+      console.warn(`[ACP-BRIDGE] ignoring unsupported bridge mode '${newMode}', staying on library`);
     }
   }
 
@@ -151,10 +141,8 @@ export class AgyAcpBridge {
   public async init(): Promise<void> {
     await this.ensureReady();
 
-    if (this.mode === "library" && this.service) {
+    if (this.service) {
       await this.service.initialize();
-    } else if (this.mode === "process") {
-      await this.ensureProcessModeServer();
     }
 
     // Prefetch model list
@@ -208,24 +196,15 @@ export class AgyAcpBridge {
 
   public async createSession(cwd?: string): Promise<{ sessionId: string; models: any }> {
     await this.ensureReady();
+    if (!this.service) throw new Error("Antigravity bridge not initialized");
     const targetCwd = cwd || this.workingDir;
-    let sessionId: string;
 
-    if (this.mode === "library" && this.service) {
-      const res = await this.service.newSession({
-        cwd: targetCwd,
-        model: this.currentModelId,
-        safety: "autonomous-unsandboxed",
-      });
-      sessionId = res.sessionId;
-    } else {
-      // Subprocess mode: send session/new over JSON-RPC stdio
-      const res = await this.sendProcessRpc("session/new", {
-        cwd: targetCwd,
-        model: this.currentModelId,
-      });
-      sessionId = res.sessionId;
-    }
+    const res = await this.service.newSession({
+      cwd: targetCwd,
+      model: this.currentModelId,
+      safety: "autonomous-unsandboxed",
+    });
+    const sessionId = res.sessionId;
 
     this.activeSessionsCount++;
     this.sessionModels.set(sessionId, this.currentModelId);
@@ -243,11 +222,7 @@ export class AgyAcpBridge {
 
   public async cancel(sessionId: string): Promise<void> {
     console.log(`[ACP-BRIDGE] cancel: stopping session: ${sessionId}`);
-    if (this.mode === "library" && this.service) {
-      this.service.cancelSession({ sessionId });
-    } else {
-      await this.sendProcessRpc("session/cancel", { sessionId });
-    }
+    this.service?.cancelSession({ sessionId });
   }
 
   public async prompt(
@@ -257,55 +232,41 @@ export class AgyAcpBridge {
     options?: { model?: string; mode?: string }
   ): Promise<{ stopReason: string }> {
     await this.ensureReady();
+    if (!this.service) throw new Error("Antigravity bridge not initialized");
+    const service = this.service;
     const model = options?.model || this.sessionModels.get(sessionId) || this.currentModelId;
-    console.log(`[ACP-BRIDGE] prompt called: sid: ${sessionId}, model: ${model}, mode: ${this.mode}, promptPreview: "${JSON.stringify(promptBlocks).slice(0, 80)}"`);
+    console.log(`[ACP-BRIDGE] prompt called: sid: ${sessionId}, model: ${model}, promptPreview: "${JSON.stringify(promptBlocks).slice(0, 80)}"`);
 
-    if (this.mode === "library" && this.service) {
-      // Auto-register session if not already in memory
-      if (!(this.service as any).sessions.has(sessionId)) {
-        console.log(`[ACP-BRIDGE] session ${sessionId} not in memory, registering fresh session`);
-        const res = await this.service.newSession({
-          cwd: this.workingDir,
-          model,
-          safety: "autonomous-unsandboxed",
-        });
-        const created = (this.service as any).sessions.get(res.sessionId);
-        if (created) {
-          (this.service as any).sessions.delete(res.sessionId);
-          created.sessionId = sessionId;
-          (this.service as any).sessions.set(sessionId, created);
-        }
-      }
-
-      // Library mode: AgyAcpService handles prompt normalization, process supervision, event mapping
-      const outcome = await this.service.promptSession(
-        {
-          sessionId,
-          prompt: promptBlocks,
-          model,
-        },
-        async (update: any) => {
-          console.log(`[ACP-BRIDGE] update from SDK (sid: ${sessionId}): ${update?.sessionUpdate || 'unknown'}`);
-          onUpdate(update);
-        }
-      );
-      console.log(`[ACP-BRIDGE] prompt completed (sid: ${sessionId}) with stopReason: ${outcome.stopReason}`);
-      return outcome;
-    } else {
-      // Process mode: Register session update callback and send session/prompt
-      this.processSessionListeners.set(sessionId, onUpdate);
-      try {
-        const res = await this.sendProcessRpc("session/prompt", {
-          sessionId,
-          prompt: promptBlocks,
-        });
-        const stopReason = res?.stopReason || "end_turn";
-        console.log(`[ACP-BRIDGE] process mode prompt completed (sid: ${sessionId}): ${stopReason}`);
-        return { stopReason };
-      } finally {
-        this.processSessionListeners.delete(sessionId);
+    // Auto-register session if not already in memory
+    if (!(service as any).sessions.has(sessionId)) {
+      console.log(`[ACP-BRIDGE] session ${sessionId} not in memory, registering fresh session`);
+      const res = await service.newSession({
+        cwd: this.workingDir,
+        model,
+        safety: "autonomous-unsandboxed",
+      });
+      const created = (service as any).sessions.get(res.sessionId);
+      if (created) {
+        (service as any).sessions.delete(res.sessionId);
+        created.sessionId = sessionId;
+        (service as any).sessions.set(sessionId, created);
       }
     }
+
+    // AgyAcpService handles prompt normalization, process supervision, event mapping
+    const outcome = await service.promptSession(
+      {
+        sessionId,
+        prompt: promptBlocks,
+        model,
+      },
+      async (update: any) => {
+        console.log(`[ACP-BRIDGE] update from SDK (sid: ${sessionId}): ${update?.sessionUpdate || 'unknown'}`);
+        onUpdate(update);
+      }
+    );
+    console.log(`[ACP-BRIDGE] prompt completed (sid: ${sessionId}) with stopReason: ${outcome.stopReason}`);
+    return outcome;
   }
 
   public getStatus(): BridgeStatus {
@@ -315,7 +276,7 @@ export class AgyAcpBridge {
     return {
       ok: true,
       isOfficial: true,
-      service: `Google Antigravity ACP (${this.mode === "library" ? "Package / Library Mode" : "Subprocess Application Mode"})`,
+      service: `Google Antigravity ACP (Package / Library Mode)`,
       mode: this.mode,
       protocol: "Agent Client Protocol v2 (stream-json bridge)",
       packageVersion: AGENT_INFO.version,
@@ -350,93 +311,7 @@ export class AgyAcpBridge {
   }
 
   public async shutdown(): Promise<void> {
-    if (this.processSubprocess) {
-      try {
-        this.processSubprocess.kill();
-      } catch {
-        // ignore
-      }
-      this.processSubprocess = null;
-    }
-  }
-
-  // --- Subprocess Mode Helpers ---
-
-  private async ensureProcessModeServer(): Promise<void> {
-    if (this.processSubprocess && !this.processSubprocess.killed) {
-      return;
-    }
-
-    const localBin = path.join(this.workingDir, "node_modules", ".bin", process.platform === "win32" ? "agy-acp.cmd" : "agy-acp");
-    const binCommand = fs.existsSync(localBin) ? localBin : "agy-acp";
-
-    this.processSubprocess = spawn(binCommand, [], {
-      cwd: this.workingDir,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env },
-      windowsHide: true,
-    });
-
-    let buffer = "";
-    this.processSubprocess.stdout?.on("data", (chunk: Buffer) => {
-      buffer += chunk.toString("utf8");
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const msg = JSON.parse(trimmed);
-          this.handleProcessIncomingMessage(msg);
-        } catch {
-          // non-json line (e.g. log)
-        }
-      }
-    });
-
-    this.processSubprocess.on("exit", () => {
-      this.processSubprocess = null;
-    });
-
-    // Send ACP initialize
-    await this.sendProcessRpc("initialize", {
-      protocolVersion: 2,
-      capabilities: {},
-      info: { name: "antigravity-studio", version: "1.0.0" },
-    });
-  }
-
-  private handleProcessIncomingMessage(msg: any) {
-    if (msg.id !== undefined && this.processPending.has(msg.id)) {
-      const pending = this.processPending.get(msg.id)!;
-      this.processPending.delete(msg.id);
-      if (msg.error) {
-        pending.reject(new Error(msg.error.message || "ACP Error"));
-      } else {
-        pending.resolve(msg.result);
-      }
-      return;
-    }
-
-    // Handle notifications (session/update)
-    if (msg.method === "session/update" && msg.params?.sessionId) {
-      const listener = this.processSessionListeners.get(msg.params.sessionId);
-      if (listener && msg.params.update) {
-        listener(msg.params.update);
-      }
-    }
-  }
-
-  private sendProcessRpc(method: string, params: any): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!this.processSubprocess || !this.processSubprocess.stdin?.writable) {
-        return reject(new Error("ACP process not running"));
-      }
-      const id = this.processNextId++;
-      this.processPending.set(id, { resolve, reject });
-      const line = JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
-      this.processSubprocess.stdin.write(line);
-    });
+    // Library mode holds no subprocess: nothing to tear down.
+    // (Generic stdio agents are owned by server/universal/registry.)
   }
 }

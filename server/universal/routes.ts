@@ -1,4 +1,5 @@
 import { universalRegistry } from "./registry";
+import { isAuthRequiredError, acpErrorCode } from "./errors";
 
 function corsHeaders() {
   return {
@@ -18,6 +19,27 @@ async function readJson(req: Request): Promise<Record<string, unknown>> {
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: corsHeaders() });
+}
+
+/**
+ * Normalize an ACP/agent failure into a gateway error response.
+ * Auth failures become 401 + authRequired so the UI can open the
+ * auth flow without sniffing message text.
+ */
+export function gatewayErrorBody(err: unknown): { status: number; body: Record<string, unknown> } {
+  const message = err instanceof Error ? err.message : String(err ?? "request failed");
+  const code = acpErrorCode(err);
+  const authRequired = isAuthRequiredError(err);
+  return {
+    status: authRequired ? 401 : 500,
+    body: { ok: false, error: message, authRequired, ...(code !== null ? { code } : {}) },
+  };
+}
+
+function gatewayError(err: unknown, prefix?: string): Response {
+  const { status, body } = gatewayErrorBody(err);
+  if (prefix) body.error = `${prefix}: ${body.error}`;
+  return json(body, status);
 }
 
 /** Normalize frontend prompt into ACP ContentBlock[] */
@@ -117,7 +139,7 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
         const res = await getConn().authenticate(methodId, extra as Record<string, unknown>);
         return json({ ok: true, result: res });
       } catch (err) {
-        return json({ ok: false, error: (err as Error).message }, 500);
+        return gatewayError(err);
       }
     }
 
@@ -126,7 +148,7 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
         const res = await getConn().logout();
         return json({ ok: true, result: res });
       } catch (err) {
-        return json({ ok: false, error: (err as Error).message }, 500);
+        return gatewayError(err);
       }
     }
 
@@ -195,7 +217,7 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
         }
         return json({ ok: true, result });
       } catch (err) {
-        return json({ ok: false, error: (err as Error).message }, 500);
+        return gatewayError(err);
       }
     };
 
@@ -221,7 +243,7 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
         const result = await conn.providersRpc(provMatch[1] as "list" | "set" | "disable", body);
         return json({ ok: true, result });
       } catch (err) {
-        return json({ ok: false, error: (err as Error).message }, 500);
+        return gatewayError(err);
       }
     }
 
@@ -305,7 +327,7 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
     try {
       await conn.connect();
     } catch (err) {
-      return json({ ok: false, error: `Agent '${agentId}' connect failed: ${(err as Error).message}` }, 500);
+      return gatewayError(err, `Agent '${agentId}' connect failed`);
     }
 
     let sessionId = (body.sessionId as string) || "";
@@ -318,7 +340,7 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
         })) as { sessionId?: string };
         sessionId = fresh.sessionId || "";
       } catch (err) {
-        return json({ ok: false, error: `session/new failed: ${(err as Error).message}` }, 500);
+        return gatewayError(err, "session/new failed");
       }
     }
     if (!sessionId) return json({ ok: false, error: "sessionId missing and session/new returned none" }, 500);
