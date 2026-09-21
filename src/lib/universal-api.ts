@@ -55,6 +55,50 @@ export interface PendingElicitation {
   schema: any;
 }
 
+export interface ConfigOptionLike {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  type: string;
+  currentValue?: unknown;
+  options?: Array<{ value: string; name?: string; description?: string }>;
+}
+
+/** Current value of a config option as plain string (handles {value} objects). */
+export function configCurrentValue(opt: ConfigOptionLike): string {
+  const v = opt.currentValue as any;
+  if (v == null) return "";
+  if (typeof v === "object") return String(v.value ?? "");
+  return String(v);
+}
+
+/** Map a session config option to a composer role (model / thinking / permission). */
+export function findConfigOption(options: ConfigOptionLike[] | null | undefined, role: "model" | "thinking" | "permission"): ConfigOptionLike | undefined {
+  if (!options) return undefined;
+  const hit = (o: ConfigOptionLike, re: RegExp) => re.test(o.id || "") || re.test(o.name || "") || re.test(o.category || "");
+  if (role === "model") return options.find((o) => o.id === "model" || o.category === "model");
+  if (role === "thinking") return options.find((o) => hit(o, /reason|effort|think/i));
+  return options.find((o) => o.id === "mode" || o.category === "mode");
+}
+
+/** Split "gpt-5.6-luna[xhigh]" into model + effort (codex model catalog style). */
+export function parseModelId(id: string): { model: string; effort?: string } {
+  const m = /^(.*)\[([^\]]+)\]$/.exec(id.trim());
+  return m ? { model: m[1], effort: m[2] } : { model: id.trim() };
+}
+
+export interface ModelCatalogEntry {
+  modelId: string;
+  name?: string;
+  description?: string;
+}
+
+export interface ModelCatalog {
+  availableModels: ModelCatalogEntry[];
+  currentModelId?: string;
+}
+
 export interface ActivityEvent {
   kind: string;
   detail?: any;

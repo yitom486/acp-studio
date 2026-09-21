@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
-import { Send, Square, Trash2, Paperclip, ImagePlus, X, Command, Cpu, Brain, ShieldCheck } from "lucide-react";
+import { Send, Square, Trash2, Paperclip, ImagePlus, X, Command, Cpu, Brain, ShieldCheck, LayoutGrid } from "lucide-react";
 import { Button } from "../ui/button";
+import { configCurrentValue, findConfigOption, type ConfigOptionLike } from "../../lib/universal-api";
 
 export interface Attachment {
   id: string;
@@ -10,16 +11,6 @@ export interface Attachment {
   block: Record<string, unknown>;
   /** Local object URL for image thumbnails (not sent). */
   preview?: string;
-}
-
-export interface ConfigOptionLike {
-  id: string;
-  name: string;
-  description?: string;
-  category?: string;
-  type: string;
-  currentValue?: unknown;
-  options?: Array<{ value: string; name?: string; description?: string }>;
 }
 
 export interface UniversalComposerProps {
@@ -37,6 +28,9 @@ export interface UniversalComposerProps {
   /** Session config options for inline model / thinking / permission selectors. */
   configOptions?: ConfigOptionLike[] | null;
   onSetConfig?: (configId: string, value: unknown) => void;
+  /** Open the model discovery browser. */
+  onBrowseModels?: () => void;
+  hasModelCatalog?: boolean;
 }
 
 const TEXTISH = /^(text\/|application\/(json|javascript|typescript|xml|x-www-form-urlencoded)|.*\+(json|xml)$)/;
@@ -63,18 +57,11 @@ function readFile(file: File, supportImage: boolean): Promise<{ text?: string; d
 }
 
 function curVal(opt: ConfigOptionLike): string {
-  const v = opt.currentValue as any;
-  if (v == null) return "";
-  if (typeof v === "object") return String(v.value ?? "");
-  return String(v);
+  return configCurrentValue(opt);
 }
 
 function pickRole(options: ConfigOptionLike[] | null | undefined, role: "model" | "thinking" | "permission"): ConfigOptionLike | undefined {
-  if (!options) return undefined;
-  const hit = (o: ConfigOptionLike, re: RegExp) => re.test(o.id || "") || re.test(o.name || "") || re.test(o.category || "");
-  if (role === "model") return options.find((o) => o.id === "model" || o.category === "model");
-  if (role === "thinking") return options.find((o) => hit(o, /reason|effort|think/i));
-  return options.find((o) => o.id === "mode" || o.category === "mode");
+  return findConfigOption(options, role);
 }
 
 export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
@@ -333,6 +320,16 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 {thinkOpt && renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />, "思考")}
                 {permOpt && renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />, "权限")}
               </>
+            )}
+            {p.onBrowseModels && (
+              <button
+                type="button"
+                onClick={p.onBrowseModels}
+                title={p.hasModelCatalog ? "浏览 / 重新发现模型库" : "发现可用模型"}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition-colors"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
             )}
             {!showSelectors && (
               <span className="font-mono text-[11px] text-slate-600 hidden sm:inline">Enter 发送 · Shift+Enter 换行 · / 命令联想</span>

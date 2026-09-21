@@ -9,6 +9,7 @@ import { PermissionDialog } from "./components/universal/PermissionDialog";
 import { ElicitationCard } from "./components/universal/ElicitationCard";
 import { UniversalAuthModal } from "./components/universal/AuthModal";
 import { UniversalComposer, type Attachment } from "./components/universal/UniversalComposer";
+import { ModelBrowserModal } from "./components/universal/ModelBrowserModal";
 import {
   fetchAgents,
   connectAgent,
@@ -21,10 +22,13 @@ import {
   respondElicitation,
   consumeUniversalChat,
   buildTranscriptFromReplay,
+  findConfigOption,
+  parseModelId,
   type AgentSummary,
   type PendingPermission,
   type PendingElicitation,
   type ActivityEvent,
+  type ModelCatalog,
 } from "./lib/universal-api";
 
 /**
@@ -56,6 +60,10 @@ export default function App() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [authOk, setAuthOk] = useState<Record<string, boolean | null>>({});
+  /** Model catalog from session/new (codex advertises models + thinking suffixes). */
+  const [models, setModels] = useState<ModelCatalog | null>(null);
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const activeAgent = agents.find((a) => a.id === activeAgentId);
@@ -139,6 +147,7 @@ export default function App() {
   const resetThread = () => {
     setMessages([]);
     setModes(null);
+    setModels(null);
     setConfigOptions(null);
     setAvailableCommands([]);
     setUsage(null);
@@ -183,6 +192,7 @@ export default function App() {
     if (res?.sessionId) {
       setSessionId(res.sessionId);
       if (res.modes) setModes(res.modes);
+      if (res.models) setModels(res.models);
       if (res.configOptions) setConfigOptions(res.configOptions);
       if (res.availableCommands) setAvailableCommands(res.availableCommands);
     }
@@ -315,6 +325,7 @@ export default function App() {
         for (const a of t.activities) appendActivity(a);
         const r: any = result || {};
         if (r.modes) setModes(r.modes);
+        if (r.models) setModels(r.models);
         if (r.configOptions) setConfigOptions(r.configOptions);
         setAuthOk((prev) => ({ ...prev, [activeAgentId]: true }));
         attached = true;
@@ -388,6 +399,50 @@ export default function App() {
         alert(`删除失败: ${e.message}`);
       }
     }
+  };
+
+  /** Re-discover the model catalog via a throwaway session (closed afterwards). */
+  const handleDiscoverModels = async () => {
+    if (discovering || isStreaming) return;
+    setDiscovering(true);
+    try {
+      if (!activeAgent?.status?.connected) await connectAgent(activeAgentId);
+      const res: any = await sessionNew(activeAgentId, {});
+      if (res?.models) {
+        setModels(res.models);
+        // Adopt config/modes too when we have no session yet.
+        if (!sessionId) {
+          if (res.modes) setModes(res.modes);
+          if (res.configOptions) setConfigOptions(res.configOptions);
+          if (res.availableCommands) setAvailableCommands(res.availableCommands);
+        }
+      }
+      if (res?.sessionId && res.sessionId !== sessionId) {
+        await sessionRpc(activeAgentId, "close", { sessionId: res.sessionId }).catch(() => undefined);
+      }
+      setAuthOk((prev) => ({ ...prev, [activeAgentId]: true }));
+    } catch (e: any) {
+      alert(`发现模型失败: ${e.message}`);
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  /** Apply a catalog modelId (e.g. "gpt-5.6-luna[xhigh]") + linked thinking level. */
+  const handleApplyModel = async (modelId: string) => {
+    const { model, effort } = parseModelId(modelId);
+    const modelOpt = findConfigOption(configOptions, "model");
+    await setSessionConfig(modelOpt?.id || "model", model);
+    if (effort) {
+      const thinkOpt = findConfigOption(configOptions, "thinking");
+      if (thinkOpt && (thinkOpt.options || []).some((o) => String(o.value) === effort)) {
+        await setSessionConfig(thinkOpt.id, effort);
+      }
+    }
+    if (models) {
+      setModels({ ...models, currentModelId: modelId });
+    }
+    setModelsOpen(false);
   };
 
   const handleSend = async (textToSend?: string) => {
@@ -673,6 +728,8 @@ export default function App() {
           agentTitle={activeAgent?.title || activeAgentId}
           configOptions={configOptions}
           onSetConfig={(configId, value) => setSessionConfig(configId, value)}
+          onBrowseModels={() => setModelsOpen(true)}
+          hasModelCatalog={!!models}
         />
       </div>
 
@@ -705,6 +762,17 @@ export default function App() {
       />
 
       <ProvidersModal isOpen={providersOpen} onClose={() => setProvidersOpen(false)} agentId={activeAgentId} />
+
+      <ModelBrowserModal
+        isOpen={modelsOpen}
+        onClose={() => setModelsOpen(false)}
+        catalog={models}
+        modelOption={findConfigOption(configOptions, "model")}
+        currentModelId={models?.currentModelId}
+        discovering={discovering}
+        onRefresh={handleDiscoverModels}
+        onApply={handleApplyModel}
+      />
     </div>
   );
 }

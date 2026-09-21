@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { consumeUniversalChat, buildTranscriptFromReplay } from "../../src/lib/universal-api";
+import { consumeUniversalChat, buildTranscriptFromReplay, parseModelId, findConfigOption, configCurrentValue } from "../../src/lib/universal-api";
 
 function sseResponse(frames: unknown[]): Response {
   const enc = new TextEncoder();
@@ -86,5 +86,20 @@ describe("consumeUniversalChat (v1 full updates)", () => {
     expect(t.usage).toMatchObject({ used: 10, size: 100 });
     expect(t.availableCommands).toHaveLength(1);
     expect(t.currentModeId).toBe("agent");
+  });
+
+  it("parses catalog model ids and maps config roles", () => {
+    expect(parseModelId("gpt-5.6-luna[xhigh]")).toEqual({ model: "gpt-5.6-luna", effort: "xhigh" });
+    expect(parseModelId("plain-model")).toEqual({ model: "plain-model" });
+    const opts = [
+      { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "agent", options: [] },
+      { id: "model", name: "Model", category: "model", type: "select", currentValue: "gpt-5.6-luna", options: [] },
+      { id: "reasoning_effort", name: "Reasoning", category: "thought_level", type: "select", currentValue: "xhigh", options: [] },
+    ];
+    expect(findConfigOption(opts, "model")?.id).toBe("model");
+    expect(findConfigOption(opts, "thinking")?.id).toBe("reasoning_effort");
+    expect(findConfigOption(opts, "permission")?.id).toBe("mode");
+    expect(configCurrentValue(opts[0])).toBe("agent");
+    expect(configCurrentValue({ id: "x", name: "x", type: "select", currentValue: { value: "v" } })).toBe("v");
   });
 });
