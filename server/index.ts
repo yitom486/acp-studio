@@ -1,4 +1,6 @@
 import { AgyAcpBridge } from "./bridge/agyBridge";
+import { handleUniversal } from "./universal/routes";
+import { universalRegistry } from "./universal/registry";
 import { execSync } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -107,6 +109,15 @@ const server = Bun.serve({
   idleTimeout: 0, // Disable idle timeout so server never exits
   async fetch(req) {
     const url = new URL(req.url);
+
+    // Universal ACP gateway (generic stdio agents: codex, gemini, claude, ...)
+    // Mounted first so /api/universal/* never falls through to legacy routes.
+    try {
+      const universal = await handleUniversal(req);
+      if (universal) return universal;
+    } catch (err: any) {
+      return Response.json({ ok: false, error: err?.message || "universal gateway error" }, { status: 500, headers: corsHeaders() });
+    }
 
     if (req.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders() });
@@ -331,6 +342,7 @@ const gracefulShutdown = async () => {
   clearInterval(keepAliveTimer);
   server.stop(true);
   await agyBridge.shutdown();
+  await universalRegistry.shutdown().catch(() => undefined);
   process.exit(0);
 };
 

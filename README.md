@@ -196,6 +196,25 @@ antigravity-acp/ (acp-studio)
 
 ---
 
+## 🌐 Universal ACP 网关 (v1, 新增)
+
+`acp-studio` 已从“Antigravity 专用”升级为**通用 ACP 客户端**：后端新增 `server/universal/` 独立网关，基于 `@agentclientprotocol/sdk@1.4` 的 `client().connect(ndJsonStream)` 直连任意 ACP stdio agent，前端已重写为多 Agent 工作台。
+
+- 内置 presets：`codex` (`npx -y @agentclientprotocol/codex-acp`)、`antigravity-stdio`、`gemini`、`claude`、`opencode`、`copilot`、`cursor`；可通过 `ACP_AGENTS_JSON` 环境变量或 `POST /api/universal/agents` 追加自定义 `{id,command,args,env}`。
+- 完整 v1 客户端能力：`fs/read+write` 真实文件透传、`terminal/*` 真实进程托管、`session/request_permission` 转前端审批、`elicitation/create` 转前端表单、`initialize/authenticate/logout`、`session/new/load/resume/list/close/delete`、`session/set_mode`、`session/set_config_option`、`session/prompt+cancel`。
+- 全量 `session/update` 渲染：`agent/user/thought` chunks、`tool_call(+update)`、`plan`、`available_commands`、`current_mode`、`config_option`、`session_info`、`usage`（token/费用）。
+- 旧 Antigravity 路由 (`/api/status`、`/api/chat` 等) 完整保留，向后兼容。
+
+```bash
+bun run dev
+# 前端 http://localhost:5188 -> 选择 Codex -> 连接 -> 认证 -> 新会话 -> 发送
+# codex 需要 OPENAI_API_KEY / CODEX_API_KEY 或先完成 ChatGPT 登录
+```
+
+网关自测：`GET /api/universal/agents`、`POST /api/universal/agents/codex/connect`、`POST /api/universal/chat` (SSE)。
+
+---
+
 ## 📄 开源许可 (License)
 
 本项目采用 [Apache-2.0 License](./LICENSE) 开源协议。

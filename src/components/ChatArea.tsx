@@ -6,13 +6,17 @@ export interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  thought?: string;
+  plan?: Array<{ content: string; priority?: string; status?: string }>;
+  usage?: { used: number; size: number; cost?: { amount: number; currency: string } };
   model?: string;
   mode?: string;
   timestamp: string;
   toolCalls?: Array<{
     id: string;
     title: string;
-    status: "running" | "completed" | "failed";
+    kind?: string;
+    status: "pending" | "running" | "completed" | "failed" | "cancelled";
   }>;
   isStreaming?: boolean;
 }
@@ -165,6 +169,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 </div>
 
                 {/* Tool Calls (if emitted by ACP) */}
+                {msg.thought && (
+                  <details className="rounded-lg bg-slate-950/70 border border-purple-500/20 px-2.5 py-1.5 text-xs text-purple-200/90">
+                    <summary className="cursor-pointer font-medium text-purple-300">思考过程 ({msg.thought.length} 字)</summary>
+                    <div className="pt-1 whitespace-pre-wrap font-sans break-words opacity-90">{msg.thought}</div>
+                  </details>
+                )}
+
+                {msg.plan && msg.plan.length > 0 && (
+                  <div className="rounded-lg bg-slate-950/70 border border-slate-700 px-2.5 py-1.5 text-xs space-y-1">
+                    <div className="font-semibold text-slate-300">执行计划</div>
+                    {msg.plan.map((pl, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-slate-400">
+                        <span className={`w-1.5 h-1.5 rounded-full ${pl.status === "completed" ? "bg-emerald-400" : pl.status === "in_progress" ? "bg-amber-400 animate-pulse" : "bg-slate-600"}`} />
+                        <span className="flex-1 truncate">{pl.content}</span>
+                        {pl.priority && <span className="font-mono text-[10px] text-slate-500">{pl.priority}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {msg.toolCalls && msg.toolCalls.length > 0 && (
                   <div className="space-y-1.5 pt-1">
                     {msg.toolCalls.map((tc, idx) => (
@@ -173,18 +197,27 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs text-slate-300 font-mono"
                       >
                         <Wrench className="w-3.5 h-3.5 text-indigo-400" />
-                        <span className="flex-1 truncate">{tc.title}</span>
+                        <span className="flex-1 truncate" title={tc.kind ? `${tc.title} [${tc.kind}]` : tc.title}>{tc.title}</span>
                         <span
                           className={`w-2 h-2 rounded-full ${
-                            tc.status === "running"
+                            tc.status === "running" || tc.status === "pending"
                               ? "bg-amber-400 animate-pulse"
                               : tc.status === "completed"
                               ? "bg-emerald-400"
+                              : tc.status === "cancelled"
+                              ? "bg-slate-500"
                               : "bg-rose-400"
                           }`}
                         />
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {msg.usage && (
+                  <div className="font-mono text-[10px] text-slate-500">
+                    context {msg.usage.used.toLocaleString()}/{msg.usage.size.toLocaleString()}
+                    {msg.usage.cost ? ` · $${msg.usage.cost.amount} ${msg.usage.cost.currency}` : ""}
                   </div>
                 )}
 
