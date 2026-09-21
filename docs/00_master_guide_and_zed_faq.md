@@ -88,11 +88,11 @@ flowchart TD
 
 Zed 原生支持 **Agent Client Protocol (ACP)** 协议。Zed 启动时会自动作为 ACP Host，通过启动子进程的标准输入输出（`stdio`）来进行 JSON-RPC 2.0 通信。
 
-### 步骤 1：确认启动脚本就绪
-在本项目根目录中，已经为您准备好 Windows 专属启动脚本 `run-zed-acp.cmd` 与通用入口 [server/acp-stdio.ts](file:///d:/project/js/Electron/antigravity-acp/server/acp-stdio.ts)：
+### 步骤 1：确认原生无黑框启动器就绪
+在本项目根目录中，已经为您准备好 Windows 原生 GUI 子系统启动器 `run-zed-acp-silent.exe`（彻底杜绝 Windows 黑框控制台弹窗与闪烁）：
 
-- 启动脚本位置：`d:\project\js\Electron\antigravity-acp\run-zed-acp.cmd`
-- 脚本内已配置：自动定位 `~/.gemini/bin/agy.exe`，并将所有调试诊断日志严格重定向到 `stderr`，保证 `stdout` 是 100% 干净纯粹的 JSON-RPC 报文。
+- 启动器位置：`d:\project\js\Electron\antigravity-acp\run-zed-acp-silent.exe`
+- 特性：以 `IMAGE_SUBSYSTEM_WINDOWS_GUI` 编译，Windows 绝不分配控制台窗口，透明代理 Stdio 管道并自动 Flush。
 
 ### 步骤 2：在 Zed 中添加 Agent Server 配置
 1. 在 Zed 中按下 `Ctrl+,`（或通过菜单选择 `Zed` -> `Settings` -> `Open settings.json`）。
@@ -101,14 +101,16 @@ Zed 原生支持 **Agent Client Protocol (ACP)** 协议。Zed 启动时会自动
 ```json
 {
   "agent_servers": {
-    "Antigravity CLI": {
-      "command": "cmd.exe",
+    "agy-acp-map-local": {
+      "type": "custom",
+      "command": "d:\\project\\js\\Electron\\antigravity-acp\\run-zed-acp-silent.exe",
       "args": [
-        "/c",
-        "d:\\project\\js\\Electron\\antigravity-acp\\run-zed-acp.cmd"
+        "d:\\project\\js\\Electron\\antigravity-acp\\scratch\\repos\\yitom486-agy-acp-map\\src\\sdk-server.ts"
       ],
       "env": {
-        "AGY_BIN_PATH": "C:\\Users\\zheye\\.gemini\\bin\\agy.exe"
+        "HTTP_PROXY": "http://127.0.0.1:7897",
+        "HTTPS_PROXY": "http://127.0.0.1:7897",
+        "NO_PROXY": "localhost,127.0.0.1,::1"
       }
     }
   }

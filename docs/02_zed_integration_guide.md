@@ -16,48 +16,43 @@ Zed 编辑器原生支持 **Agent Client Protocol (ACP)** 协议标准。当您�
 
 ## 2. 配置步骤
 
-### 步骤一：创建 Windows 启动命令脚本（推荐）
-为了让 Zed 在 Windows 环境下能够稳定拉起 Bun 进程，我们推荐在项目根目录提供一个轻量的启动脚本：
-
-#### Windows 平台 (`run-zed-acp.cmd`)
-在 `d:\project\js\Electron\antigravity-acp` 下创建 `run-zed-acp.cmd`：
-```cmd
-@echo off
-bun run "%~dp0server\acp-stdio.ts"
-```
+### 步骤一：使用无黑框极速启动器（推荐，100% 杜绝控制台弹窗）
+在 Windows 下，若直接调用 `cmd.exe` 或 `bun.exe`，Windows 内核会默认给控制台程序分配 `conhost.exe` 黑色控制台窗口。
+本项目根目录已内置经过 GUI 子系统（`/target:winexe`）编译的 **`run-zed-acp-silent.exe`**，彻底杜绝任何黑框弹窗与闪烁，并自动双向高频透传 Stdio 管道。
 
 ---
 
 ### 步骤二：在 Zed 中配置外部 Agent
-打开 Zed 编辑器，按 `Ctrl+,`（或打开 `settings.json`），在配置文件中加入 `agent_servers` 配置块：
+打开 Zed 编辑器，按 `Ctrl+,`（或打开 `%APPDATA%\Zed\settings.json`），在配置文件中加入 `agent_servers` 配置块：
 
+#### 推荐方案：原生无黑框模式（100% 无弹窗、零闪烁）
 ```json
 {
   "agent_servers": {
-    "Antigravity CLI": {
-      "command": "cmd.exe",
+    "agy-acp-map-local": {
+      "type": "custom",
+      "command": "d:\\project\\js\\Electron\\antigravity-acp\\run-zed-acp-silent.exe",
       "args": [
-        "/c",
-        "d:\\project\\js\\Electron\\antigravity-acp\\run-zed-acp.cmd"
+        "d:\\project\\js\\Electron\\antigravity-acp\\scratch\\repos\\yitom486-agy-acp-map\\src\\sdk-server.ts"
       ],
       "env": {
-        "AGY_BIN_PATH": "C:\\Users\\zheye\\.gemini\\bin\\agy.exe"
+        "HTTP_PROXY": "http://127.0.0.1:7897",
+        "HTTPS_PROXY": "http://127.0.0.1:7897",
+        "NO_PROXY": "localhost,127.0.0.1,::1"
       }
     }
   }
 }
 ```
 
-> **或者使用直接命令模式（需确保 bun 在系统 PATH 中）**：
+> **或者使用无需参数的自检测模式**（`run-zed-acp-silent.exe` 会自动寻找项目中的 `sdk-server.ts` 或 `acp-stdio.ts`）：
 > ```json
 > {
 >   "agent_servers": {
->     "Antigravity CLI": {
->       "command": "bun",
->       "args": [
->         "run",
->         "d:/project/js/Electron/antigravity-acp/server/acp-stdio.ts"
->       ]
+>     "agy-acp-map-local": {
+>       "type": "custom",
+>       "command": "d:\\project\\js\\Electron\\antigravity-acp\\run-zed-acp-silent.exe",
+>       "args": []
 >     }
 >   }
 > }

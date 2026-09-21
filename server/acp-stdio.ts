@@ -9,7 +9,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as acp from "@agentclientprotocol/sdk";
-import { createDualAcpApp, AgyAcpService } from "@yitom/agy-acp-map";
+import { createDualAcpApp, AgyAcpService, hideConsoleWindow } from "@yitom/agy-acp-map";
+
+// Immediately hide console window on Windows to prevent black box on connection
+hideConsoleWindow();
 
 // Auto-detect Google Antigravity CLI binary location
 if (!process.env.AGY_BIN) {

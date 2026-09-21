@@ -18,15 +18,22 @@
 
 ## 🚀 极速启动备忘
 
-### 场景 A：在 Zed 编辑器中使用（Stdio 模式，免开端口）
+### 场景 A：在 Zed 编辑器中使用（Stdio 模式，免开端口，100% 零黑框）
 直接在 Zed 的 `settings.json` 中配置：
 ```json
 {
   "agent_servers": {
-    "Antigravity CLI": {
-      "command": "cmd.exe",
-      "args": ["/c", "d:\\project\\js\\Electron\\antigravity-acp\\run-zed-acp.cmd"],
-      "env": { "AGY_BIN_PATH": "C:\\Users\\zheye\\.gemini\\bin\\agy.exe" }
+    "agy-acp-map-local": {
+      "type": "custom",
+      "command": "d:\\project\\js\\Electron\\antigravity-acp\\run-zed-acp-silent.exe",
+      "args": [
+        "d:\\project\\js\\Electron\\antigravity-acp\\scratch\\repos\\yitom486-agy-acp-map\\src\\sdk-server.ts"
+      ],
+      "env": {
+        "HTTP_PROXY": "http://127.0.0.1:7897",
+        "HTTPS_PROXY": "http://127.0.0.1:7897",
+        "NO_PROXY": "localhost,127.0.0.1,::1"
+      }
     }
   }
 }
