@@ -1,10 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createElement as h } from "react";
 import { renderToString } from "react-dom/server";
 import { Skeleton } from "../../src/components/ui/skeleton";
 import { BlurFade } from "../../src/components/magicui/blur-fade";
 import { AnimatedShinyText } from "../../src/components/magicui/animated-shiny-text";
 import { Markdown } from "../../src/components/universal/Markdown";
+import { reportError, subscribeErrors, dismissError, clearErrors } from "../../src/lib/error-bus";
+import { ErrorBoundary } from "../../src/components/ErrorBoundary";
 
 describe("motion primitives (shadcn + magic ui)", () => {
   it("Skeleton renders a pulsing block", () => {
@@ -36,5 +38,23 @@ describe("motion primitives (shadcn + magic ui)", () => {
     for (const banned of ["slate-", "indigo-", "purple-", "pink-", "emerald-", "amber-", "rose-", "sky-"]) {
       expect(html).not.toContain(banned);
     }
+  });
+
+  it("error bus collects, notifies and dismisses", () => {
+    clearErrors();
+    const seen: string[][] = [];
+    const unsub = subscribeErrors((list) => seen.push(list.map((e) => e.message)));
+    const entry = reportError("test-source", new Error("boom"));
+    expect(entry.source).toBe("test-source");
+    expect(seen.at(-1)).toContain("boom");
+    dismissError(entry.id);
+    expect(seen.at(-1)).toEqual([]);
+    unsub();
+    clearErrors();
+  });
+
+  it("ErrorBoundary renders children when healthy", () => {
+    const html = renderToString(h(ErrorBoundary, null, h("span", null, "healthy")));
+    expect(html).toContain("healthy");
   });
 });
