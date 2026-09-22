@@ -29,6 +29,17 @@ jobs:
       - name: Unit tests (universal)
         run: bunx vitest run tests/universal
 
+      # Bridge reload parity: Studio history switches replay the bridge
+      # journal (session/load), so gate the bridge persist/replay tests
+      # here against the pinned submodule commit.
+      - name: Bridge deps (submodule)
+        run: bun install
+        working-directory: scratch/repos/yitom486-agy-acp-map
+
+      - name: Bridge history tests (reload parity)
+        run: bun test tests/history-partial-persist.test.ts src/lib/session-history.test.ts --timeout 30000
+        working-directory: scratch/repos/yitom486-agy-acp-map
+
       - name: Web build
         run: bun run build
 
