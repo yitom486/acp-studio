@@ -315,9 +315,11 @@ export default function App() {
       const known = agents.find((a) => a.id === agentId)?.status?.connected;
       if (!known) await connectAgent(agentId);
       try {
+        const workspaceCwd = useStudioStore.getState().currentWorkspace || "";
+        const effectiveCwd = item.cwd || workspaceCwd;
         const { result, replayed } = await loadSession(agentId, {
           sessionId: item.sessionId,
-          cwd: item.cwd,
+          cwd: effectiveCwd,
           mcpServers: [],
         });
         const t = buildTranscriptFromReplay(replayed || []);
@@ -360,18 +362,21 @@ export default function App() {
         cur2.setAuthOk(agentId, true);
       } catch {
         // Fall back to resume (no replay) when load is unsupported/fails.
+        const workspaceCwd = useStudioStore.getState().currentWorkspace || "";
+        const effectiveCwd = item.cwd || workspaceCwd;
         try {
-          await sessionRpc(agentId, "resume", { sessionId: item.sessionId, cwd: item.cwd, mcpServers: [] });
+          const resumeRes: any = await sessionRpc(agentId, "resume", { sessionId: item.sessionId, cwd: effectiveCwd, mcpServers: [] });
           const cur = useStudioStore.getState();
           cur.setSessionId(item.sessionId);
-          cur.resetThread();
+          if (resumeRes?.modes) cur.setModes(resumeRes.modes);
+          if (resumeRes?.models) cur.setModels(resumeRes.models);
+          if (resumeRes?.configOptions) cur.setConfigOptions(resumeRes.configOptions);
           cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已 resume 会话（无历史回放）。`, timestamp: now() }]);
         } catch {
           // Some agents reject load/resume while session/prompt on the same
           // id still works — attach bare instead of hitting a dead end.
           const cur = useStudioStore.getState();
           cur.setSessionId(item.sessionId);
-          cur.resetThread();
           cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已切换到会话（该 Agent 未提供历史回放，直接继续对话即可）。`, timestamp: now() }]);
         }
       }

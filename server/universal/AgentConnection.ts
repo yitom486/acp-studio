@@ -502,6 +502,9 @@ export class UniversalAgentConnection {
   async loadSession(args: Record<string, unknown>): Promise<{ result: unknown; replayed: unknown[] }> {
     const conn = this.ensureConn();
     const sessionId = String((args as { sessionId?: string }).sessionId || "");
+    const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
+    const mcpServers = Array.isArray(args.mcpServers) ? args.mcpServers : [];
+    const payload = { ...args, sessionId, cwd, mcpServers };
     // session/load replays history via session/update notifications before
     // responding. Collect them so HTTP clients can rebuild the transcript.
     const replayed: unknown[] = [];
@@ -509,7 +512,7 @@ export class UniversalAgentConnection {
       if ((evt as { type?: string }).type === "update") replayed.push((evt as { update?: unknown }).update);
     }) : () => undefined;
     try {
-      const result = await conn.agent.request(acp.methods.agent.session.load, args as unknown as never);
+      const result = await conn.agent.request(acp.methods.agent.session.load, payload as unknown as never);
       return { result, replayed };
     } finally {
       unsub();
@@ -548,7 +551,9 @@ export class UniversalAgentConnection {
 
   async resumeSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
-    return conn.agent.request(acp.methods.agent.session.resume, args as unknown as never);
+    const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
+    const mcpServers = Array.isArray(args.mcpServers) ? args.mcpServers : [];
+    return conn.agent.request(acp.methods.agent.session.resume, { ...args, cwd, mcpServers } as unknown as never);
   }
 
   async listSessions(args: Record<string, unknown> = {}): Promise<unknown> {
