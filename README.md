@@ -5,7 +5,7 @@
 
 [![Protocol](https://img.shields.io/badge/Protocol-ACP%20v1%20%2F%20v2-blue.svg)](https://agentclientprotocol.com)
 [![Engine](https://img.shields.io/badge/Engine-Google%20Antigravity%20(agy)-green.svg)](https://antigravity.google)
-[![Core Library](https://img.shields.io/badge/@yitom/agy--acp--map-v0.1.13-purple.svg)](https://www.npmjs.com/package/@yitom/agy-acp-map)
+[![Core Library](https://img.shields.io/badge/@yitom/agy--acp--map-v0.1.14-purple.svg)](https://www.npmjs.com/package/@yitom/agy-acp-map)
 [![Tests](https://img.shields.io/badge/Tests-74%20Vitest%20(universal)-success.svg)]()
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-orange.svg)]()
 
@@ -41,7 +41,7 @@ Google Antigravity CLI (`agy`) 是 Google DeepMind 打造的新一代终端智�
 - **零额外 API Key 配置**，无需翻找云端控制台或手动导入 Token，启动即连通 Google 官方底层环境。
 
 ### 3. 多轮会话长效稳定 (Robust Multi-Turn Sessions)
-- 底层采用基于 `@yitom/agy-acp-map@^0.1.13`（以根 `package.json` 为准）的动态回调解耦机制（`setCallbacks`）。
+- 底层采用基于 `@yitom/agy-acp-map@^0.1.14`（以根 `package.json` 为准）的动态回调解耦机制（`setCallbacks`）。
 - 彻底解决传统进程在第二轮提问时因闭包泄漏导致的事件挂起问题，支持无上限连续问答。
 - 支持同一会话内动态热切换大模型（如 `gemini-3.8-flash-high` $\leftrightarrow$ `gemini-3.8-pro`），自动保持 `--conversation` 历史上下文。
 
@@ -228,7 +228,7 @@ bun run dev
 
 | # | 来源 | 位置/写法 | 语义 |
 | :--- | :--- | :--- | :--- |
-| 1 | 根 `package.json` | `"@yitom/agy-acp-map": "^x.y.z"`（当前 `^0.1.13`，以文件为准） | 本地开发/打包时的版本基线 |
+| 1 | 根 `package.json` | `"@yitom/agy-acp-map": "^x.y.z"`（当前 `^0.1.14`，以文件为准） | 本地开发/打包时的版本基线 |
 | 2 | `scratch` 子仓库 | `scratch/repos/yitom486-agy-acp-map`（git submodule commit pin） | 桥源码联调位：想调桥源码时手动跑它，升级靠切 commit；日常运行不经过它 |
 | 3 | runner 缓存 | `bunx @yitom/agy-acp-map@latest`（presets `pinLatest`，bun 优先、npx 兜底） | 用户机器上实际跑的 agent：Studio 直连 `@latest`，无 managed 常驻目录、不锁旧版 |
 

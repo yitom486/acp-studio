@@ -68,8 +68,8 @@
 - **标题**：`index.html` 改为自有标题 `ACP Studio`。
 - **桥 0.1.14（reload 对等）**：取消/失败轮也落半截文本（`partial` 标记），
   `session/load` 照常回放；子模组 pin 到 `v0.1.14`，CI 新增桥历史测试门禁
-  （`history-partial-persist` + `session-history`）；runner `@latest`
-  发布后自动跟进（本地 `package.json` 基线保持 `^0.1.13`，代码内无引用）。
+  （`history-partial-persist` + `session-history`）；`0.1.14` 已发布，
+  本地基线跟进到 `^0.1.14`（`bun.lock` 同步，代码内无直接引用）。
 
 ### Fixed
 - **静默错误 loud 化**（`no-silent-fallbacks` / `error_handling`）：
