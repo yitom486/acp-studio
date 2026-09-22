@@ -1,7 +1,7 @@
 import React from "react";
-import { Bot, PlusCircle, RefreshCw, GitFork, Trash2, XCircle, Cpu, Plug } from "lucide-react";
+import { Bot, PlusCircle, RefreshCw, GitFork, Trash2, XCircle, Cpu, Plug, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import type { AgentSummary } from "@/lib/universal-api";
+import type { AgentSummary, InstallState } from "@/lib/universal-api";
 
 export interface SessionItem {
   sessionId: string;
@@ -30,6 +30,10 @@ export interface SidebarProps {
   onOpenProviders: () => void;
   supportsProviders: boolean;
   onManageCustom: () => void;
+  /** Managed-install state per agent id (null = not manageable / unknown). */
+  installStates: Record<string, InstallState | null>;
+  installingId: string | null;
+  onInstallAgent: (id: string) => void;
 }
 
 function shortCwd(cwd?: string): string {
@@ -70,6 +74,47 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
                 <span className="font-mono text-[10px] text-muted-foreground truncate flex-1">{a.id}</span>
                 {p.authOk[a.id] === true && <Badge variant="success" className="h-4 text-[9px] px-1">已登录</Badge>}
                 {p.authOk[a.id] === false && <Badge variant="warning" className="h-4 text-[9px] px-1">需认证</Badge>}
+                {(() => {
+                  const st = p.installStates[a.id];
+                  if (!st?.managed) return null;
+                  if (!st.installed) {
+                    return (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          p.onInstallAgent(a.id);
+                        }}
+                        disabled={p.installingId === a.id}
+                        title={st.installHint || `一键安装 ${st.pkg} 最新版`}
+                        className="flex items-center gap-1 text-[10px] text-warning hover:text-foreground disabled:opacity-50"
+                      >
+                        {p.installingId === a.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                        {p.installingId === a.id ? "安装中..." : "安装"}
+                      </button>
+                    );
+                  }
+                  if (st.updateAvailable) {
+                    return (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          p.onInstallAgent(a.id);
+                        }}
+                        disabled={p.installingId === a.id}
+                        title={`本地 ${st.installedVersion ?? "?"}，远端 ${st.latestVersion ?? "?"}，点击更新到最新版`}
+                        className="flex items-center gap-1 text-[10px] text-warning hover:text-foreground disabled:opacity-50"
+                      >
+                        {p.installingId === a.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                        {p.installingId === a.id ? "更新中..." : `更新${st.latestVersion ? ` v${st.latestVersion}` : ""}`}
+                      </button>
+                    );
+                  }
+                  return (
+                    <span className="font-mono text-[9px] text-muted-foreground" title={`已安装最新版 ${st.pkg}`}>
+                      v{st.installedVersion ?? "?"}
+                    </span>
+                  );
+                })()}
                 {!connected && (
                   <button
                     onClick={(e) => {

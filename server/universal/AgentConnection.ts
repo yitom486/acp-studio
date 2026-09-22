@@ -36,17 +36,17 @@ export function findHeadlessLauncher(): string | null {
     return false;
   };
   if (check(process.env.AGY_HEADLESS_LAUNCHER)) return cachedLauncher;
-  // Dev layout: <repo>/scratch/repos/yitom486-agy-acp-map/dist/agy-headless.exe
-  check(path.join(process.cwd(), "scratch", "repos", "yitom486-agy-acp-map", "dist", "agy-headless.exe"));
-  if (!cachedLauncher) {
-    try {
-      const meta = (import.meta as unknown as { url?: string })?.url;
-      const req = meta ? createRequire(meta) : (globalThis as any).require;
-      const pkgJson = req?.resolve?.("@yitom/agy-acp-map/package.json");
-      if (pkgJson) check(path.join(path.dirname(pkgJson), "dist", "agy-headless.exe"));
-    } catch {
-      // bundlers / exotic runtimes: fall through to degraded spawn
-    }
+  // Managed on-demand install only (see agent-installer.ts): no bundled and
+  // no dev-checkout fallback. Missing launcher warns loudly below and spawns
+  // directly instead of silently using a stale local file.
+  try {
+    const meta = (import.meta as unknown as { url?: string })?.url;
+    const req = meta ? createRequire(meta) : (globalThis as any).require;
+    const installer = req("./agent-installer") as typeof import("./agent-installer");
+    const spec = installer.specFor("antigravity-stdio");
+    if (spec) check(installer.managedHeadless(spec));
+  } catch {
+    // fall through to the loud warning below
   }
   if (!cachedLauncher) {
     console.warn("[UniversalACP] headless launcher not found; console windows may flash on Windows. Set AGY_HEADLESS_LAUNCHER.");

@@ -24,6 +24,16 @@ export interface RecentWorkspace {
   lastOpened: number;
 }
 
+export interface AgentPrefs {
+  /** configId -> value (model / thinking / permission / 其他透传项) */
+  configValues?: Record<string, unknown>;
+  /** 无 model config 时的 fallback: models.currentModelId / catalog modelId */
+  fallbackModelId?: string;
+  /** modes.currentModeId */
+  modeId?: string;
+  updatedAt: number;
+}
+
 interface StudioState {
   // connection (client)
   activeAgentId: string;
@@ -62,6 +72,9 @@ interface StudioState {
   gitChangesOpen: boolean;
   gitDiffFile: string | null;
 
+  // per-agent last-used model/config memory (persisted to localStorage)
+  agentPrefs: Record<string, AgentPrefs>;
+
   // actions
   setWorkspace: (path: string, name?: string) => void;
   setTerminalOpen: (v: boolean) => void;
@@ -95,6 +108,11 @@ interface StudioState {
   addElicitation: (e: PendingElicitation) => void;
   removeElicitation: (id: string) => void;
   setRespondingId: (id: string | null) => void;
+  /** Remember last-used config for an agent (persisted). */
+  saveAgentPref: (agentId: string, patch: Partial<Omit<AgentPrefs, "updatedAt">>) => void;
+  /** Remember a single configId value for an agent. */
+  rememberAgentConfig: (agentId: string, configId: string, value: unknown) => void;
+  clearAgentPref: (agentId: string) => void;
   /** Clear thread + session-scoped view state (used on agent switch / new thread). */
   resetThread: () => void;
   /** Full reset (tests / logout flows). */
@@ -127,6 +145,34 @@ function loadInitialWorkspaces(): { current: string | null; recents: RecentWorks
 
 const initialWorkspaces = loadInitialWorkspaces();
 
+const AGENT_PREFS_KEY = "acp_agent_prefs_v1";
+
+function loadAgentPrefs(): Record<string, AgentPrefs> {
+  try {
+    if (typeof localStorage === "undefined") return {};
+    const raw = localStorage.getItem(AGENT_PREFS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, AgentPrefs>;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+function persistAgentPrefs(prefs: Record<string, AgentPrefs>) {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(AGENT_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    // ignore storage errors (private mode / quota)
+  }
+}
+
+const initialAgentPrefs = loadAgentPrefs();
+
 export const useStudioStore = create<StudioState>()((set) => ({
   activeAgentId: "codex",
   connectingId: null,
@@ -149,6 +195,8 @@ export const useStudioStore = create<StudioState>()((set) => ({
   terminalOpen: false,
   gitChangesOpen: false,
   gitDiffFile: null,
+
+  agentPrefs: initialAgentPrefs,
 
   setWorkspace: (targetPath, optName) =>
     set((s) => {
@@ -218,6 +266,42 @@ export const useStudioStore = create<StudioState>()((set) => ({
   addElicitation: (e) => set((s) => ({ pendingElic: [...s.pendingElic, e] })),
   removeElicitation: (id) => set((s) => ({ pendingElic: s.pendingElic.filter((x) => x.elicitationId !== id) })),
   setRespondingId: (id) => set({ respondingId: id }),
+  saveAgentPref: (agentId, patch) =>
+    set((s) => {
+      const prev = s.agentPrefs?.[agentId];
+      const nextEntry: AgentPrefs = {
+        ...(prev || { updatedAt: 0 }),
+        ...patch,
+        configValues: { ...(prev?.configValues || {}), ...(patch.configValues || {}) },
+        updatedAt: Date.now(),
+      };
+      // patch without configValues should keep old configValues (avoid wipe)
+      if (!patch.configValues && prev?.configValues) {
+        nextEntry.configValues = prev.configValues;
+      }
+      const nextPrefs = { ...(s.agentPrefs || {}), [agentId]: nextEntry };
+      persistAgentPrefs(nextPrefs);
+      return { agentPrefs: nextPrefs };
+    }),
+  rememberAgentConfig: (agentId, configId, value) =>
+    set((s) => {
+      const prev = s.agentPrefs?.[agentId];
+      const nextEntry: AgentPrefs = {
+        ...(prev || { updatedAt: 0 }),
+        configValues: { ...(prev?.configValues || {}), [configId]: value },
+        updatedAt: Date.now(),
+      };
+      const nextPrefs = { ...(s.agentPrefs || {}), [agentId]: nextEntry };
+      persistAgentPrefs(nextPrefs);
+      return { agentPrefs: nextPrefs };
+    }),
+  clearAgentPref: (agentId) =>
+    set((s) => {
+      const nextPrefs = { ...(s.agentPrefs || {}) };
+      delete nextPrefs[agentId];
+      persistAgentPrefs(nextPrefs);
+      return { agentPrefs: nextPrefs };
+    }),
   resetThread: () => set({ ...initialThread }),
   resetStudio: () =>
     set({

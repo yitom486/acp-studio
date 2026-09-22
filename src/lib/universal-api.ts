@@ -387,6 +387,37 @@ export async function agentStatus(agentId: string) {
   return res.json();
 }
 
+export interface InstallState {
+  id: string;
+  pkg: string;
+  managed: boolean;
+  installed: boolean;
+  installedVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  command: string | null;
+  installHint: string;
+}
+
+/** Null when the agent has no managed installer (404) — never throws. */
+export async function agentInstallState(agentId: string): Promise<InstallState | null> {
+  try {
+    const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/install-state`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.state as InstallState;
+  } catch {
+    return null;
+  }
+}
+
+export async function installAgent(agentId: string): Promise<{ version?: string }> {
+  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/install`, { method: "POST" });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || `安装 ${agentId} 失败`);
+  return data;
+}
+
 export interface CustomAgentInput {
   id: string;
   name?: string;

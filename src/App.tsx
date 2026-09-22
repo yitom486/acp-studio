@@ -32,9 +32,12 @@ import {
   isAuthRequiredError,
   getWorkspaceDefault,
   validateWorkspace,
+  agentInstallState,
+  installAgent,
   type PendingPermission,
   type PendingElicitation,
   type ActivityEvent,
+  type InstallState,
 } from "@/lib/universal-api";
 
 /**
@@ -46,8 +49,35 @@ export default function App() {
   const qc = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
   const ensuredRef = useRef<string | null>(null);
+  const installStatesRef = useRef<Record<string, boolean>>({});
   const [customOpen, setCustomOpen] = useState(false);
   const s = useStudioStore();
+
+  // Managed-install state per agent (on-demand runtimes, see
+  // .agents/rules/no-silent-fallbacks.md). Local state on purpose: it is
+  // derived UI chrome, not server truth.
+  const [installStates, setInstallStates] = useState<Record<string, InstallState | null>>({});
+  const [installingId, setInstallingId] = useState<string | null>(null);
+
+  const refreshInstallState = async (id: string) => {
+    const st = await agentInstallState(id);
+    if (st) setInstallStates((prev) => ({ ...prev, [id]: st }));
+  };
+
+  const handleInstall = async (id: string) => {
+    setInstallingId(id);
+    try {
+      const res = await installAgent(id);
+      alert(`安装成功${res.version ? `（v${res.version}）` : ""}，正在连接…`);
+      await refreshInstallState(id);
+      invalidateAgents(qc);
+      await handleConnect(id);
+    } catch (e: any) {
+      alert(`安装失败: ${e?.message || e}`);
+    } finally {
+      setInstallingId(null);
+    }
+  };
 
   // Server state (TanStack Query)
   const agentsQuery = useAgentsQuery();
@@ -72,6 +102,18 @@ export default function App() {
   useEffect(() => {
     if (agents.length > 0 && !agents.find((a) => a.id === s.activeAgentId)) {
       s.setActiveAgentId(agents[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents]);
+
+  // Fetch managed-install states once per agent id (missing/error -> null,
+  // silently: only managed agents report).
+  useEffect(() => {
+    for (const a of agents) {
+      if (!(a.id in installStatesRef.current)) {
+        installStatesRef.current[a.id] = true;
+        void refreshInstallState(a.id);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents]);
@@ -788,6 +830,9 @@ export default function App() {
         onSelectAgent={handleSelectAgent}
         onConnectAgent={handleConnect}
         connectingId={s.connectingId}
+        installStates={installStates}
+        installingId={installingId}
+        onInstallAgent={handleInstall}
         authOk={s.authOk}
         sessions={sessions}
         sessionsLoading={sessionsQuery.isFetching}

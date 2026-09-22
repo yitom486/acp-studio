@@ -26,13 +26,13 @@ afterAll(() => {
 });
 
 describe("Universal ACP gateway (v1)", () => {
-  it("ships codex-acp preset with stdio command (local or npx fallback)", () => {
+  it("ships codex-acp preset via package runner pinned to latest", () => {
     const codex = resolveBuiltin("codex");
     expect(codex).toBeDefined();
     const cmd = codex!.command.toLowerCase();
-    expect(cmd.includes("npx") || cmd.includes("node") || cmd.includes("bun")).toBe(true);
+    expect(cmd.includes("bunx") || cmd.includes("npx")).toBe(true);
     const argsNormalized = codex!.args!.join(" ").replace(/\\/g, "/");
-    expect(argsNormalized).toContain("@agentclientprotocol/codex-acp");
+    expect(argsNormalized).toContain("@agentclientprotocol/codex-acp@latest");
   });
 
   it("ships all expected builtins (official CLI entries)", () => {
@@ -52,7 +52,9 @@ describe("Universal ACP gateway (v1)", () => {
     expect(cursor.args).toEqual(["acp"]);
 
     const deepseek = resolveBuiltin("deepseek")!;
-    expect(deepseek.args).toEqual(["-y", "@deepseek-ai/dsh", "--profile", "acp"]);
+    expect(deepseek.args).toEqual(["@deepseek-ai/dsh@latest", "--profile", "acp"]);
+    const deepseekCmd = deepseek.command.toLowerCase();
+    expect(deepseekCmd.includes("bunx") || deepseekCmd.includes("npx")).toBe(true);
   });
 
   it("every builtin documents local-auth reuse (shell principle)", () => {

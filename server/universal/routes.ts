@@ -276,6 +276,34 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
 
     const getConn = () => universalRegistry.connFor(agentId);
 
+    if (rest === "/install-state" && req.method === "GET") {
+      try {
+        const { checkAgent, specFor } = await import("./agent-installer");
+        if (!specFor(agentId)) return json({ ok: false, error: `Agent '${agentId}' 不支持一键安装。` }, 404);
+        return json({ ok: true, state: checkAgent(agentId) });
+      } catch (err) {
+        return json({ ok: false, error: (err as Error).message }, 500);
+      }
+    }
+
+    if (rest === "/install" && req.method === "POST") {
+      try {
+        const { installAgent, specFor } = await import("./agent-installer");
+        if (!specFor(agentId)) return json({ ok: false, error: `Agent '${agentId}' 不支持一键安装。` }, 404);
+        const res = installAgent(agentId);
+        if (!res.ok) return json({ ok: false, error: res.error, log: res.log }, res.error?.includes("安装中") ? 409 : 500);
+        // Drop any stale connection so the next connect() picks up the new binary.
+        try {
+          await getConn().disconnect().catch(() => undefined);
+        } catch {
+          // ignore
+        }
+        return json({ ok: true, version: res.version });
+      } catch (err) {
+        return json({ ok: false, error: (err as Error).message }, 500);
+      }
+    }
+
     if (rest === "/connect" && req.method === "POST") {
       try {
         const conn = getConn();

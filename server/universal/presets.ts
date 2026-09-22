@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { AgentProfile } from "./types";
 
 /**
@@ -13,28 +14,25 @@ import type { AgentProfile } from "./types";
  * /api/universal/agents, or ~/.acp-studio/agents.json (all persisted).
  */
 /**
- * Antigravity bridge: compiled single-file exe only (no bun/TS fallback).
- * Missing exe fails fast at connect time via whichCommand + installHint.
- * The exe is CUI like codex's; entry flash is covered by Zed's
- * CREATE_NO_WINDOW (well-behaved) or dist/agy-headless.exe as command.
+ * Antigravity bridge: managed on-demand install only (see agent-installer.ts).
+ * Missing install fails fast at connect time via whichCommand + installHint,
+ * and the UI offers one-click install. No bundled/dev fallbacks.
  */
 export const ANTIGRAVITY_EXE_MISSING_HINT =
-  "缺少 dist/agy-acp-win-x64.exe：请在 scratch/repos/yitom486-agy-acp-map 下跑 bun run build:exe 后重试（不再回退 bun/TS）。";
+  "Antigravity 桥尚未安装：请在工作室 Agent 面板点击「安装」一键拉取最新版（约 100MB），安装完成后再连接。";
 function resolveAntigravity(): { command: string; args: string[] } {
-  const sep = process.platform === "win32" ? "\\" : "/";
-  const devExe = `${process.cwd()}${sep}scratch${sep}repos${sep}yitom486-agy-acp-map${sep}dist${sep}agy-acp-win-x64.exe`;
   try {
-    const meta = (import.meta as unknown as { url?: string })?.url;
-    const req = meta ? createRequire(meta) : (globalThis as any).require;
-    const pkgJson = req?.resolve?.("@yitom/agy-acp-map/package.json");
-    if (pkgJson) {
-      const dir = pkgJson.replace(/package\.json$/, "").replace(/\//g, sep);
-      return { command: `${dir}dist${sep}agy-acp-win-x64.exe`, args: [] };
-    }
+    // require() keeps this synchronous (preset table builds at import time);
+    // agent-installer never imports presets, so no cycle.
+    const req = createRequire(import.meta.url);
+    const installer = req("./agent-installer") as typeof import("./agent-installer");
+    const spec = installer.specFor("antigravity-stdio");
+    const exe = spec ? installer.managedExe(spec) : null;
+    if (exe) return { command: exe, args: [] };
   } catch {
-    // ignore, use dev-layout path below
+    // fall through to the explicit failure below
   }
-  return { command: devExe, args: [] };
+  return { command: `npm:@yitom/agy-acp-map (not installed)`, args: [] };
 }
 
 function resolveCursorCli(): { command: string; args: string[] } {
@@ -55,28 +53,61 @@ function resolveCursorCli(): { command: string; args: string[] } {
   return { command: "agent", args: ["acp"] };
 }
 
-const npxArgs = (pkg: string, extra: string[] = []): string[] => ["-y", pkg, ...extra];
+/**
+ * Package runner with pinned-latest: forces registry version resolution on
+ * every launch so users always run the newest agent. `bunx` first (faster
+ * installs, no prompt, shares Bun's cache), `npx` as fallback. No local
+ * require.resolve shortcut — a stale bundled copy must never mask an
+ * outdated install (fail-fast policy, see .agents/rules/no-silent-fallbacks.md).
+ */
+function pinLatest(pkg: string): string {
+  // "@scope/name" (@ at index 0) has no version; "name@ver" (@ later) does.
+  return pkg.lastIndexOf("@") > 0 ? pkg : `${pkg}@latest`;
+}
 
-const npx = () => (process.platform === "win32" ? "npx.cmd" : "npx");
+/** Minimal PATH scan (local copy; keeps presets.ts dependency-free). */
+function findRunnerBin(name: string): string | null {
+  const isAbs = path.isAbsolute(name);
+  const dirs = isAbs
+    ? [path.dirname(name)]
+    : (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  const base = isAbs ? path.basename(name) : name;
+  const exts =
+    process.platform === "win32" && !path.extname(base)
+      ? ["", ".exe", ".cmd", ".bat"]
+      : [""];
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const full = path.join(dir, base + ext);
+      try {
+        fs.accessSync(full, fs.constants.X_OK);
+        return full;
+      } catch {
+        // try next
+      }
+    }
+  }
+  return null;
+}
+
+function packageRunner(): { command: string; autoYes: boolean } {
+  // bunx never prompts, so no "-y" flag; npx needs "-y" for the same effect.
+  const bunx = findRunnerBin(process.platform === "win32" ? "bunx.exe" : "bunx");
+  if (bunx) return { command: bunx, autoYes: false };
+  if (process.platform === "win32") return { command: "npx.cmd", autoYes: true };
+  return { command: "npx", autoYes: true };
+}
+
+const runnerArgs = (pkg: string, extra: string[] = []): { command: string; args: string[] } => {
+  const r = packageRunner();
+  return {
+    command: r.command,
+    args: [...(r.autoYes ? ["-y"] : []), pinLatest(pkg), ...extra],
+  };
+};
 
 export function resolveNpxOrLocal(pkg: string, extra: string[] = []): { command: string; args: string[] } {
-  try {
-    const meta = (import.meta as unknown as { url?: string })?.url;
-    const req = meta ? createRequire(meta) : (globalThis as any).require;
-    const resolved = req?.resolve?.(pkg);
-    if (resolved && fs.existsSync(resolved)) {
-      return {
-        command: process.execPath,
-        args: [resolved, ...extra],
-      };
-    }
-  } catch {
-    // fallback to npx
-  }
-  return {
-    command: npx(),
-    args: npxArgs(pkg, extra),
-  };
+  return runnerArgs(pkg, extra);
 }
 
 export const BUILTIN_AGENTS: AgentProfile[] = [
@@ -136,11 +167,10 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
     description: "DeepSeek Harness 自动化 ACP 服务（dsh --profile acp，stdio）。authMethods 为空，靠 harness 自身凭证。",
     homepage: "https://deepseekdocs.com/en/docs/guides/acp-automation-server",
     builtin: true,
-    command: npx(),
-    args: ["-y", "@deepseek-ai/dsh", "--profile", "acp"],
+    ...runnerArgs("@deepseek-ai/dsh", ["--profile", "acp"]),
     env: {},
     authHint: "无 ACP 登录（authMethods 为空）：靠 harness 自身凭证（DEEPSEEK_API_KEY / harness 配置），全部留在官方位置。",
-    installHint: "npm i -g @deepseek-ai/dsh（需 Node 22.19+ 或 24+），或 npx 即用。注意 preview 版变化快，建议 pin 版本。",
+    installHint: "npm i -g @deepseek-ai/dsh（需 Node 22.19+ 或 24+），或 bunx/npx 即用。注意 preview 版变化快，启动时固定拉 latest。",
   },
   {
     id: "gemini",

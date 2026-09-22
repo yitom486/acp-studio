@@ -2,9 +2,6 @@
   "name": "acp-studio",
   "version": "0.1.0",
   "type": "module",
-  "workspaces": [
-    "scratch/repos/yitom486-agy-acp-map"
-  ],
   "main": "electron-dist/main.cjs",
   "build": {
     "appId": "studio.acp.app",
@@ -52,7 +49,7 @@
     "@tanstack/react-query": "^5.103.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "@yitom/agy-acp-map": "workspace:*",
+    "@yitom/agy-acp-map": "^0.1.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^13.4.0",
