@@ -36,7 +36,7 @@ export function corsHeaders(): Record<string, string> {
 export function freePortIfOccupied(port: number) {
   if (process.platform !== "win32") return;
   try {
-    const stdout = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, {
+    const stdout = execSync(`netstat -ano | findstr /R /C:":${port} " | findstr LISTENING`, {
       encoding: "utf8",
       windowsHide: true,
     });
