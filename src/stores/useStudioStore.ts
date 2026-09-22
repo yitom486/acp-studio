@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import type { Message } from "@/components/ChatArea";
 import type {
   Attachment,
@@ -421,3 +422,83 @@ export const useStudioStore = create<StudioState>()((set) => ({
     })
   }
 }));
+
+/**
+ * Shallow-selected view of the studio store.
+ *
+ * IMPORTANT: this deliberately does **not** subscribe to `messages`. The
+ * streaming hot path writes `messages` once per token; subscribing to it at
+ * shell level made App re-render (and re-render every layout child) on every
+ * chunk. `messages` is consumed by the leaves that actually render it
+ * (`ChatArea` via `useStudioStore((s) => s.messages)`), while stream callbacks
+ * write through `getState()` actions, which needs no subscription at all.
+ *
+ * Per .agents/rules/state_management.md: subscribe with selectors, never the
+ * whole store. `transients` (AbortController, StrictMode guards) stay in refs.
+ */
+const STUDIO_SHALLOW_SELECTOR = (s: StudioState) => ({
+  // connection
+  activeAgentId: s.activeAgentId,
+  connectingId: s.connectingId,
+  authOk: s.authOk,
+  // session view
+  sessionId: s.sessionId,
+  modes: s.modes,
+  models: s.models,
+  configOptions: s.configOptions,
+  availableCommands: s.availableCommands,
+  usage: s.usage,
+  sessionInfo: s.sessionInfo,
+  // composer / busy
+  input: s.input,
+  attachments: s.attachments,
+  isStreaming: s.isStreaming,
+  busy: s.busy,
+  discovering: s.discovering,
+  // overlays
+  authOpen: s.authOpen,
+  settingsOpen: s.settingsOpen,
+  providersOpen: s.providersOpen,
+  modelsOpen: s.modelsOpen,
+  // pending agent requests
+  pendingPerms: s.pendingPerms,
+  pendingElic: s.pendingElic,
+  respondingId: s.respondingId,
+  // workspace & desktop tools
+  currentWorkspace: s.currentWorkspace,
+  recentWorkspaces: s.recentWorkspaces,
+  terminalOpen: s.terminalOpen,
+  gitChangesOpen: s.gitChangesOpen,
+  gitDiffFile: s.gitDiffFile,
+  // thread bookkeeping
+  threads: s.threads,
+  activeThreadId: s.activeThreadId,
+  agentPrefs: s.agentPrefs,
+  // actions used directly from JSX (stable identity — never trigger a shallow
+  // change, so including them costs nothing and avoids `getState()` in render)
+  setWorkspace: s.setWorkspace,
+  setTerminalOpen: s.setTerminalOpen,
+  setGitChangesOpen: s.setGitChangesOpen,
+  setAuthOpen: s.setAuthOpen,
+  setSettingsOpen: s.setSettingsOpen,
+  setProvidersOpen: s.setProvidersOpen,
+  setModelsOpen: s.setModelsOpen,
+  setInput: s.setInput,
+  setAttachments: s.setAttachments,
+  setMessages: s.setMessages,
+});
+
+export type StudioShallow = ReturnType<typeof STUDIO_SHALLOW_SELECTOR>;
+
+/** Subscribe to the studio view state without re-rendering on `messages` writes. */
+export function useStudioShallow(): StudioShallow {
+  return useStudioStore(useShallow(STUDIO_SHALLOW_SELECTOR));
+}
+
+/**
+ * Focused subscription for the single field the stream hot path mutates.
+ * Kept separate so only the component that renders the transcript pays for it.
+ */
+export function useStudioMessages(): Message[] {
+  return useStudioStore((s) => s.messages);
+}

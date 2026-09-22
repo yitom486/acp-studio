@@ -11,6 +11,16 @@
 
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+- Studio store 新增 `useStudioShallow` / `useStudioMessages`：选择性订阅
+  视图状态，刻意排除 `messages`（流式热路径字段）。
+
+### Changed
+- **Studio 外壳重渲染修复**：`App.tsx` 原先用无选择器
+  `useStudioStore()` 订阅整个 store，导致每个流式分片都重渲染整个布局。
+  现改为 `useStudioShallow` 选择性订阅，`messages` 下移到真正渲染它的
+  `ChatArea`（经 `useStudioMessages`）；持久化 effect 改为按需
+  `getState()` 读取，不再订阅热路径。符合
+  `.agents/rules/state_management.md` 的选择器订阅约定。
 
 ## [0.1.0] - 2026-09-22
 

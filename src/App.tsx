@@ -13,7 +13,7 @@ import { CustomAgentModal } from "@/components/universal/CustomAgentModal";
 import { GitChangesModal } from "@/components/universal/GitChangesModal";
 import { TerminalDrawer } from "@/components/universal/TerminalDrawer";
 import { ModelBrowserModal } from "@/components/universal/ModelBrowserModal";
-import { useStudioStore } from "@/stores/useStudioStore";
+import { useStudioStore, useStudioShallow, useStudioMessages } from "@/stores/useStudioStore";
 import { useAgentsQuery, useSessionsQuery, invalidateAgents, invalidateSessions } from "@/lib/acp-queries";
 import {
   connectAgent,
@@ -34,32 +34,63 @@ import {
   validateWorkspace,
   agentInstallState,
   installAgent,
+  cleanupEmptySessions,
   getBridgeSource,
   setBridgeSource,
   type PendingPermission,
   type PendingElicitation,
   type ActivityEvent,
   type InstallState,
+  type AgentSummary,
 } from "@/lib/universal-api";
+
+/**
+ * Store actions read once at module scope. zustand keeps action identities
+ * stable for the lifetime of the store, so these never change — which lets the
+ * callbacks below be memoized with empty dependency arrays.
+ */
+const {
+  setActiveAgentId,
+  restoreThread,
+  newThread,
+  snapshotThread,
+  bindThreadSession,
+  markThreadStale,
+  resetThread,
+} = useStudioStore.getState();
 
 /**
  * ACP Studio Universal — full ACP v1 client.
  * State: zustand (client) + TanStack Query (server). See
  * .agents/rules/state_management.md for the conventions.
+ *
+ * Re-render discipline: this shell subscribes via `useStudioShallow`, which
+ * excludes `messages`. Streaming chunks therefore re-render only the
+ * transcript leaves, not the whole layout. The transcript itself is read by
+ * `ChatArea` through its own focused subscription.
  */
 export default function App() {
   const qc = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
   const ensuredRef = useRef<string | null>(null);
   const installStatesRef = useRef<Record<string, boolean>>({});
+  /**
+   * Latest agent list, mirrored into a ref so callbacks can read it without
+   * taking a dependency on it. `useAgentsQuery` polls every 15s, so closing
+   * over `agents` directly would rebuild every handler (and defeat `memo` on
+   * the layout children) four times a minute.
+   */
+  const agentsRef = useRef<AgentSummary[]>([]);
   const [customOpen, setCustomOpen] = useState(false);
-  const s = useStudioStore();
+  const s = useStudioShallow();
+  const messages = useStudioMessages();
 
   // Managed-install state per agent (on-demand runtimes, see
   // .agents/rules/no-silent-fallbacks.md). Local state on purpose: it is
   // derived UI chrome, not server truth.
   const [installStates, setInstallStates] = useState<Record<string, InstallState | null>>({});
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [cleaningEmpty, setCleaningEmpty] = useState(false);
   // Bridge source switch: dev UI only (import.meta.env.DEV is false in the
   // packaged app, so the toggle can never appear in production).
   const [bridgeSource, setBridgeSourceState] = useState<{ source: "npm" | "local" } | null>(null);
@@ -110,6 +141,29 @@ export default function App() {
     }
   };
 
+  /** One-click cleanup of abandoned empty sessions (visible counts, never silent). */
+  const handleCleanupEmpty = async () => {
+    const agentId = s.activeAgentId;
+    const st = useStudioStore.getState();
+    // Live-bound session ids must never be touched.
+    const bound = new Set<string>();
+    if (st.sessionId) bound.add(st.sessionId);
+    for (const t of Object.values(st.threads)) {
+      if (t.agentId === agentId && t.sessionId) bound.add(t.sessionId);
+    }
+    if (!confirm(`清理「${agentId}」下无对话记录、超过1小时、且当前未打开的空会话？\n（将跳过 ${bound.size} 个已绑定会话，逐个删除，失败逐条报告）`)) return;
+    setCleaningEmpty(true);
+    try {
+      const res = await cleanupEmptySessions(agentId, [...bound]);
+      alert(`清理完成：已删 ${res.deleted.length} 个。${res.errors.length ? `失败 ${res.errors.length} 个，首错：${res.errors[0].error}` : "无失败。"}`);
+      invalidateSessions(qc, agentId);
+    } catch (e: any) {
+      alert(`清理失败: ${e?.message || e}`);
+    } finally {
+      setCleaningEmpty(false);
+    }
+  };
+
   // Server state (TanStack Query)
   const agentsQuery = useAgentsQuery();
   const agents = agentsQuery.data ?? [];
@@ -131,8 +185,9 @@ export default function App() {
 
   // Keep the selected agent valid as the registry list arrives/changes.
   useEffect(() => {
+    agentsRef.current = agents;
     if (agents.length > 0 && !agents.find((a) => a.id === s.activeAgentId)) {
-      s.setActiveAgentId(agents[0].id);
+      setActiveAgentId(agents[0].id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents]);
@@ -141,18 +196,20 @@ export default function App() {
   // zero network; Inkdown-style zustand/persist equivalent).
   useEffect(() => {
     const st = useStudioStore.getState();
-    if (!st.restoreThread(st.activeAgentId)) st.newThread(st.activeAgentId);
+    if (!restoreThread(st.activeAgentId)) newThread(st.activeAgentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist the live view (trailing throttle): crash/reload-safe threads.
+  // Reads `messages` imperatively so this shell never subscribes to the
+  // streaming hot path; the effect re-arms on the session/thread identities.
   useEffect(() => {
     const t = setTimeout(() => {
       const st = useStudioStore.getState();
-      if (st.activeThreadId) st.snapshotThread();
+      if (st.activeThreadId) snapshotThread();
     }, 1500);
     return () => clearTimeout(t);
-  }, [s.messages, s.sessionId, s.activeAgentId, s.activeThreadId]);
+  }, [s.sessionId, s.activeAgentId, s.activeThreadId]);
 
   // Fetch managed-install states once per agent id (missing/error -> null,
   // silently: only managed agents report).
@@ -275,7 +332,7 @@ export default function App() {
       const reqCwd = st.currentWorkspace || undefined;
       const res: any = await sessionNew(agentId, { ...(reqCwd ? { cwd: reqCwd } : {}) });
       st.applySessionResult(res);
-      st.bindThreadSession(useStudioStore.getState().sessionId, reqCwd);
+      bindThreadSession(useStudioStore.getState().sessionId, reqCwd);
       st.setAuthOk(agentId, true);
       invalidateSessions(qc, agentId);
       invalidateAgents(qc);
@@ -300,11 +357,11 @@ export default function App() {
     const st = useStudioStore.getState();
     if (id === st.activeAgentId) return;
     abortRef.current?.abort();
-    st.snapshotThread();
-    st.setActiveAgentId(id);
+    snapshotThread();
+    setActiveAgentId(id);
     // Per-agent isolation: only this agent's own thread (and its sessionId)
     // ever enters the live view.
-    if (!st.restoreThread(id)) st.newThread(id);
+    if (!restoreThread(id)) newThread(id);
     const target = agents.find((a) => a.id === id);
     if (target?.status?.connected) {
       invalidateSessions(qc, id);
@@ -336,8 +393,8 @@ export default function App() {
     } catch {
       // Visible degrade (no silent fallback): keep cached messages on screen,
       // mark stale, drop the dead binding so the next prompt news a session.
-      st.markThreadStale();
-      st.bindThreadSession(null);
+      markThreadStale();
+      bindThreadSession(null);
       st.appendMessage({
         id: `sys-${Date.now()}-stale`,
         role: "system",
@@ -388,9 +445,9 @@ export default function App() {
         mcpServers: settings.mcpServers,
       });
       // 先开新线程，再应用新会话的 modes/models/config
-      st.newThread(agentId);
+      newThread(agentId);
       st.applySessionResult(res);
-      st.bindThreadSession(useStudioStore.getState().sessionId, reqCwd);
+      bindThreadSession(useStudioStore.getState().sessionId, reqCwd);
       st.setAuthOk(agentId, true);
       st.setSettingsOpen(false);
       invalidateAgents(qc);
@@ -583,6 +640,16 @@ export default function App() {
             timestamp: now(),
           }))
         );
+        if (t.messages.length === 0) {
+          // Loud empty state (no silent blank): the session exists but the
+          // agent replayed nothing (empty turn history). Still bound below.
+          cur.appendMessage({
+            id: `sys-${Date.now()}-empty`,
+            role: "system",
+            content: `会话 ${item.sessionId.slice(0, 8)}… 无可回放的历史（空会话或记录已被清理），已绑定，可直接继续对话。`,
+            timestamp: now(),
+          });
+        }
         if (t.plan.length > 0) {
           const msgs = useStudioStore.getState().messages;
           const lastAsst = [...msgs].reverse().find((m) => m.role === "assistant");
@@ -936,6 +1003,8 @@ export default function App() {
         bridgeSource={bridgeSource}
         switchingSource={switchingSource}
         onBridgeSource={handleBridgeSource}
+        cleaningEmpty={cleaningEmpty}
+        onCleanupEmpty={handleCleanupEmpty}
         authOk={s.authOk}
         sessions={sessions}
         sessionsLoading={sessionsQuery.isFetching}
@@ -1016,7 +1085,7 @@ export default function App() {
         )}
 
         <ChatArea
-          messages={s.messages}
+          messages={messages}
           isStreaming={s.isStreaming}
           selectedModel={activeAgent?.title || s.activeAgentId}
           selectedMode={s.modes?.currentModeId || ""}
