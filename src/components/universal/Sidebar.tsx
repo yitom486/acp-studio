@@ -38,12 +38,32 @@ export interface SidebarProps {
   bridgeSource: { source: "npm" | "local" } | null;
   switchingSource: boolean;
   onBridgeSource: (source: "npm" | "local") => void;
+  /** One-click empty-session cleanup (null/false hides it). */
+  cleaningEmpty: boolean;
+  onCleanupEmpty: () => void;
+  /** Opt-in auto-update flags (only rendered for managed rows). */
+  autoUpdate: Record<string, boolean>;
+  onToggleAutoUpdate: (id: string, on: boolean) => void;
 }
 
 function shortCwd(cwd?: string): string {
   if (!cwd) return "";
   const parts = cwd.replace(/\\/g, "/").split("/");
   return parts.slice(-2).join("/");
+}
+
+function timeAgo(iso?: string | null): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const mins = Math.max(0, Math.floor((Date.now() - t) / 60000));
+  if (mins < 1) return "刚刚";
+  if (mins < 60) return `${mins}分钟前`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}天前`;
+  return new Date(t).toLocaleDateString();
 }
 
 export const Sidebar: React.FC<SidebarProps> = (p) => {
@@ -140,6 +160,25 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
                     ))}
                   </span>
                 )}
+                {(() => {
+                  const st = p.installStates[a.id];
+                  if (!st?.managed) return null;
+                  const auto = !!p.autoUpdate[a.id];
+                  return (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        p.onToggleAutoUpdate(a.id, !auto);
+                      }}
+                      title={auto ? "已开启：每次连接时自动更新到最新版（点此关闭）" : "开启后每次连接时自动更新到最新版（默认关闭，需手动更新）"}
+                      className={`text-[9px] font-mono px-1 rounded ${
+                        auto ? "bg-success/20 text-success" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      自动{auto ? "开" : "关"}
+                    </button>
+                  );
+                })()}
                 {!connected && (
                   <button
                     onClick={(e) => {
@@ -167,6 +206,14 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
           <button onClick={p.onRefreshSessions} title="刷新会话列表" className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted">
             <RefreshCw className={`w-3.5 h-3.5 ${p.sessionsLoading ? "animate-spin" : ""}`} />
           </button>
+          <button
+            onClick={p.onCleanupEmpty}
+            disabled={p.cleaningEmpty}
+            title="清理空会话：删除无对话记录、超过1小时、且当前未打开的会话（逐个删除，失败会逐条报告）"
+            className="p-1 rounded text-muted-foreground hover:text-warning hover:bg-muted disabled:opacity-50"
+          >
+            <Trash2 className={`w-3.5 h-3.5 ${p.cleaningEmpty ? "animate-spin" : ""}`} />
+          </button>
           <button onClick={p.onNewSession} title="新会话" className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted">
             <PlusCircle className="w-3.5 h-3.5" />
           </button>
@@ -186,11 +233,11 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
                 active ? "bg-muted/50 border-primary/40" : "border-transparent hover:bg-card"
               }`}
             >
-              <div className="text-foreground truncate font-medium" title={s.sessionId}>
+              <div className="text-foreground truncate font-medium" title={s.title || s.sessionId}>
                 {s.title || s.sessionId.slice(0, 12) + "…"}
               </div>
               <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono text-muted-foreground">
-                <span className="truncate flex-1">{shortCwd(s.cwd)}</span>
+                <span className="truncate flex-1">{shortCwd(s.cwd)}{timeAgo(s.updatedAt) ? ` · ${timeAgo(s.updatedAt)}` : ""}</span>
                 <span className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   {p.supportsFork && (
                     <span

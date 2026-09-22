@@ -1,4 +1,5 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -37,8 +38,22 @@ export function specFor(id: string): ManagedAgentSpec | undefined {
 }
 
 /** Dev-mode detection (mirrors desktop/main.ts ELECTRON_DEV convention). */
+export function isDevEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.ELECTRON_DEV === "1" || env.NODE_ENV === "development";
+}
+
+/** True when running from a source checkout (dev gateway, not packaged app). */
+export function isSourceCheckout(dir: string = process.cwd()): boolean {
+  try {
+    return fs.existsSync(path.join(dir, "server", "universal", "agent-installer.ts"));
+  } catch (err) {
+    console.error(`[UniversalACP] isSourceCheckout check failed: ${(err as Error).message}`);
+    return false;
+  }
+}
+
 export function isDev(): boolean {
-  return process.env.ELECTRON_DEV === "1" || process.env.NODE_ENV === "development";
+  return isDevEnv() || isSourceCheckout();
 }
 
 export type BridgeSource = "npm" | "local";
@@ -168,6 +183,18 @@ export function compareVersions(a: string, b: string): number {
 }
 
 function npmBin(): string | null {
+  // Test hook: ACP_NPM_BIN overrides PATH lookup so tests can point at a
+  // fake script without network (offline, deterministic).
+  const override = (process.env.ACP_NPM_BIN || "").trim();
+  if (override) {
+    try {
+      fs.accessSync(override, fs.constants.F_OK);
+      return override;
+    } catch (err) {
+      console.error(`[UniversalACP] ACP_NPM_BIN override not found: ${override}: ${(err as Error).message}`);
+      return null;
+    }
+  }
   return whichCommand(process.platform === "win32" ? "npm.cmd" : "npm");
 }
 
@@ -218,9 +245,53 @@ export function latestVersion(pkg: string, timeoutMs = 20000): string | null {
     if (r.error || r.status !== 0) return null;
     const v = String(r.stdout || "").trim().split(/\s+/).pop() || "";
     return /^[0-9][0-9A-Za-z.\-+]*$/.test(v) ? v : null;
-  } catch {
+  } catch (err) {
+    console.error(`[UniversalACP] latestVersion(${pkg}) spawn failed: ${(err as Error).message}`);
     return null;
   }
+}
+
+/**
+ * latestVersion TTL cache (reliability fix: `npm view` is a blocking
+ * spawnSync that stalls the event loop + SSE streams).
+ * - Cache key: npm package name; value: {v, at}.
+ * - TTL 10min by default, overridable via ACP_LATEST_TTL_MS (tests use small TTL).
+ * - checkAgent() uses the cached variant so /install-state never blocks;
+ *   cache miss still does one sync `npm view`, cache hit returns instantly.
+ */
+const latestCache = new Map<string, { v: string | null; at: number }>();
+
+export function latestTtlMs(): number {
+  const raw = (process.env.ACP_LATEST_TTL_MS || "").trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+    console.error(`[UniversalACP] Invalid ACP_LATEST_TTL_MS=${JSON.stringify(raw)}, using default 10min.`);
+  }
+  return 10 * 60 * 1000;
+}
+
+/** Clear TTL cache (tests only). */
+export function clearLatestCache(): void {
+  latestCache.clear();
+}
+
+/** Test-only priming: set cache entry directly to verify hit path offline. */
+export function __setLatestCacheForTest(pkg: string, v: string | null, at = Date.now()): void {
+  latestCache.set(pkg, { v, at });
+}
+
+export function latestVersionCached(pkg: string, timeoutMs = 20000): string | null {
+  const ttl = latestTtlMs();
+  const hit = latestCache.get(pkg);
+  if (hit && Date.now() - hit.at < ttl) return hit.v;
+  const v = latestVersion(pkg, timeoutMs);
+  try {
+    latestCache.set(pkg, { v, at: Date.now() });
+  } catch (err) {
+    console.error(`[UniversalACP] latestCache set failed for ${pkg}: ${(err as Error).message}`);
+  }
+  return v;
 }
 
 export interface InstallState {
@@ -252,7 +323,8 @@ export function checkAgent(id: string): InstallState {
   }
   const exe = managedExe(spec);
   const installedVersion = exe ? readPkgVersion(managedPkgDir(spec)) : null;
-  const latest = latestVersion(spec.pkg);
+  // Cached latest: /install-state must never block the event loop (SSE stalls).
+  const latest = latestVersionCached(spec.pkg);
   return {
     id,
     pkg: spec.pkg,
@@ -271,6 +343,11 @@ export function checkAgent(id: string): InstallState {
   };
 }
 
+/** Alias for explicit cached variant (same impl; kept for API clarity). */
+export function checkAgentCached(id: string): InstallState {
+  return checkAgent(id);
+}
+
 export interface InstallResult {
   ok: boolean;
   version?: string;
@@ -285,6 +362,9 @@ const installInFlight = new Set<string>();
  * One-click install/update to the registry latest. Synchronous (may take
  * ~1min for ~100MB); concurrent calls for the same id get 409 busy.
  * Never falls back, never masks: failures return ok:false with the raw log.
+ * @deprecated Use startInstall()/getInstallJob() async jobs instead; routes no
+ * longer call this sync version (it blocks the event loop + SSE). Kept for
+ * tests/compat only.
  */
 export function installAgent(id: string): InstallResult {
   const spec = specFor(id);
@@ -330,4 +410,259 @@ export function installAgent(id: string): InstallResult {
   } finally {
     installInFlight.delete(id);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Async install jobs (non-blocking; routes poll via GET install/:jobId).
+// ---------------------------------------------------------------------------
+
+/**
+ * Async install job record. Frontend flow:
+ *   POST /api/universal/agents/:id/install -> {ok:true, jobId, state:'running'}
+ *   GET  /api/universal/agents/:id/install/:jobId (poll ~2s):
+ *     running -> {ok:true, state:'running', jobId}
+ *     done    -> {ok:true, state:'done', version}
+ *     error   -> {ok:false, state:'error', error, log} (500)
+ */
+export interface InstallJob {
+  id: string;
+  jobId: string;
+  state: "running" | "done" | "error";
+  startedAt: number;
+  finishedAt?: number;
+  version?: string;
+  error?: string;
+  log?: string;
+}
+
+const installJobs = new Map<string, InstallJob>();
+const installAgentLatest = new Map<string, string>();
+
+function isLockError(msg: string): boolean {
+  return /EBUSY|busy|locked|EPERM/i.test(msg);
+}
+
+function tail4k(s: string): string {
+  return s.slice(-4000);
+}
+
+/** Query by jobId OR agentId (latest job for that agent). */
+export function getInstallJob(key: string): InstallJob | undefined {
+  const direct = installJobs.get(key);
+  if (direct) return direct;
+  const latestId = installAgentLatest.get(key);
+  if (latestId) {
+    const j = installJobs.get(latestId);
+    if (j) return j;
+  }
+  // Fallback: latest job whose id matches (covers restarted processes).
+  let best: InstallJob | undefined;
+  for (const j of installJobs.values()) {
+    if (j.id === key && (!best || j.startedAt > best.startedAt)) best = j;
+  }
+  return best;
+}
+
+/** Test-only: drop all jobs + release in-flight guards. */
+export function __clearInstallJobsForTest(): void {
+  installJobs.clear();
+  installAgentLatest.clear();
+}
+
+function runNpmInstallOnce(dir: string, pkg: string, npm: string): Promise<{ ok: boolean; error?: string; log: string }> {
+  return new Promise((resolve) => {
+    let out = "";
+    let errOut = "";
+    let settled = false;
+    const finish = (result: { ok: boolean; error?: string; log: string }) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(npm, ["install", "--prefix", dir, "--no-audit", "--no-fund", `${pkg}@latest`], {
+        cwd: dir,
+        windowsHide: true,
+      });
+    } catch (err) {
+      console.error(`[UniversalACP] startInstall spawn threw: ${(err as Error).message}`);
+      finish({ ok: false, error: `安装进程失败：${(err as Error).message}`, log: "" });
+      return;
+    }
+    child.stdout?.on("data", (c: Buffer) => {
+      out += c.toString("utf8");
+      if (out.length > 8192) out = out.slice(-8192);
+    });
+    child.stderr?.on("data", (c: Buffer) => {
+      errOut += c.toString("utf8");
+      if (errOut.length > 8192) errOut = errOut.slice(-8192);
+    });
+    child.on("error", (err) => {
+      console.error(`[UniversalACP] install child error: ${(err as Error).message}`);
+      finish({ ok: false, error: `安装进程失败：${(err as Error).message}`, log: tail4k(`${out}\n${errOut}`) });
+    });
+    child.on("close", (code) => {
+      const log = tail4k(`${out}\n${errOut}`);
+      if (code !== 0) {
+        finish({ ok: false, error: `npm install 退出码 ${code ?? "unknown"}`, log });
+      } else {
+        finish({ ok: true, log });
+      }
+    });
+  });
+}
+
+async function driveInstallJob(job: InstallJob, spec: ManagedAgentSpec, npm: string): Promise<void> {
+  try {
+    const dir = managedDir(job.id);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (err) {
+      console.error(`[UniversalACP] install mkdir failed ${dir}: ${(err as Error).message}`);
+      job.state = "error";
+      job.error = `创建目录失败：${(err as Error).message}`;
+      job.finishedAt = Date.now();
+      return;
+    }
+    let res = await runNpmInstallOnce(dir, spec.pkg, npm);
+    // One retry for transient Windows file locks (EBUSY) — async, never blocks.
+    if (!res.ok && isLockError(`${res.error || ""} ${res.log || ""}`)) {
+      console.warn(`[UniversalACP] install ${job.id} hit file lock, retrying once after 8s…`);
+      await new Promise((r) => setTimeout(r, 8000));
+      res = await runNpmInstallOnce(dir, spec.pkg, npm);
+    }
+    if (!res.ok) {
+      job.state = "error";
+      job.error = res.error;
+      job.log = res.log;
+      job.finishedAt = Date.now();
+      return;
+    }
+    let version: string | null = null;
+    try {
+      version = readPkgVersion(managedPkgDir(spec));
+    } catch (err) {
+      console.error(`[UniversalACP] readPkgVersion failed: ${(err as Error).message}`);
+    }
+    let exe: string | null = null;
+    try {
+      exe = managedExe(spec);
+    } catch (err) {
+      console.error(`[UniversalACP] managedExe check failed: ${(err as Error).message}`);
+    }
+    if (!exe) {
+      job.state = "error";
+      job.error = `安装完成但找不到入口 ${spec.exeRel}，包内容异常。`;
+      job.log = res.log;
+      job.finishedAt = Date.now();
+      return;
+    }
+    job.state = "done";
+    job.version = version ?? undefined;
+    job.log = res.log;
+    job.finishedAt = Date.now();
+  } catch (err) {
+    console.error(`[UniversalACP] install job ${job.jobId} crashed: ${(err as Error).message}`);
+    job.state = "error";
+    job.error = (err as Error).message;
+    job.finishedAt = Date.now();
+  } finally {
+    installInFlight.delete(job.id);
+  }
+}
+
+/**
+ * Start a non-blocking `npm install` for a managed agent.
+ * - Unknown id -> {busy:false, error} (routes map to 404).
+ * - Same id already running (sync or async in-flight) -> {busy:true, error}
+ *   (routes map to 409).
+ * - Else creates a running InstallJob, spawns async, returns it immediately.
+ */
+export function startInstall(id: string): { job?: InstallJob; error?: string; busy: boolean } {
+  const spec = specFor(id);
+  if (!spec) return { error: `Agent '${id}' 不是按需管理的 agent。`, busy: false };
+  const running = [...installJobs.values()].find((j) => j.id === id && j.state === "running");
+  if (running || installInFlight.has(id)) {
+    return { error: `'${id}' 正在安装中，请稍候再试。`, busy: true };
+  }
+  const npm = npmBin();
+  if (!npm) {
+    return { error: "找不到 npm（不在 PATH 中）。请先安装 Node.js 20+ 再一键安装。", busy: false };
+  }
+  const job: InstallJob = {
+    id,
+    jobId: `${id}-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    state: "running",
+    startedAt: Date.now(),
+  };
+  installJobs.set(job.jobId, job);
+  installAgentLatest.set(id, job.jobId);
+  installInFlight.add(id);
+  void driveInstallJob(job, spec, npm).catch((err) => {
+    console.error(`[UniversalACP] driveInstallJob unhandled for ${id}: ${(err as Error).message}`);
+    try {
+      job.state = "error";
+      job.error = (err as Error).message;
+      job.finishedAt = Date.now();
+    } catch (inner) {
+      console.error(`[UniversalACP] failed to mark job error: ${(inner as Error).message}`);
+    } finally {
+      installInFlight.delete(id);
+    }
+  });
+  return { job, busy: false };
+}
+
+/** Minimal session shape for empty-session detection (bridge listSessions). */
+export interface ListedSession {
+  sessionId: string;
+  updatedAt?: string | null;
+  conversationId?: string | null;
+  [k: string]: unknown;
+}
+
+export interface EmptySessionPick {
+  sessionId: string;
+  reason: string;
+}
+
+/**
+ * Pick deletable empty sessions. Strict on purpose (fail-safe toward KEEP):
+ * - sessionId missing/blank -> keep (never touch unidentifiable rows);
+ * - listed in exceptIds (live-bound threads, current view) -> keep;
+ * - has conversationId (a turn completed at least once) -> keep;
+ * - updated within maxAgeMs -> keep (a fresh session awaiting first prompt
+ *   looks exactly like an abandoned one);
+ * - otherwise -> delete candidate ("no turns recorded").
+ * NOTE: `conversationId` is bridge semantics (agy-acp-map); callers must
+ * only apply this to agents whose list output carries that meaning.
+ */
+export function selectEmptySessions(
+  sessions: ListedSession[],
+  opts?: { exceptIds?: string[]; maxAgeMs?: number; now?: number },
+): { deletable: EmptySessionPick[]; kept: number } {
+  const except = new Set(opts?.exceptIds ?? []);
+  const maxAgeMs = opts?.maxAgeMs ?? 60 * 60 * 1000;
+  const now = opts?.now ?? Date.now();
+  const deletable: EmptySessionPick[] = [];
+  let kept = 0;
+  for (const s of sessions) {
+    const id = typeof s?.sessionId === "string" ? s.sessionId : "";
+    if (!id || except.has(id)) {
+      kept++;
+      continue;
+    }
+    if (s.conversationId) {
+      kept++;
+      continue;
+    }
+    const updated = s.updatedAt ? new Date(s.updatedAt).getTime() : NaN;
+    if (!Number.isFinite(updated) || now - updated < maxAgeMs) {
+      kept++;
+      continue;
+    }
+    deletable.push({ sessionId: id, reason: "no turns recorded" });
+  }
+  return { deletable, kept };
 }

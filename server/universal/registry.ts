@@ -17,7 +17,10 @@ function loadCustomProfilesFromFile(): AgentProfile[] {
     if (!fs.existsSync(file)) return [];
     const raw = JSON.parse(fs.readFileSync(file, "utf8"));
     return parseProfilesJson(raw);
-  } catch {
+  } catch (err) {
+    // Loud empty: 配置损坏必须可见 (no-silent-fallbacks)。返回 [] 保活网关，
+    // 但 warn 带上文件路径 + 原因，调用方 (status/connect) 可继续展示。
+    console.warn(`[registry] 自定义 agents 文件解析失败，已按空配置继续: ${customAgentsFile()}:`, err);
     return [];
   }
 }
@@ -61,8 +64,10 @@ export class UniversalRegistry {
       const file = customAgentsFile();
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, JSON.stringify(customs, null, 2));
-    } catch {
-      // persistence is best-effort; in-memory registry keeps working
+    } catch (err) {
+      // persistence is best-effort; in-memory registry keeps working.
+      // 可预期写失败 (只读 HOME/配额) 允许忽略，但必须留痕 (error_handling.md)。
+      console.warn(`[registry] 自定义 agents 持久化失败 (内存注册表继续工作): ${customAgentsFile()}:`, err);
     }
   }
 
@@ -87,7 +92,8 @@ export class UniversalRegistry {
     // Drop a stale connection so the next connect() picks up the new profile.
     const c = this.conns.get(p.id);
     if (c) {
-      void c.disconnect().catch(() => undefined);
+      // 可预期清理失败 (连接已死/已关) 允许忽略，但留 debug 痕迹。
+      void c.disconnect().catch((err) => console.debug(`[registry] upsert 清理旧连接 ${p.id} 失败 (忽略):`, err));
       this.conns.delete(p.id);
     }
     this.saveCustomProfiles();
@@ -100,7 +106,8 @@ export class UniversalRegistry {
     this.profiles.delete(id);
     const c = this.conns.get(id);
     if (c) {
-      void c.disconnect().catch(() => undefined);
+      // 同上: 可预期清理失败，debug 留痕后忽略。
+      void c.disconnect().catch((err) => console.debug(`[registry] remove 清理旧连接 ${id} 失败 (忽略):`, err));
       this.conns.delete(id);
     }
     this.saveCustomProfiles();
@@ -156,7 +163,8 @@ export class UniversalRegistry {
 
   async shutdown(): Promise<void> {
     for (const c of this.conns.values()) {
-      await c.disconnect().catch(() => undefined);
+      // 可预期清理失败 (进程已退/管道已关) 允许忽略，但留 debug 痕迹。
+      await c.disconnect().catch((err) => console.debug(`[registry] shutdown 清理连接失败 (忽略):`, err));
     }
     this.conns.clear();
   }

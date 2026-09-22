@@ -5,9 +5,11 @@
 
 [![Protocol](https://img.shields.io/badge/Protocol-ACP%20v1%20%2F%20v2-blue.svg)](https://agentclientprotocol.com)
 [![Engine](https://img.shields.io/badge/Engine-Google%20Antigravity%20(agy)-green.svg)](https://antigravity.google)
-[![Core Library](https://img.shields.io/badge/@yitom/agy--acp--map-v0.1.3-purple.svg)](https://www.npmjs.com/package/@yitom/agy-acp-map)
-[![Tests](https://img.shields.io/badge/Tests-Vitest%20%26%20Bun%20Test%20(100%25%20Pass)-success.svg)]()
+[![Core Library](https://img.shields.io/badge/@yitom/agy--acp--map-v0.1.6-purple.svg)](https://www.npmjs.com/package/@yitom/agy-acp-map)
+[![Tests](https://img.shields.io/badge/Tests-74%20Vitest%20(universal)-success.svg)]()
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-orange.svg)]()
+
+> 注：`74 Vitest (universal)` 为 `tests/universal` + `tests/proxy` 本地计数；黑盒/端到端需本地 `bun` 环境运行（见“快速开始 §5”）。
 
 ---
 
@@ -39,7 +41,7 @@ Google Antigravity CLI (`agy`) 是 Google DeepMind 打造的新一代终端智�
 - **零额外 API Key 配置**，无需翻找云端控制台或手动导入 Token，启动即连通 Google 官方底层环境。
 
 ### 3. 多轮会话长效稳定 (Robust Multi-Turn Sessions)
-- 底层采用基于 `@yitom/agy-acp-map@0.1.3` 的动态回调解耦机制（`setCallbacks`）。
+- 底层采用基于 `@yitom/agy-acp-map@^0.1.6`（以根 `package.json` 为准）的动态回调解耦机制（`setCallbacks`）。
 - 彻底解决传统进程在第二轮提问时因闭包泄漏导致的事件挂起问题，支持无上限连续问答。
 - 支持同一会话内动态热切换大模型（如 `gemini-3.8-flash-high` $\leftrightarrow$ `gemini-3.8-pro`），自动保持 `--conversation` 历史上下文。
 
@@ -51,9 +53,9 @@ Google Antigravity CLI (`agy`) 是 Google DeepMind 打造的新一代终端智�
 - 全链路调用统一注入 `{ windowsHide: true }`，有效压制控制台黑框。
 - 结合进程池常驻写入管道，杜绝每轮问答唤起 `cmd.exe` / `conhost.exe` 的视觉干扰。
 
-### 6. 工业级离线仿真集成测试 (100% Offline Test Grid)
+### 6. 自动化测试 (Test Grid)
 - 内置零云端调用的离线 Mock CLI 仿真器（[`tests/fixtures/mock-agy-cli.cjs`](./scratch/repos/yitom486-agy-acp-map/tests/fixtures/mock-agy-cli.cjs)）。
-- 主工程全面引入 **Vitest** 自动化测试套件（21 项全链路集成测试），底层 SDK 覆盖 112 项单元与场景黑盒测试，随时验证协议兼容性。
+- 主工程 **Vitest** 套件：`tests/universal`（13 文件）+ `tests/proxy`，共约 **74 项**（本地 `bun run test` 秒级完成，零联网开销）；底层桥接库另有自带黑盒测试，需本地 `bun` 运行。
 
 ---
 
@@ -63,10 +65,11 @@ Google Antigravity CLI (`agy`) 是 Google DeepMind 打造的新一代终端智�
 
 Zed 编辑器原生支持 Agent Client Protocol (ACP)。您可以按照以下步骤将 Antigravity 接入 Zed 的 Assistant 面板：
 
-### 方式一：直接使用本项目运行中的 ACP Stdio 服务（推荐，支持实时本地调试）
+### 方式一：经由本项目 Universal 网关接入（推荐，支持实时本地调试）
 
-1. 打开 Zed 编辑器，按快捷键 <kbd>Ctrl</kbd>+<kbd>,</kbd> 打开用户配置文件 `settings.json`（或在菜单栏选择 `Zed` -> `Preferences` -> `Open Settings`）；
-2. 在 `settings.json` 中添加或合并 `agent_client_protocol` 配置项：
+1. 先本地启动网关：`bun run dev`（Bun 入口 `server/index.ts`，Node/Electron 入口 `server/node.ts`，网关实现在 `server/universal/`）；
+2. 打开 Zed 编辑器，按快捷键 <kbd>Ctrl</kbd>+<kbd>,</kbd> 打开用户配置文件 `settings.json`（或在菜单栏选择 `Zed` -> `Preferences` -> `Open Settings`）；
+3. 在 `settings.json` 中添加或合并 `agent_client_protocol` 配置项（任选其一）：
 
 ```json
 {
@@ -79,14 +82,14 @@ Zed 编辑器原生支持 Agent Client Protocol (ACP)。您可以按照以下步
         "command": "bun",
         "args": [
           "run",
-          "D:/project/js/Electron/antigravity-acp/server/acp-stdio.ts"
+          "<你的本地绝对路径>/antigravity-acp/scratch/repos/yitom486-agy-acp-map/src/sdk-server.ts"
         ]
       }
     }
   }
 }
 ```
-*(注：请将上述路径替换为您本地实际的 `antigravity-acp/server/acp-stdio.ts` 绝对路径)*
+*(注：旧文档中的 `server/acp-stdio.ts` 已不存在——Stdio 入口现为桥接库自带的 `sdk-server.ts`（`bun run acp:stdio` 即跑它）；请将上述路径替换为你本地实际绝对路径。另见方式二直接用 npm 包，免路径。)*
 
 ### 方式二：使用全局构建产物或已发布的 NPM 包
 
@@ -144,7 +147,7 @@ bun run acp:stdio
 ```bash
 bun run test
 ```
-将自动运行 6 大集成测试套件（覆盖客户端断线容错、思考流解析、代理健壮性、全流程多轮问答 E2E 模拟等），零联网开销，秒级完成。
+将自动运行 `tests/universal` + `tests/proxy`（覆盖客户端断线容错、思考流解析、代理健壮性、全流程多轮问答 E2E 模拟等），零联网开销，秒级完成（黑盒/端到端需本地 `bun`）。
 
 ### 6. 生产打包构建
 ```bash
@@ -159,9 +162,9 @@ bun run build
 
 | 日志前缀 | 所在模块 | 说明 |
 | :--- | :--- | :--- |
-| **`[SSE-Client]`** | `src/lib/sse-client.ts` | 浏览器 DevTools 控制台 (F12) 打印接收到的每包 SSE 帧 |
-| **`[Server][SSE]`**| `server/index.ts` | 后端 HTTP/SSE 网关层，跟踪客户端连接、推流分块与优雅关闭 |
-| **`[ACP-BRIDGE]`** | `server/bridge/agyBridge.ts` | 桥接中枢层，记录会话创建、活跃计数、模型热切换与事件转发 |
+| **`[SSE-Client]`** | `src/lib/universal-api.ts` (`consumeUniversalChat`) | 浏览器 DevTools 控制台 (F12) 打印接收到的每包 SSE 帧 |
+| **`[Server][SSE]`**| `server/index.ts` / `server/node.ts` + `server/universal/routes.ts` | 后端 HTTP/SSE 网关层，跟踪客户端连接、推流分块与优雅关闭 |
+| **`[ACP-BRIDGE]`** | `server/universal/` (`registry.ts` / `AgentConnection.ts` / `agent-installer.ts`) | 桥接中枢层，记录会话创建、活跃计数、模型热切换与事件转发 |
 | **`[ACP-SDK]`**    | `@yitom/agy-acp-map` SDK | 适配层，记录请求状态、`isWritable` 决策、多轮回调重定向与结算 |
 | **`[ACP-PROC]`**   | `@yitom/agy-acp-map` Process | 子进程层，记录 `agy.exe` 的 PID、generation、stdin 载荷与 stdout 原生帧 |
 
@@ -173,23 +176,26 @@ bun run build
 antigravity-acp/ (acp-studio)
 ├── server/                        # 后端服务与协议网关
 │   ├── index.ts                   # Bun HTTP / SSE Web 服务端 (端口 3004)
-│   ├── acp-stdio.ts               # 标准 ACP Stdio 协议入口 (用于 Zed/Cursor)
-│   ├── bridge/
-│   │   └── agyBridge.ts           # 桥接层：管理 ACP Service 会话与模型列表
-│   └── acp/                       # ACP 协议定义与客户端安装适配
+│   ├── node.ts                    # Node HTTP 入口 (Electron 内嵌网关用)
+│   ├── gateway.ts                 # Hono 应用组装 (旧 Antigravity 路由 + universal 挂载)
+│   └── universal/                 # Universal ACP 网关 (多 agent stdio 管理)
+│       ├── routes.ts              # /api/universal/* HTTP/SSE 接口
+│       ├── registry.ts            # agent profiles + 活连接注册表
+│       ├── presets.ts             # 内置 presets (codex/antigravity-stdio/...)
+│       ├── AgentConnection.ts     # 单 agent 长连接 (stdio 进程托管)
+│       ├── agent-installer.ts     # 按需安装/更新 (managed 目录)
+│       └── errors.ts              # GatewayError + 错误码
 ├── src/                           # Antigravity Studio 前端 (React + Vite)
 │   ├── App.tsx                    # Studio 主页面与多轮对话状态机
 │   ├── components/                # 聊天气泡、思考链折叠、输入框、顶栏
 │   └── lib/
-│       └── sse-client.ts          # 坚固型 SSE 流解析器 (防断连/防假死)
-├── tests/                         # 主工程系统级集成测试 (Vitest)
-│   ├── client/                    # 客户端流消费与异常自愈测试
-│   ├── server/                    # 服务端 SSE 规范测试
-│   ├── proxy/                     # Vite 代理容错测试
-│   └── integration/               # 离线黑盒与多轮端到端 (E2E) 测试
+│       └── universal-api.ts       # 前端 API + 坚固型 SSE 流消费 (防断连/防假死)
+├── desktop/                       # Electron 桌面壳 (main/preload/build)
+├── tests/universal/               # 主工程系统级集成测试 (Vitest, 13 文件约 72 项)
+├── tests/proxy/                   # Vite 代理容错测试
 ├── scratch/repos/
 │   └── yitom486-agy-acp-map/      # Universal ACP Bridge 核心库源码 (@yitom/agy-acp-map)
-├── package.json                   # 工程配置文件 (已配置 agy-demo 及 workspaces)
+├── package.json                   # 工程配置文件 (桥接库版本以此处为准)
 ├── vite.config.ts                 # Vite 构建与代理配置 (端口 5188)
 └── vitest.config.ts               # Vitest 自动化测试配置
 ```
@@ -213,6 +219,20 @@ bun run dev
 ```
 
 网关自测：`GET /api/universal/agents`、`POST /api/universal/agents/codex/connect`、`POST /api/universal/chat` (SSE)。
+
+---
+
+## 📌 桥接库三源版本对齐 (Version Drift)
+
+`@yitom/agy-acp-map` 有三个来源，容易漂移，请按下表理解与对齐：
+
+| # | 来源 | 位置/写法 | 语义 |
+| :--- | :--- | :--- | :--- |
+| 1 | 根 `package.json` | `"@yitom/agy-acp-map": "^x.y.z"`（当前 `^0.1.6`，以文件为准） | 本地开发/打包时的版本基线 |
+| 2 | `scratch` 子仓库 | `scratch/repos/yitom486-agy-acp-map`（git submodule commit pin） | 桥源码联调位：`bun run acp:stdio` 默认跑它，升级靠切 commit |
+| 3 | 按需安装 | `npx/bunx -y @yitom/agy-acp-map@latest`（presets `pinLatest`） | 用户机器上实际跑的 agent：永远拉 `latest`，不锁旧版 |
+
+对齐策略：发版前 `bun update @yitom/agy-acp-map`（或检查 `latest`）→ 同步根 `package.json` 版本徽章与正文 → 需要联调再切 `scratch` commit；Studio 的 Agent 面板显示 managed 安装版本（本地 `installedVersion` vs 远端 `latestVersion`），有更新只亮徽标、一键安装才拉取，绝不静默覆盖。
 
 ---
 

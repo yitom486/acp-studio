@@ -1,18 +1,77 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChatArea } from "@/components/ChatArea";
 import { StudioHeader } from "@/components/universal/StudioHeader";
 import { Sidebar, type SessionItem } from "@/components/universal/Sidebar";
-import { SessionSettingsModal, type SessionSettings } from "@/components/universal/SessionSettingsModal";
-import { ProvidersModal } from "@/components/universal/ProvidersModal";
 import { PermissionDialog } from "@/components/universal/PermissionDialog";
 import { ElicitationCard } from "@/components/universal/ElicitationCard";
-import { UniversalAuthModal } from "@/components/universal/AuthModal";
 import { UniversalComposer } from "@/components/universal/UniversalComposer";
-import { CustomAgentModal } from "@/components/universal/CustomAgentModal";
-import { GitChangesModal } from "@/components/universal/GitChangesModal";
-import { TerminalDrawer } from "@/components/universal/TerminalDrawer";
-import { ModelBrowserModal } from "@/components/universal/ModelBrowserModal";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { SessionSettings } from "@/components/universal/SessionSettingsModal";
+
+/**
+ * Heavy modals/drawers are code-split so the first paint only ships the
+ * shell (Sidebar/Header/Chat/Composer). Each chunk loads on demand via
+ * Suspense; failures are loud (console.error) and surface through the root
+ * ErrorBoundary instead of a blank screen (no-silent-fallbacks).
+ */
+function lazyModal(name: string, loader: () => Promise<React.ComponentType<any>>) {
+  return lazy(() =>
+    loader()
+      .then((comp) => ({ default: comp }))
+      .catch((err) => {
+        console.error(`[App] lazy chunk "${name}" failed to load:`, err);
+        throw err;
+      })
+  );
+}
+
+const SessionSettingsModal = lazyModal(
+  "SessionSettingsModal",
+  () => import("@/components/universal/SessionSettingsModal").then((m) => m.SessionSettingsModal as any)
+);
+const ProvidersModal = lazyModal(
+  "ProvidersModal",
+  () => import("@/components/universal/ProvidersModal").then((m) => m.ProvidersModal as any)
+);
+const UniversalAuthModal = lazyModal(
+  "UniversalAuthModal",
+  () => import("@/components/universal/AuthModal").then((m) => m.UniversalAuthModal as any)
+);
+const CustomAgentModal = lazyModal(
+  "CustomAgentModal",
+  () => import("@/components/universal/CustomAgentModal").then((m) => m.CustomAgentModal as any)
+);
+// Pulls shiki (highlight-on-demand) via code-comparison; split so the main
+// bundle never includes the highlighter core, langs, or transformers.
+const GitChangesModal = lazyModal(
+  "GitChangesModal",
+  () => import("@/components/universal/GitChangesModal").then((m) => m.GitChangesModal as any)
+);
+// Sole owner of @xterm/* (verified: no other file imports xterm). Lazy here
+// puts the whole terminal into its own on-demand chunk (manualChunks "xterm").
+const TerminalDrawer = lazyModal(
+  "TerminalDrawer",
+  () => import("@/components/universal/TerminalDrawer").then((m) => m.TerminalDrawer as any)
+);
+const ModelBrowserModal = lazyModal(
+  "ModelBrowserModal",
+  () => import("@/components/universal/ModelBrowserModal").then((m) => m.ModelBrowserModal as any)
+);
+
+/** Suspense placeholder for lazily loaded modals/drawers. */
+function LazyModalFallback() {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+      <div className="w-full max-w-md space-y-2 rounded-2xl border border-border bg-card p-4">
+        <Skeleton className="h-5 w-2/5" />
+        <Skeleton className="h-3.5 w-full" />
+        <Skeleton className="h-3.5 w-4/5" />
+        <Skeleton className="h-3.5 w-3/5" />
+      </div>
+    </div>
+  );
+}
 import { useStudioStore, useStudioShallow, useStudioMessages } from "@/stores/useStudioStore";
 import { useAgentsQuery, useSessionsQuery, invalidateAgents, invalidateSessions } from "@/lib/acp-queries";
 import {
@@ -248,6 +307,7 @@ export default function App() {
   const effectiveCwd = s.currentWorkspace || sessionCwd;
 
   // Initialize default workspace from server if empty
+  // 最小 loud 化 (不改结构): 工作区默认值失败不阻断启动，但必须留痕 (error_handling.md)。
   useEffect(() => {
     if (!s.currentWorkspace) {
       getWorkspaceDefault()
@@ -256,7 +316,7 @@ export default function App() {
             useStudioStore.getState().setWorkspace(res.path, res.name);
           }
         })
-        .catch(() => {});
+        .catch((err) => console.warn("[App] 获取默认工作区失败 (已忽略，将保持空工作区):", err));
     }
   }, []);
 
@@ -481,8 +541,9 @@ export default function App() {
           }
           localStorage.removeItem(`acp_default_config_${agentId}`);
         }
-      } catch {
-        // ignore migration errors
+      } catch (err) {
+        // 最小 loud 化: 旧 key 迁移失败不阻断 (best-effort)，但留痕。
+        console.debug("[App] 旧配置迁移失败 (已忽略):", err);
       }
       const pref = useStudioStore.getState().agentPrefs?.[agentId];
       const saved = pref?.configValues;
@@ -498,8 +559,9 @@ export default function App() {
           if (Object.keys(snap).length > 0) cur0.saveAgentPref(agentId, { configValues: snap });
           if (cur0.models?.currentModelId) cur0.saveAgentPref(agentId, { fallbackModelId: cur0.models.currentModelId });
           if (cur0.modes?.currentModeId) cur0.saveAgentPref(agentId, { modeId: cur0.modes.currentModeId });
-        } catch {
-          // ignore
+        } catch (err) {
+          // 最小 loud 化: 默认值快照失败不阻断，留痕即可。
+          console.debug("[App] 配置默认值快照失败 (已忽略):", err);
         }
         return;
       }
@@ -512,7 +574,11 @@ export default function App() {
         const flat = flattenConfigOptions(opt?.options);
         if (flat.length === 0 || flat.some((o) => o.value === String((v as any)?.value ?? v))) {
           const body = { sessionId, configId: modelOptId, value: (v as any)?.value ?? v };
-          const res: any = await sessionRpc(agentId, "set_config", body).catch(() => null);
+          // best-effort 恢复单项: 失败返回 null 继续下一项，但留 debug 痕 (原逻辑不变)。
+          const res: any = await sessionRpc(agentId, "set_config", body).catch((err) => {
+            console.debug(`[App] 恢复 model 配置失败 (已忽略, ${String(modelOptId)}):`, err);
+            return null;
+          });
           if (res?.configOptions) useStudioStore.getState().setConfigOptions(res.configOptions);
           else if (Array.isArray(res)) useStudioStore.getState().setConfigOptions(res);
           else if (res) useStudioStore.getState().patchConfigOption({ ...(opt || { id: modelOptId }), currentValue: (v as any)?.value ?? v });
@@ -533,12 +599,16 @@ export default function App() {
           opt?.type === "boolean" || typeof wantV === "boolean"
             ? { sessionId, configId: k, type: "boolean", value: wantV }
             : { sessionId, configId: k, value: wantV };
-        const res: any = await sessionRpc(agentId, "set_config", body).catch(() => null);
+        // 同上: 单项 best-effort，失败留痕后继续。
+        const res: any = await sessionRpc(agentId, "set_config", body).catch((err) => {
+          console.debug(`[App] 恢复配置项失败 (已忽略, ${String(k)}):`, err);
+          return null;
+        });
         if (res?.configOptions) useStudioStore.getState().setConfigOptions(res.configOptions);
         else if (Array.isArray(res)) useStudioStore.getState().setConfigOptions(res);
         else if (res) useStudioStore.getState().patchConfigOption({ ...(opt || { id: k }), currentValue: wantV });
       }
-      // Restore fallback model highlight + mode (best-effort, ignore failures)
+      // Restore fallback model highlight + mode (best-effort, loud-debug on failure)
       try {
         const stAfter = useStudioStore.getState();
         if (pref?.fallbackModelId && stAfter.models && stAfter.models.currentModelId !== pref.fallbackModelId) {
@@ -548,16 +618,21 @@ export default function App() {
         if (pref?.modeId && stAfter.modes && stAfter.modes.currentModeId !== pref.modeId) {
           const avail = stAfter.modes.availableModes || [];
           if (avail.some((m) => m.id === pref.modeId)) {
-            await sessionRpc(agentId, "set_mode", { sessionId, modeId: pref.modeId }).catch(() => null);
+            // best-effort mode 恢复: 失败留痕后继续 (原逻辑不变)。
+            await sessionRpc(agentId, "set_mode", { sessionId, modeId: pref.modeId }).catch((err) => {
+              console.debug(`[App] 恢复 mode 失败 (已忽略, ${String(pref.modeId)}):`, err);
+              return null;
+            });
             const sNow = useStudioStore.getState();
             if (sNow.modes) sNow.setModes({ ...sNow.modes, currentModeId: pref.modeId });
           }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        console.debug("[App] 恢复 fallback model/mode 失败 (已忽略):", err);
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      // 最小 loud 化: 整个自动恢复链失败不抛到上层 (保持原行为)，但留痕。
+      console.debug("[App] applyDefaultConfigOptions 整体失败 (已忽略):", err);
     }
   };
 
@@ -787,7 +862,10 @@ export default function App() {
         if (!cur.sessionId) cur.applySessionResult(res);
       }
       if (res?.sessionId && res.sessionId !== useStudioStore.getState().sessionId) {
-        await sessionRpc(agentId, "close", { sessionId: res.sessionId }).catch(() => undefined);
+        // 可预期清理失败 (一次性会话已关/已失效) 允许忽略，但留 debug 痕。
+        await sessionRpc(agentId, "close", { sessionId: res.sessionId }).catch((err) =>
+          console.debug("[App] 清理一次性发现会话失败 (已忽略):", err)
+        );
       }
       cur.setAuthOk(agentId, true);
     } catch (e: any) {
@@ -1005,6 +1083,8 @@ export default function App() {
         onBridgeSource={handleBridgeSource}
         cleaningEmpty={cleaningEmpty}
         onCleanupEmpty={handleCleanupEmpty}
+        autoUpdate={s.autoUpdate}
+        onToggleAutoUpdate={(id, on) => useStudioStore.getState().setAutoUpdate(id, on)}
         authOk={s.authOk}
         sessions={sessions}
         sessionsLoading={sessionsQuery.isFetching}
@@ -1118,67 +1198,81 @@ export default function App() {
         />
       </div>
 
-      <UniversalAuthModal
-        isOpen={s.authOpen}
-        onClose={() => s.setAuthOpen(false)}
-        agent={activeAgent}
-        onAuthenticated={async () => {
-          invalidateAgents(qc);
-          await probeAuth(useStudioStore.getState().activeAgentId);
-        }}
-        onLogout={async () => {
-          try {
-            await logoutAgent(s.activeAgentId);
+      <Suspense fallback={<LazyModalFallback />}>
+        <UniversalAuthModal
+          isOpen={s.authOpen}
+          onClose={() => s.setAuthOpen(false)}
+          agent={activeAgent}
+          onAuthenticated={async () => {
             invalidateAgents(qc);
-          } catch (e: any) {
-            alert(`logout 失败: ${e.message}`);
-          }
-        }}
-        authOk={s.authOk[s.activeAgentId] ?? null}
-      />
+            await probeAuth(useStudioStore.getState().activeAgentId);
+          }}
+          onLogout={async () => {
+            try {
+              await logoutAgent(s.activeAgentId);
+              invalidateAgents(qc);
+            } catch (e: any) {
+              alert(`logout 失败: ${e.message}`);
+            }
+          }}
+          authOk={s.authOk[s.activeAgentId] ?? null}
+        />
+      </Suspense>
 
-      <SessionSettingsModal
-        isOpen={s.settingsOpen}
-        onClose={() => s.setSettingsOpen(false)}
-        onCreate={handleCreateSession}
-        busy={s.busy}
-        defaultCwdHint={effectiveCwd || undefined}
-        supportsAdditionalDirs={supportsAdditionalDirs}
-        supportsMcpHttp={!!mcpCaps.http}
-      />
+      <Suspense fallback={<LazyModalFallback />}>
+        <SessionSettingsModal
+          isOpen={s.settingsOpen}
+          onClose={() => s.setSettingsOpen(false)}
+          onCreate={handleCreateSession}
+          busy={s.busy}
+          defaultCwdHint={effectiveCwd || undefined}
+          supportsAdditionalDirs={supportsAdditionalDirs}
+          supportsMcpHttp={!!mcpCaps.http}
+        />
+      </Suspense>
 
-      <ProvidersModal isOpen={s.providersOpen} onClose={() => s.setProvidersOpen(false)} agentId={s.activeAgentId} />
+      <Suspense fallback={<LazyModalFallback />}>
+        <ProvidersModal isOpen={s.providersOpen} onClose={() => s.setProvidersOpen(false)} agentId={s.activeAgentId} />
+      </Suspense>
 
-      <CustomAgentModal
-        isOpen={customOpen}
-        onClose={() => setCustomOpen(false)}
-        agents={agents}
-        onChanged={() => invalidateAgents(qc)}
-      />
+      <Suspense fallback={<LazyModalFallback />}>
+        <CustomAgentModal
+          isOpen={customOpen}
+          onClose={() => setCustomOpen(false)}
+          agents={agents}
+          onChanged={() => invalidateAgents(qc)}
+        />
+      </Suspense>
 
-      <GitChangesModal
-        isOpen={s.gitChangesOpen}
-        onClose={() => s.setGitChangesOpen(false)}
-        cwd={effectiveCwd}
-        initialFilePath={s.gitDiffFile}
-      />
+      <Suspense fallback={<LazyModalFallback />}>
+        <GitChangesModal
+          isOpen={s.gitChangesOpen}
+          onClose={() => s.setGitChangesOpen(false)}
+          cwd={effectiveCwd}
+          initialFilePath={s.gitDiffFile}
+        />
+      </Suspense>
 
-      <TerminalDrawer
-        isOpen={s.terminalOpen}
-        onClose={() => s.setTerminalOpen(false)}
-        cwd={effectiveCwd}
-      />
+      <Suspense fallback={<LazyModalFallback />}>
+        <TerminalDrawer
+          isOpen={s.terminalOpen}
+          onClose={() => s.setTerminalOpen(false)}
+          cwd={effectiveCwd}
+        />
+      </Suspense>
 
-      <ModelBrowserModal
-        isOpen={s.modelsOpen}
-        onClose={() => s.setModelsOpen(false)}
-        catalog={s.models}
-        modelOption={findConfigOption(s.configOptions, "model")}
-        currentModelId={s.models?.currentModelId}
-        discovering={s.discovering}
-        onRefresh={handleDiscoverModels}
-        onApply={handleApplyModel}
-      />
+      <Suspense fallback={<LazyModalFallback />}>
+        <ModelBrowserModal
+          isOpen={s.modelsOpen}
+          onClose={() => s.setModelsOpen(false)}
+          catalog={s.models}
+          modelOption={findConfigOption(s.configOptions, "model")}
+          currentModelId={s.models?.currentModelId}
+          discovering={s.discovering}
+          onRefresh={handleDiscoverModels}
+          onApply={handleApplyModel}
+        />
+      </Suspense>
     </div>
   );
 }

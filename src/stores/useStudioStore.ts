@@ -83,6 +83,8 @@ interface StudioState {
 
   // per-agent last-used model/config memory (persisted to localStorage)
   agentPrefs: Record<string, AgentPrefs>;
+  // opt-in auto-update to registry latest on connect (default OFF; persisted)
+  autoUpdate: Record<string, boolean>;
   // persisted chat threads, keyed by thread id (per-agent isolation enforced
   // by threads.ts lookups; live view stays in messages/sessionId)
   threads: Record<string, ChatThread>;
@@ -126,6 +128,8 @@ interface StudioState {
   /** Remember a single configId value for an agent. */
   rememberAgentConfig: (agentId: string, configId: string, value: unknown) => void;
   clearAgentPref: (agentId: string) => void;
+  /** Opt-in/out of auto-update-to-latest on connect (persisted, default off). */
+  setAutoUpdate: (agentId: string, on: boolean) => void;
   /** Clear thread + session-scoped view state (used on agent switch / new thread). */
   resetThread: () => void;
   /** Snapshot the live view into the persisted per-agent thread record. */
@@ -197,6 +201,34 @@ function persistAgentPrefs(prefs: Record<string, AgentPrefs>) {
 const initialAgentPrefs = loadAgentPrefs();
 const initialThreads = loadThreads();
 
+const AUTO_UPDATE_KEY = "acp_auto_update_v1";
+
+function loadAutoUpdate(): Record<string, boolean> {
+  try {
+    if (typeof localStorage === "undefined") return {};
+    const raw = localStorage.getItem(AUTO_UPDATE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (v === true) out[k] = true;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function persistAutoUpdate(map: Record<string, boolean>): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(AUTO_UPDATE_KEY, JSON.stringify(map));
+  } catch {
+    // ignore storage errors (private mode / quota)
+  }
+}
+
 export const useStudioStore = create<StudioState>()((set) => ({
   activeAgentId: "codex",
   connectingId: null,
@@ -204,6 +236,7 @@ export const useStudioStore = create<StudioState>()((set) => ({
   sessionId: null,
   threads: initialThreads,
   activeThreadId: null,
+  autoUpdate: loadAutoUpdate(),
   ...initialThread,
   input: "",
   isStreaming: false,
@@ -327,6 +360,14 @@ export const useStudioStore = create<StudioState>()((set) => ({
       delete nextPrefs[agentId];
       persistAgentPrefs(nextPrefs);
       return { agentPrefs: nextPrefs };
+    }),
+  setAutoUpdate: (agentId, on) =>
+    set((s) => {
+      const next = { ...(s.autoUpdate || {}) };
+      if (on) next[agentId] = true;
+      else delete next[agentId];
+      persistAutoUpdate(next);
+      return { autoUpdate: next };
     }),
   resetThread: () => set({ ...initialThread }),
   snapshotThread: () =>
@@ -474,6 +515,7 @@ const STUDIO_SHALLOW_SELECTOR = (s: StudioState) => ({
   threads: s.threads,
   activeThreadId: s.activeThreadId,
   agentPrefs: s.agentPrefs,
+  autoUpdate: s.autoUpdate,
   // actions used directly from JSX (stable identity — never trigger a shallow
   // change, so including them costs nothing and avoids `getState()` in render)
   setWorkspace: s.setWorkspace,

@@ -4,6 +4,7 @@
  */
 import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "./gateway";
+import { gatewayTokenPreview } from "./universal/security";
 
 setupEnv();
 freePortIfOccupied(PORT);
@@ -14,9 +15,12 @@ const server = serve(
   {
     fetch: app.fetch,
     port: PORT,
+    hostname: "127.0.0.1", // 安全边界第一层：只绑回环，局域网不可达（纵深防御见 universal/security.ts）。
   },
   (info) => {
-    console.log(`[Server] Google Antigravity ACP Studio server running at http://localhost:${info.port} (node)`);
+    console.log(`[Server] Google Antigravity ACP Studio server running at http://127.0.0.1:${info.port} (node)`);
+    // 只打印前8位+掩码，完整 token 仅存 ~/.acp-studio/.gateway-token，不打全量进日志。
+    console.log(`[Server] gateway token: ${gatewayTokenPreview()} (full token in ~/.acp-studio/.gateway-token)`);
   }
 );
 

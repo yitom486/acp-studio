@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 function CodeBlock({ language, code }: { language: string; code: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    navigator.clipboard.writeText(code).catch(() => undefined);
+    // 可预期失败 (剪贴板权限) 允许忽略，但留 debug 痕。
+    navigator.clipboard.writeText(code).catch((err) => console.debug("[Markdown] 复制代码失败 (已忽略):", err));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };

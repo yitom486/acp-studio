@@ -36,7 +36,8 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   private copy = () => {
     const text = `${this.state.error?.message || ""}\n${this.state.info}`;
-    navigator.clipboard.writeText(text).catch(() => undefined);
+    // 可预期失败 (剪贴板权限) 允许忽略，但留 debug 痕。
+    navigator.clipboard.writeText(text).catch((err) => console.debug("[ErrorBoundary] 复制失败 (已忽略):", err));
     this.setState({ copied: true });
     setTimeout(() => this.setState({ copied: false }), 1500);
   };

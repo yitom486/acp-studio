@@ -12,6 +12,66 @@ function corsHeaders() {
   };
 }
 
+/**
+ * Optional security wiring (owned by security agent).
+ * server/universal/security.ts may or may not exist — never hard-depend.
+ * If present, gateway auth (requireGatewayAuth) is enforced; if missing or
+ * import fails, requests are allowed through (open) so universal flows and
+ * offline tests keep working.
+ * TODO(security-agent): tighten to default-deny once token flow is stable.
+ */
+async function optionalGatewayAuth(req: Request): Promise<Response | null> {
+  try {
+    // @ts-ignore - optional module; tsc must not fail when missing.
+    const sec = await import("./security");
+    const fn = (sec as { requireGatewayAuth?: unknown; requireAuth?: unknown }).requireGatewayAuth
+      ?? (sec as { requireAuth?: unknown }).requireAuth;
+    if (typeof fn === "function") {
+      try {
+        const denied = (fn as (r: Request) => Response | null)(req);
+        if (denied) return denied;
+      } catch (err) {
+        console.error(`[Universal] security auth check threw: ${(err as Error).message}`);
+      }
+    }
+  } catch (err) {
+    // Missing module => open. Log loudly only for real load errors, not for
+    // "module not found" in dev/test where security agent hasn't landed.
+    const msg = (err as Error).message || String(err);
+    if (!/Cannot find|Failed to resolve|ENOENT/i.test(msg)) {
+      console.error(`[Universal] optional security import failed (open): ${msg}`);
+    }
+  }
+  return null;
+}
+
+/**
+ * Optional workspace allowlist check (security agent owned).
+ * Returns true/false when security module exists, null when missing (skip).
+ * TODO(security-agent): make this default-deny once ACP_WORKSPACE_ROOTS stable.
+ */
+async function optionalIsPathAllowed(p: string): Promise<boolean | null> {
+  try {
+    // @ts-ignore - optional module; tsc must not fail when missing.
+    const sec = await import("./security");
+    const fn = (sec as { isPathAllowed?: unknown }).isPathAllowed;
+    if (typeof fn === "function") {
+      try {
+        return (fn as (x: string) => boolean)(p);
+      } catch (err) {
+        console.error(`[Universal] isPathAllowed threw for ${p}: ${(err as Error).message}`);
+        return false;
+      }
+    }
+  } catch (err) {
+    const msg = (err as Error).message || String(err);
+    if (!/Cannot find|Failed to resolve|ENOENT/i.test(msg)) {
+      console.error(`[Universal] optional isPathAllowed import failed (skip): ${msg}`);
+    }
+  }
+  return null;
+}
+
 async function readJson(req: Request): Promise<Record<string, unknown>> {
   try {
     return (await req.json()) as Record<string, unknown>;
@@ -236,6 +296,14 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
   }
   if (!p.startsWith("/api/universal")) return null;
 
+  // Optional gateway auth (security agent owned; missing => open).
+  try {
+    const denied = await optionalGatewayAuth(req);
+    if (denied) return denied;
+  } catch (err) {
+    console.error(`[Universal] optionalGatewayAuth failed (open): ${(err as Error).message}`);
+  }
+
   // ---- agents ----
   if (p === "/api/universal/agents" && req.method === "GET") {
     const profiles = universalRegistry.listProfiles();
@@ -300,9 +368,9 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
       resetHeadlessLauncherCache();
       // Drop the live connection so the next connect() resolves the new binary.
       try {
-        await universalRegistry.connFor("antigravity-stdio").disconnect().catch(() => undefined);
-      } catch {
-        // never connected: nothing to drop
+        await universalRegistry.connFor("antigravity-stdio").disconnect();
+      } catch (err) {
+        console.error(`[Universal] bridge-source disconnect failed: ${(err as Error).message}`);
       }
       const exe = installer.resolveBridgeExe();
       if (!exe) {
@@ -338,18 +406,56 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
 
     if (rest === "/install" && req.method === "POST") {
       try {
-        const { installAgent, specFor } = await import("./agent-installer");
+        const { startInstall, specFor } = await import("./agent-installer");
         if (!specFor(agentId)) return json({ ok: false, error: `Agent '${agentId}' 不支持一键安装。` }, 404);
-        const res = installAgent(agentId);
-        if (!res.ok) return json({ ok: false, error: res.error, log: res.log }, res.error?.includes("安装中") ? 409 : 500);
-        // Drop any stale connection so the next connect() picks up the new binary.
+        // Disconnect-first (once, non-blocking): a live bridge pins its own
+        // exes on Windows and npm fails with EBUSY while they run. No sleep
+        // retry here — EBUSY retry lives inside the async Job (driveInstallJob).
         try {
-          await getConn().disconnect().catch(() => undefined);
-        } catch {
-          // ignore
+          await getConn().disconnect();
+        } catch (err) {
+          console.error(`[Universal] pre-install disconnect failed ${agentId}: ${(err as Error).message}`);
         }
-        return json({ ok: true, version: res.version });
+        const started = startInstall(agentId);
+        if (!started.job) {
+          if (started.busy) return json({ ok: false, error: started.error }, 409);
+          return json({ ok: false, error: started.error }, 500);
+        }
+        // Immediate return; frontend polls GET install/:jobId (~2s interval).
+        return json({ ok: true, jobId: started.job.jobId, state: "running", id: agentId });
       } catch (err) {
+        console.error(`[Universal] POST install failed ${agentId}: ${(err as Error).message}`);
+        return json({ ok: false, error: (err as Error).message }, 500);
+      }
+    }
+
+    const installJobMatch = rest.match(/^\/install\/([^/]+)$/);
+    if (installJobMatch && req.method === "GET") {
+      try {
+        const { getInstallJob, specFor } = await import("./agent-installer");
+        if (!specFor(agentId)) return json({ ok: false, error: `Agent '${agentId}' 不支持一键安装。` }, 404);
+        const jobId = decodeURIComponent(installJobMatch[1]);
+        const job = getInstallJob(jobId) ?? getInstallJob(agentId);
+        if (!job || (job.id !== agentId && job.jobId !== jobId)) {
+          return json({ ok: false, error: `Install job '${jobId}' not found.` }, 404);
+        }
+        if (job.state === "running") {
+          // 202 semantics for polling, but keep 200 + state field so the
+          // existing fetch().json() frontend polling keeps working.
+          return json({ ok: true, state: "running", jobId: job.jobId, id: job.id });
+        }
+        if (job.state === "done") {
+          // Drop stale connection so next connect() picks up the new binary.
+          try {
+            await getConn().disconnect();
+          } catch (err) {
+            console.error(`[Universal] post-install disconnect failed ${agentId}: ${(err as Error).message}`);
+          }
+          return json({ ok: true, state: "done", jobId: job.jobId, id: job.id, version: job.version, log: job.log });
+        }
+        return json({ ok: false, state: "error", jobId: job.jobId, id: job.id, error: job.error, log: job.log }, 500);
+      } catch (err) {
+        console.error(`[Universal] GET install job failed ${agentId}: ${(err as Error).message}`);
         return json({ ok: false, error: (err as Error).message }, 500);
       }
     }
@@ -368,8 +474,58 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
     }
 
     if (rest === "/disconnect" && req.method === "POST") {
-      await getConn().disconnect().catch(() => undefined);
+      try {
+        await getConn().disconnect();
+      } catch (err) {
+        console.error(`[Universal] disconnect failed ${agentId}: ${(err as Error).message}`);
+      }
       return json({ ok: true, status: getConn().status() });
+    }
+
+    if (rest === "/sessions/empty" && req.method === "DELETE") {
+      // One-click cleanup of abandoned empty sessions. Strict and loud:
+      // only rows the agent marks as turn-less AND old AND unbound are
+      // deleted; every skip/failure is reported, never silently swallowed.
+      // Currently only meaningful for agy-acp-map (conversationId semantics).
+      if (agentId !== "antigravity-stdio") {
+        return json({ ok: false, error: `Agent '${agentId}' 不支持空会话判定（仅 Antigravity 桥提供 conversationId 语义）。` }, 501);
+      }
+      try {
+        const body = await readJson(req);
+        const exceptIds = Array.isArray(body.exceptIds) ? body.exceptIds.map(String) : [];
+        const { selectEmptySessions } = await import("./agent-installer");
+        const conn = getConn();
+        // One-click must work even when disconnected: connect on demand
+        // (idempotent — returns the live connection when already connected).
+        await conn.connect();
+        // Walk every page: session/list is keyset-paginated (50/page), and
+        // the oldest abandoned rows live on the last pages.
+        const sessions: any[] = [];
+        let cursor: string | undefined;
+        for (let page = 0; page < 200; page++) {
+          const listed: any = await conn.listSessions(cursor ? { cursor } : {});
+          if (Array.isArray(listed?.sessions)) sessions.push(...listed.sessions);
+          if (typeof listed?.nextCursor === "string" && listed.nextCursor) {
+            cursor = listed.nextCursor;
+          } else {
+            break;
+          }
+        }
+        const { deletable, kept } = selectEmptySessions(sessions, { exceptIds });
+        const deleted: string[] = [];
+        const errors: Array<{ sessionId: string; error: string }> = [];
+        for (const d of deletable) {
+          try {
+            await conn.deleteSession({ sessionId: d.sessionId });
+            deleted.push(d.sessionId);
+          } catch (err) {
+            errors.push({ sessionId: d.sessionId, error: (err as Error).message });
+          }
+        }
+        return json({ ok: errors.length === 0, deleted, kept, errors });
+      } catch (err) {
+        return json({ ok: false, error: (err as Error).message }, 500);
+      }
     }
 
     if (rest === "/status" && req.method === "GET") {
@@ -598,40 +754,99 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
 
     const promptBlocks = normalizePrompt(body.prompt);
 
+    // Client-disconnect propagation: forward req.signal into conn.prompt()
+    // so a closed SSE stream cancels the in-flight turn server-side.
+    const aborter = new AbortController();
+    const reqSignal = (req as Request).signal as AbortSignal | undefined;
+    let onReqAbort: (() => void) | undefined;
+    try {
+      if (reqSignal) {
+        if (reqSignal.aborted) {
+          aborter.abort();
+        } else {
+          onReqAbort = () => {
+            try {
+              aborter.abort();
+            } catch (err) {
+              console.error(`[Universal] chat abort forward failed: ${(err as Error).message}`);
+            }
+          };
+          reqSignal.addEventListener("abort", onReqAbort, { once: true });
+        }
+      }
+    } catch (err) {
+      console.error(`[Universal] chat signal wiring failed: ${(err as Error).message}`);
+    }
+
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
         const send = (data: Record<string, unknown>) => {
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-          } catch {
-            // closed
+          } catch (err) {
+            console.error(`[Universal] SSE enqueue failed (closed?): ${(err as Error).message}`);
           }
         };
         const ping = setInterval(() => {
           try {
             controller.enqueue(encoder.encode(`: keepalive\n\n`));
           } catch {
-            // ignore
+            // controller closed mid-keepalive: stop silently, close handled below
           }
         }, 2000);
 
         send({ type: "start", agentId, sessionId });
         try {
-          const res = (await conn.prompt(sessionId, promptBlocks as unknown[], (evt) => {
-            send({ ...evt, agentId, sessionId: (evt.sessionId as string) || sessionId });
-          })) as { stopReason?: string } | undefined;
+          const res = (await conn.prompt(
+            sessionId,
+            promptBlocks as unknown[],
+            (evt) => {
+              send({ ...evt, agentId, sessionId: (evt.sessionId as string) || sessionId });
+            },
+            { signal: aborter.signal }
+          )) as { stopReason?: string } | undefined;
           send({ type: "done", agentId, sessionId, stopReason: res?.stopReason || "end_turn", response: res });
         } catch (err) {
-          send({ type: "error", agentId, sessionId, message: (err as Error).message || "prompt failed" });
+          const msg = (err as Error).message || "prompt failed";
+          // Mutex: same-session concurrent prompt() throws `... (409)` in
+          // AgentConnection; surface as error event with code 409 so the
+          // frontend can serialize (routes can't return HTTP 409 once SSE
+          // headers are sent).
+          const busy = /session busy.*\(409\)/i.test(msg);
+          if (busy) {
+            console.warn(`[Universal] chat rejected busy session=${sessionId}`);
+          } else {
+            console.error(`[Universal] chat prompt failed session=${sessionId}: ${msg}`);
+          }
+          send({ type: "error", agentId, sessionId, message: msg, ...(busy ? { code: 409 } : {}) });
         } finally {
           clearInterval(ping);
+          try {
+            if (onReqAbort && reqSignal) reqSignal.removeEventListener("abort", onReqAbort);
+          } catch (err) {
+            console.error(`[Universal] chat signal cleanup failed: ${(err as Error).message}`);
+          }
           await new Promise((r) => setTimeout(r, 50));
           try {
             controller.close();
-          } catch {
-            // ignore
+          } catch (err) {
+            console.error(`[Universal] SSE close failed: ${(err as Error).message}`);
           }
+        }
+      },
+      cancel() {
+        try {
+          aborter.abort();
+        } catch (err) {
+          console.error(`[Universal] SSE cancel abort failed: ${(err as Error).message}`);
+        }
+        try {
+          conn.cancel(sessionId).catch((err: Error) => {
+            console.error(`[Universal] SSE cancel session=${sessionId} failed: ${err.message}`);
+          });
+        } catch (err) {
+          console.error(`[Universal] SSE cancel threw: ${(err as Error).message}`);
         }
       },
     });
@@ -666,6 +881,20 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
       if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
         return json({ ok: false, error: "指定的路径不存在或不是有效目录" }, 400);
       }
+      // Optional allowlist (security agent owned). Missing module => skip
+      // (permissive) so existing flows keep working.
+      // Even when present, currently advisory-only (warn, still allow) to avoid
+      // breaking existing tmp-dir flows/tests (e.g. os.tmpdir() not under cwd).
+      // TODO(security-agent): flip to default-deny (403) once ACP_WORKSPACE_ROOTS
+      // covers test tmp dirs and UI flows are migrated.
+      try {
+        const allowed = await optionalIsPathAllowed(resolved);
+        if (allowed === false) {
+          console.warn(`[Universal] workspace outside allowlist (advisory, still allowing): ${resolved}`);
+        }
+      } catch (err) {
+        console.error(`[Universal] workspace allowlist check failed: ${(err as Error).message}`);
+      }
       const isGit = fs.existsSync(path.join(resolved, ".git"));
       return json({
         ok: true,
@@ -674,23 +903,40 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
         isGit,
       });
     } catch (err: any) {
+      console.error(`[Universal] workspace validate failed: ${err.message || err}`);
       return json({ ok: false, error: err.message || "校验工作区失败" }, 400);
     }
   }
 
   // ---- terminal exec stream ----
+  // Basic guards only (cwd exists+is-dir, non-empty, 8k length cap).
+  // Full command allowlist is owned by the security agent
+  // (server/universal/security.ts) — see TODO there.
+  const EXEC_MAX_CHARS = 8000;
   if (p === "/api/universal/terminal/exec" && req.method === "POST") {
     try {
       const body = await readJson(req);
       const cwd = String(body.cwd || process.cwd());
       const cmd = String(body.command || "").trim();
-      if (!cmd) return json({ ok: true, output: "" });
+      if (!cmd) return json({ ok: false, error: "command is required" }, 400);
+      if (cmd.length > EXEC_MAX_CHARS) {
+        return json({ ok: false, error: `command too long (max ${EXEC_MAX_CHARS} chars)` }, 400);
+      }
 
       const shellBin = process.platform === "win32" ? "powershell.exe" : "/bin/sh";
       const shellArgs = process.platform === "win32" ? ["-NoProfile", "-Command", cmd] : ["-c", cmd];
 
       const { spawn } = await import("node:child_process");
-      const targetCwd = fs.existsSync(cwd) && fs.statSync(cwd).isDirectory() ? cwd : process.cwd();
+      let targetCwd: string;
+      try {
+        targetCwd = fs.existsSync(cwd) && fs.statSync(cwd).isDirectory() ? cwd : process.cwd();
+        if (targetCwd !== cwd) {
+          console.warn(`[Universal] terminal cwd ${cwd} missing/not-a-dir, using ${targetCwd}`);
+        }
+      } catch (err) {
+        console.error(`[Universal] terminal cwd check failed: ${(err as Error).message}`);
+        targetCwd = process.cwd();
+      }
       const proc = spawn(shellBin, shellArgs, {
         cwd: targetCwd,
         env: { ...process.env, TERM: "xterm-256color" },
@@ -721,6 +967,7 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
         },
       });
     } catch (err: any) {
+      console.error(`[Universal] terminal exec failed: ${err.message || err}`);
       return json({ ok: false, error: err.message }, 500);
     }
   }

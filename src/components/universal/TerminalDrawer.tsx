@@ -21,10 +21,55 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   const historyRef = useRef<string[]>([]);
   const historyIdxRef = useRef(-1);
 
-  const activeCwd = cwd || "D:\\project\\js\\Electron\\antigravity-acp";
+  // NOTE: xterm is intentionally statically imported here and nowhere else
+  // (verified: only this file references @xterm/*). App.tsx lazy-loads this
+  // drawer, so xterm lands in its own on-demand chunk (manualChunks "xterm").
+
+  /**
+   * Resolve the working directory without any hardcoded personal path.
+   * Priority: explicit `cwd` prop (App passes the active workspace/session
+   * cwd) -> last workspace persisted in localStorage -> server default
+   * (/api/universal/workspace/default) -> "" with a placeholder prompting
+   * the user to pick a directory (Ctrl+O). Frontend has no process.cwd().
+   */
+  const [resolvedCwd, setResolvedCwd] = useState<string>(() => {
+    if (cwd) return cwd;
+    try {
+      const last = localStorage.getItem("acp_current_workspace");
+      if (last && last.trim()) return last.trim();
+    } catch {
+      // ignore storage errors, fall through to server default
+    }
+    return "";
+  });
+
+  useEffect(() => {
+    if (cwd) {
+      setResolvedCwd(cwd);
+      return;
+    }
+    let cancelled = false;
+    // No prop and nothing in storage: ask the gateway for its default.
+    fetch("/api/universal/workspace/default")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data?.ok && data.path) setResolvedCwd(data.path);
+      })
+      .catch((err) => {
+        console.error("[TerminalDrawer] workspace default fetch failed, waiting for user to pick a directory:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd]);
+
+  const activeCwd = resolvedCwd;
+  const hasCwd = activeCwd.trim().length > 0;
 
   const printPrompt = (t: Terminal) => {
-    const short = activeCwd.split(/[/\\]/).filter(Boolean).pop() || activeCwd;
+    const short = hasCwd
+      ? activeCwd.split(/[/\\]/).filter(Boolean).pop() || activeCwd
+      : "（未选择目录）";
     t.write(`\r\n\x1b[36mPS ${short}\x1b[0m\x1b[90m>\x1b[0m `);
   };
 
@@ -62,7 +107,11 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
 
       // Welcome header
       term.writeln("\x1b[1;34m=== ACP Studio Integrated Terminal ===\x1b[0m");
-      term.writeln(`\x1b[90m工作目录:\x1b[0m \x1b[33m${activeCwd}\x1b[0m`);
+      if (hasCwd) {
+        term.writeln(`\x1b[90m工作目录:\x1b[0m \x1b[33m${activeCwd}\x1b[0m`);
+      } else {
+        term.writeln("\x1b[33m[未选择工作目录]\x1b[0m \x1b[90m按 Ctrl+O 选择目录，或等待默认工作区加载\x1b[0m");
+      }
       term.writeln("\x1b[90m支持 PowerShell / 命令执行，按 Enter 运行，支持快捷键 Ctrl+` 开关\x1b[0m");
       printPrompt(term);
 
@@ -171,6 +220,13 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
       return;
     }
 
+    if (!hasCwd) {
+      term.writeln("");
+      term.writeln("\x1b[33m[未选择工作目录]\x1b[0m \x1b[90m请先按 Ctrl+O 选择目录后再执行命令\x1b[0m");
+      printPrompt(term);
+      return;
+    }
+
     runningRef.current = true;
     term.writeln("");
     try {
@@ -194,6 +250,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         }
       }
     } catch (err: any) {
+      console.error("[TerminalDrawer] command exec failed:", err);
       term.writeln(`\x1b[31m[错误: ${err.message}]\x1b[0m`);
     } finally {
       runningRef.current = false;
@@ -223,7 +280,9 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
           <span>终端 (Terminal)</span>
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded border border-border/50 max-w-[300px] truncate">
             <Folder className="w-3 h-3 shrink-0" />
-            <span className="truncate">{activeCwd}</span>
+            <span className="truncate" title={hasCwd ? activeCwd : "未选择工作目录，按 Ctrl+O 选择"}>
+              {hasCwd ? activeCwd : "未选择工作目录（Ctrl+O 选择）"}
+            </span>
           </div>
         </div>
 

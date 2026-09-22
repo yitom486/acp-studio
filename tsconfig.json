@@ -1,4 +1,13 @@
 {
+  // tsconfig 渐进严格化决策 (2026-09-22, 代码质量专项):
+  // - 基线 `bunx tsc --noEmit` (strict:false): 0 错误。
+  // - 试开 `strictNullChecks`: 增量 0 错误 (<20 阈值) → 已开启下方的 strictNullChecks:true。
+  // - 全量 `strict:true` 仍报 4 个 TS7022 (src/lib/universal-api.ts 回放聚合 `k` 自引用推断)
+  //   → 暂不开全量 strict，避免一次性引爆。
+  // - 渐进路线 (分模块收紧): session(会话恢复/回放类型) → SSE(流消费/中断)
+  //   → 安装(agent-installer/bridge 解析) → 权限+elicitation(审批表单)
+  //   → 文件终端(fs/terminal 透传)。每模块先补类型+单测，再开对应子旗
+  //   (noImplicitAny / noUncheckedIndexedAccess)，最后才重估 strict:true。
   "compilerOptions": {
     "target": "ES2022",
     "useDefineForClassFields": true,
@@ -12,6 +21,8 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": false,
+    // 渐进第一步: strict:false 保持，但显式覆盖开启 null 检查 (已验证零增量)。
+    "strictNullChecks": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

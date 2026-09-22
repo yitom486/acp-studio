@@ -13,6 +13,9 @@
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
 - Studio store 新增 `useStudioShallow` / `useStudioMessages`：选择性订阅
   视图状态，刻意排除 `messages`（流式热路径字段）。
+- README 新增“桥接库三源版本对齐”小节：根 `package.json ^x.y.z` /
+  `scratch` 子模组 commit pin / 按需安装 `@latest` 三源语义与对齐策略
+  （发版前 `bun update` + 锁定，managed 安装版本显示）。
 
 ### Changed
 - **Studio 外壳重渲染修复**：`App.tsx` 原先用无选择器
@@ -21,6 +24,32 @@
   `ChatArea`（经 `useStudioMessages`）；持久化 effect 改为按需
   `getState()` 读取，不再订阅热路径。符合
   `.agents/rules/state_management.md` 的选择器订阅约定。
+- **tsconfig 渐进严格化第一步**：保持 `strict:false`，新增
+  `"strictNullChecks": true`（基线 `bunx tsc --noEmit` 0 错误，试开增量
+  0 错误 <20 阈值）；全量 `strict:true` 暂缓（残留 4 个 TS7022
+  于 `src/lib/universal-api.ts` 回放聚合），渐进路线
+  （session→SSE→安装→权限/elicitation→文件终端）已写进 `tsconfig.json` 注释。
+- **README 过期引用修正**：`server/acp-stdio.ts`（不存在）改为
+  `server/universal/` + `server/index.ts` / `server/node.ts` 与桥自带
+  `sdk-server.ts`（`bun run acp:stdio` 真入口）；`src/lib/sse-client.ts`
+  改为 `src/lib/universal-api.ts`；`server/bridge/agyBridge.ts` 改为
+  `server/universal/*`；核心库徽章 `v0.1.3` 改为 `v0.1.6`
+  （以根 `package.json` 为准）；测试徽章改为“74 Vitest (universal)”
+  并注明黑盒需本地 `bun`；目录结构小节与真实布局对齐
+  （`server/universal`、`desktop`、`tests/universal`）。
+
+### Fixed
+- **静默错误 loud 化**（`no-silent-fallbacks` / `error_handling`）：
+  `server/universal/registry.ts` 自定义 agents 文件解析/持久化失败由静默
+  `return []` 改为 `console.warn` 带文件路径 + 原因（仍返回 `[]` 保活网关）；
+  `server/universal/presets.ts` 的 `ACP_AGENTS_JSON` 损坏同样 `console.warn`
+  保活；`src/App.tsx` 工作区默认值、配置恢复链、一次性会话清理的裸
+  `.catch(()=>{})` / 空 `catch` 改为 `console.warn` / `console.debug`
+  （逻辑不变）；剪贴板复制失败改 `console.debug`；
+  `findRunnerBin` 逐项试探补 deterministically 无害注释。
+  可预期清理失败（disconnect/close）允许忽略但均已留痕；
+  本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
+  细节见各专项条目（此处仅汇总，不编造版本号）。
 
 ## [0.1.0] - 2026-09-22
 

@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { existsSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "../server/gateway";
+import { ensureGatewayToken, gatewayTokenPreview } from "../server/universal/security";
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const START_URL = process.env.ELECTRON_START_URL || `http://localhost:${PORT}`;
@@ -17,6 +18,10 @@ let gateway: { close: (cb?: () => void) => void } | null = null;
 
 async function startGateway() {
   setupEnv();
+  // 本函数只在 !isDev 时被调用：确保 token 已生成并进入进程环境，
+  // createWindow 在其之后执行，同一机器前后端共享同一 token。
+  const token = ensureGatewayToken();
+  if (!process.env.ACP_GATEWAY_TOKEN) process.env.ACP_GATEWAY_TOKEN = token;
   freePortIfOccupied(PORT);
   // Packaged layout: frontend lives under <app>/dist, not cwd.
   // Ship agy-headless.exe via electron-builder extraResources later;
@@ -27,8 +32,10 @@ async function startGateway() {
     if (existsSync(exe)) process.env.AGY_HEADLESS_LAUNCHER = exe;
   }
   const honoApp = buildApp();
-  const srv = serve({ fetch: honoApp.fetch, port: PORT }, () => {
-    console.log(`[Electron] gateway listening at http://localhost:${PORT}`);
+  // hostname 127.0.0.1：只绑回环（ACP_PUBLIC_DIR 逻辑不动）。
+  const srv = serve({ fetch: honoApp.fetch, port: PORT, hostname: "127.0.0.1" }, () => {
+    // token 只打前8位+掩码，不打全量进日志。
+    console.log(`[Electron] gateway listening at http://127.0.0.1:${PORT} (token ${gatewayTokenPreview()})`);
   }) as unknown as {
     requestTimeout: number;
     headersTimeout: number;
@@ -79,6 +86,12 @@ ipcMain.handle("shell:openPath", async (_event, targetPath: string) => {
   await shell.openPath(targetPath);
 });
 
+// 预留给前端接线：renderer（经 preload 透出后）用该 IPC 拿 token，
+// 再在 fetch 头带 `Authorization: Bearer <token>`。
+// 当前前端尚未接入：Electron 经 http://127.0.0.1 同源（或 file:// 无 Origin）
+// 由 universal/security.ts 直接放行；此处不改 loadURL、不破坏现有启动。
+ipcMain.handle("gateway:getToken", () => process.env.ACP_GATEWAY_TOKEN || ensureGatewayToken());
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -97,14 +110,19 @@ if (!app.requestSingleInstanceLock()) {
   app.on("window-all-closed", async () => {
     try {
       gateway?.close();
-    } catch {
-      // ignore
+    } catch (err) {
+      // 关闭已关的 server 属确定性无害，留痕即可。
+      console.warn(`[Electron] 关闭网关时异常（已忽略）：${(err as Error).message}`);
     }
-    await shutdownBridges().catch(() => undefined);
+    await shutdownBridges().catch((err) => {
+      console.warn(`[Electron] 关闭 agent 桥接失败：${(err as Error)?.message || err}`);
+    });
     if (process.platform !== "darwin") app.quit();
   });
 
   app.on("before-quit", async () => {
-    await shutdownBridges().catch(() => undefined);
+    await shutdownBridges().catch((err) => {
+      console.warn(`[Electron] 退出前关闭桥接失败：${(err as Error)?.message || err}`);
+    });
   });
 }

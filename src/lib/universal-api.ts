@@ -442,6 +442,35 @@ export async function setBridgeSource(source: "npm" | "local"): Promise<BridgeSo
   return data;
 }
 
+export interface EmptyCleanupResult {
+  deleted: string[];
+  kept: number;
+  errors: Array<{ sessionId: string; error: string }>;
+}
+
+/** One-click cleanup of abandoned empty sessions (server reports counts). */
+export async function cleanupEmptySessions(
+  agentId: string,
+  exceptIds: string[] = [],
+): Promise<EmptyCleanupResult> {
+  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/sessions/empty`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ exceptIds }),
+  });
+  const data = await res.json();
+  if (!data.ok && (!data || data.deleted === undefined)) {
+    throw new Error(data.error || "清理空会话失败");
+  }
+  if (!data.ok) {
+    throw new Error(
+      `清理部分失败：已删 ${data.deleted?.length ?? 0} 个，${data.errors?.length ?? 0} 个失败：` +
+        (data.errors || []).map((e: any) => `${e.sessionId.slice(0, 8)}…(${e.error})`).join("；"),
+    );
+  }
+  return data;
+}
+
 export interface CustomAgentInput {
   id: string;
   name?: string;

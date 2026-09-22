@@ -16,7 +16,8 @@ export const ErrorToast: React.FC = () => {
   if (errors.length === 0) return null;
 
   const copy = (e: AppError) => {
-    navigator.clipboard.writeText(`[${e.source}] ${e.message}\n${e.detail || ""}`).catch(() => undefined);
+    // 可预期失败 (剪贴板权限) 允许忽略，但留 debug 痕。
+    navigator.clipboard.writeText(`[${e.source}] ${e.message}\n${e.detail || ""}`).catch((err) => console.debug("[ErrorToast] 复制失败 (已忽略):", err));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };

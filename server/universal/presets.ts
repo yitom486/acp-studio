@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentProfile } from "./types";
-import { resolveBridgeExe } from "./agent-installer";
 
 /**
  * Built-in agent presets (ACP v1 stdio) — shell principle:
@@ -19,13 +18,11 @@ import { resolveBridgeExe } from "./agent-installer";
  * and the UI offers one-click install. No bundled/dev fallbacks.
  */
 export const ANTIGRAVITY_EXE_MISSING_HINT =
-  "Antigravity 桥尚未安装：请在工作室 Agent 面板点击「安装」一键拉取最新版（约 100MB），安装完成后再连接。";
+  "Antigravity 桥需要 bun（bunx）或 Node.js（npx）二选一：都没装就连不上。首次连接会下载最新版桥（约 5MB），之后走缓存。";
 function resolveAntigravity(): { command: string; args: string[] } {
-  // Managed on-demand install only (see agent-installer.ts): the exe path is
-  // re-resolved on every call so a source switch takes effect immediately.
-  const exe = resolveBridgeExe();
-  if (exe) return { command: exe, args: [] };
-  return { command: `npm:@yitom/agy-acp-map (not installed)`, args: [] };
+  // Same as codex: bunx first, npx fallback, pinned @latest (see runnerArgs).
+  // No managed-install gate — the runner cache owns the bytes now.
+  return runnerArgs("@yitom/agy-acp-map");
 }
 
 function resolveCursorCli(): { command: string; args: string[] } {
@@ -76,7 +73,8 @@ function findRunnerBin(name: string): string | null {
         fs.accessSync(full, fs.constants.X_OK);
         return full;
       } catch {
-        // try next
+        // deterministically 无害: PATH 逐项试探，缺失即试下一项 (error_handling.md 允许的 ignore，
+        // 不打日志以免每个未命中都刷屏；最终找不到由调用方 loud 报错)。
       }
     }
   }
@@ -120,7 +118,7 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
     id: "antigravity-stdio",
     name: "antigravity-acp-stdio",
     title: "Antigravity (stdio)",
-    description: "Antigravity ACP bridge, compiled single-file exe (no bun/TS at runtime).",
+    description: "Antigravity ACP bridge via bunx/npx (@yitom/agy-acp-map@latest, stdio).",
     homepage: "https://antigravity.google",
     builtin: true,
     ...resolveAntigravity(),
@@ -230,9 +228,15 @@ export function loadExtraProfilesFromEnv(): AgentProfile[] {
   if (!raw) return [];
   try {
     const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return [];
+    if (!Array.isArray(arr)) {
+      // Loud empty: env 配置损坏必须可见，但返回 [] 保活网关 (调用方展示)。
+      console.warn("[presets] ACP_AGENTS_JSON 不是数组，已按空配置继续 (期望 [{id,command,...}])。");
+      return [];
+    }
     return arr.map(toProfile).filter((p): p is AgentProfile => !!p);
-  } catch {
+  } catch (err) {
+    // Loud empty: JSON 损坏必须可见，同上返回 [] 保活。
+    console.warn("[presets] ACP_AGENTS_JSON 解析失败，已按空配置继续:", err);
     return [];
   }
 }

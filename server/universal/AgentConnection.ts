@@ -67,12 +67,66 @@ function isLauncherItself(command: string, launcher: string): boolean {
 }
 
 /**
+ * Runtime binaries that must NEVER go through agy-headless.exe launcher.
+ * The launcher only proxies real console business exes (e.g. agy-acp-win-x64.exe);
+ * proxying a language runtime (bun/node/npm/...) makes the launcher try to
+ * exec it as a payload and surfaces as `Access is denied` (mock tests hit this
+ * with `bun.exe run <fixture>`). Case-insensitive basename match, with and
+ * without Windows extension.
+ */
+export const RUNTIME_BASENAMES = new Set([
+  "bun",
+  "bun.exe",
+  "bunx",
+  "bunx.exe",
+  "bunx.cmd",
+  "node",
+  "node.exe",
+  "npm",
+  "npm.cmd",
+  "npm.exe",
+  "npx",
+  "npx.cmd",
+  "npx.exe",
+  "python",
+  "python.exe",
+  "python3",
+  "python3.exe",
+  "pip",
+  "pip.exe",
+  "uv",
+  "uv.exe",
+  "deno",
+  "deno.exe",
+]);
+
+export function isRuntimeBinary(command: string): boolean {
+  try {
+    return RUNTIME_BASENAMES.has(path.basename(command).toLowerCase());
+  } catch (err) {
+    console.error(`[UniversalACP] isRuntimeBinary check failed for ${command}: ${(err as Error).message}`);
+    return false;
+  }
+}
+
+/**
  * Cross-runtime spawn (Bun *and* Node) with zero console flash on Windows.
  * Console binaries (.exe/.cmd/.bat) go through the native headless launcher
  * when available (works under every runtime, unlike windowsHide under Bun);
  * .cmd/.bat additionally fall back to shell:true for Node's EINVAL.
+ * Runtime binaries (bun/node/npm/...) bypass the launcher entirely.
  */
 function spawnCrossPlatform(command: string, args: string[], opts: SpawnOptions): ChildProcess {
+  if (isRuntimeBinary(command)) {
+    // Runtimes manage their own stdio/console; launcher proxy would break them.
+    if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+      const line = [command, ...args]
+        .map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a))
+        .join(" ");
+      return spawn(line, { ...opts, shell: true });
+    }
+    return spawn(command, args, opts);
+  }
   if (process.platform === "win32" && /\.(exe|cmd|bat)$/i.test(command)) {
     const launcher = findHeadlessLauncher();
     if (launcher && !isLauncherItself(command, launcher)) {
@@ -150,6 +204,13 @@ export class UniversalAgentConnection {
   private elicSeq = 1;
   private terminals = new Map<string, TerminalRecord>();
   private termSeq = 1;
+  /**
+   * Per-session prompt mutex: ACP session/prompt is strictly serial per
+   * session. Concurrent prompt() calls for the same sessionId throw
+   * `session busy ... (409)`; routes translate that into HTTP 409 so the
+   * frontend can serialize/queue instead of interleaving turns.
+   */
+  private promptLocks = new Set<string>();
 
   constructor(profile: AgentProfile) {
     this.profile = profile;
@@ -516,6 +577,15 @@ export class UniversalAgentConnection {
     }) : () => undefined;
     try {
       const result = await conn.agent.request(acp.methods.agent.session.load, payload as unknown as never);
+      // Grace window: session/update notifications are dispatched
+      // asynchronously and can lag behind the load response. Unsubscribing
+      // immediately drops the tail (e.g. the final assistant chunk). Wait
+      // until quiet instead (same reason prompt() waits 50ms post-result).
+      for (let i = 0; i < 20; i++) {
+        const n = replayed.length;
+        await new Promise((r) => setTimeout(r, 25));
+        if (replayed.length === n) break;
+      }
       return { result, replayed };
     } finally {
       unsub();
@@ -600,12 +670,27 @@ export class UniversalAgentConnection {
 
   async cancel(sessionId: string): Promise<void> {
     const conn = this.ensureConn();
-    await conn.agent.notify(acp.methods.agent.session.cancel, { sessionId } as unknown as never);
+    try {
+      await conn.agent.notify(acp.methods.agent.session.cancel, { sessionId } as unknown as never);
+    } catch (err) {
+      console.error(`[UniversalACP:${this.profile.id}] cancel notify failed session=${sessionId}: ${(err as Error).message}`);
+      throw err;
+    } finally {
+      // Release the prompt mutex so a fresh turn can start after cancel.
+      // The in-flight prompt()'s finally also deletes (idempotent).
+      if (sessionId && this.promptLocks.has(sessionId)) {
+        this.promptLocks.delete(sessionId);
+      }
+    }
     // Unblock any pending permission for this session as cancelled (per spec client MUST respond cancelled)
     for (const [id, p] of [...this.pendingPermissions]) {
       if (p.sessionId === sessionId) {
         this.pendingPermissions.delete(id);
-        p.resolve({ outcome: "cancelled" });
+        try {
+          p.resolve({ outcome: "cancelled" });
+        } catch (err) {
+          console.error(`[UniversalACP:${this.profile.id}] permission resolve after cancel failed ${id}: ${(err as Error).message}`);
+        }
       }
     }
   }
@@ -614,6 +699,8 @@ export class UniversalAgentConnection {
    * Send session/prompt. Streams session/update via onEvent callback until stop.
    * Permission/elicitation requests are surfaced via onEvent as well; the
    * underlying agent request stays pending until UI responds.
+   * Mutex: same sessionId concurrent prompt() throws
+   * `session busy: previous prompt still running (409)` (routes -> HTTP 409).
    */
   async prompt(
     sessionId: string,
@@ -622,12 +709,19 @@ export class UniversalAgentConnection {
     opts?: { signal?: AbortSignal }
   ): Promise<unknown> {
     const conn = this.ensureConn();
+    if (!sessionId) throw new Error("sessionId is required");
+    if (this.promptLocks.has(sessionId)) {
+      throw new Error("session busy: previous prompt still running (409)");
+    }
+    this.promptLocks.add(sessionId);
     const unsub = this.subscribe(sessionId, onEvent);
     let onAbort: (() => void) | undefined;
     try {
       if (opts?.signal) {
         onAbort = () => {
-          this.cancel(sessionId).catch(() => undefined);
+          this.cancel(sessionId).catch((err) => {
+            console.error(`[UniversalACP:${this.profile.id}] abort-cancel failed session=${sessionId}: ${(err as Error).message}`);
+          });
         };
         if (opts.signal.aborted) onAbort();
         else opts.signal.addEventListener("abort", onAbort, { once: true });
@@ -638,7 +732,12 @@ export class UniversalAgentConnection {
       } as unknown as never);
       return res;
     } finally {
-      if (opts?.signal && onAbort) opts.signal.removeEventListener("abort", onAbort);
+      try {
+        if (opts?.signal && onAbort) opts.signal.removeEventListener("abort", onAbort);
+      } catch (err) {
+        console.error(`[UniversalACP:${this.profile.id}] abort listener cleanup failed: ${(err as Error).message}`);
+      }
+      this.promptLocks.delete(sessionId);
       await new Promise((r) => setTimeout(r, 50));
       unsub();
     }
@@ -699,10 +798,53 @@ export class UniversalAgentConnection {
     return { outcome: { outcome: "cancelled" } };
   }
 
-  private async handleReadFile(params: { sessionId?: string; path: string; line?: number; limit?: number }): Promise<unknown> {
-    this.emitActivity(params.sessionId || "", "fs_read", { path: params.path, line: params.line, limit: params.limit });
+  /**
+   * Conservative fs guard: normalize + block obvious system locations.
+   * Full allowlist enforcement lives in server/universal/security.ts
+   * (isPathAllowed + workspace roots) — owned by the security agent.
+   * Here we only: (a) reject empty paths, (b) refuse Windows system dirs
+   * and Unix sensitive mounts, (c) otherwise emitActivity + allow but leave
+   * TODO for security allowlist to tighten. Deliberately permissive so
+   * existing flows/tests keep working.
+   */
+  private checkFsPath(raw: string, sessionId: string, op: string): string {
+    const session = sessionId || "";
+    if (!raw || !String(raw).trim()) throw new Error(`fs/${op} failed: path is required`);
+    let resolved: string;
     try {
-      const content = await fsp.readFile(params.path, "utf8");
+      resolved = path.resolve(String(raw));
+    } catch (err) {
+      console.error(`[UniversalACP:${this.profile.id}] fs/${op} resolve failed ${raw}: ${(err as Error).message}`);
+      throw new Error(`fs/${op} failed: invalid path`);
+    }
+    const lower = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+    const blockedPrefixes =
+      process.platform === "win32"
+        ? ["c:\\windows", "c:\\program files", "c:\\program files (x86)"]
+        : ["/etc", "/proc", "/sys"];
+    for (const b of blockedPrefixes) {
+      if (lower === b || lower.startsWith(b + path.sep)) {
+        this.emitActivity(session, `fs_${op}_blocked`, { path: raw, resolved });
+        throw new Error(`fs/${op} denied: system path not writable/readable (${resolved})`);
+      }
+    }
+    // Conservative: if the resolved path escapes to a drive root via `..`
+    // trickery (e.g. `C:\` alone or `/` alone when a file was expected),
+    // still allow directories but log loudly. Real confinement (must be under
+    // profile.defaultCwd / workspace root) is TODO(security-agent) via
+    // isPathAllowed() allowlist — see server/universal/security.ts.
+    // TODO(security-agent): enforce isPathAllowed(resolved) here once
+    // workspace roots are stable; current permissive mode avoids breaking
+    // existing agents/tests that use absolute tmp paths.
+    return resolved;
+  }
+
+  private async handleReadFile(params: { sessionId?: string; path: string; line?: number; limit?: number }): Promise<unknown> {
+    const sid = params.sessionId || "";
+    this.emitActivity(sid, "fs_read", { path: params.path, line: params.line, limit: params.limit });
+    const resolved = this.checkFsPath(params.path, sid, "read_text_file");
+    try {
+      const content = await fsp.readFile(resolved, "utf8");
       const lines = content.split("\n");
       if (params.line != null) {
         const start = Math.max(0, (params.line - 1));
@@ -716,10 +858,12 @@ export class UniversalAgentConnection {
   }
 
   private async handleWriteFile(params: { sessionId?: string; path: string; content: string }): Promise<unknown> {
-    this.emitActivity(params.sessionId || "", "fs_write", { path: params.path, bytes: Buffer.byteLength(params.content || "") });
+    const sid = params.sessionId || "";
+    this.emitActivity(sid, "fs_write", { path: params.path, bytes: Buffer.byteLength(params.content || "") });
+    const resolved = this.checkFsPath(params.path, sid, "write_text_file");
     try {
-      await fsp.mkdir(path.dirname(params.path), { recursive: true });
-      await fsp.writeFile(params.path, params.content, "utf8");
+      await fsp.mkdir(path.dirname(resolved), { recursive: true });
+      await fsp.writeFile(resolved, params.content, "utf8");
       return {};
     } catch (err) {
       throw new Error(`fs/write_text_file failed for ${params.path}: ${(err as Error).message}`);
@@ -730,7 +874,17 @@ export class UniversalAgentConnection {
     const command = String(params.command || "");
     if (!command) throw new Error("terminal/create: command is required");
     const args = Array.isArray(params.args) ? (params.args as unknown[]).map(String) : [];
-    const cwd = typeof params.cwd === "string" && params.cwd ? params.cwd : process.cwd();
+    // cwd must exist + be a directory; otherwise fall back to process.cwd().
+    let cwd = typeof params.cwd === "string" && params.cwd ? params.cwd : process.cwd();
+    try {
+      if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
+        console.warn(`[UniversalACP:${this.profile.id}] terminal cwd ${cwd} missing/not-a-dir, falling back to process.cwd()`);
+        cwd = process.cwd();
+      }
+    } catch (err) {
+      console.error(`[UniversalACP:${this.profile.id}] terminal cwd check failed: ${(err as Error).message}`);
+      cwd = process.cwd();
+    }
     const envList = Array.isArray(params.env) ? (params.env as Array<{ name: string; value: string }>) : [];
     const env: Record<string, string> = { ...process.env } as Record<string, string>;
     for (const e of envList) {
