@@ -38,16 +38,19 @@ function trunc(text: unknown): string {
     : text;
 }
 
-/** Freeze a live message for storage: drop streaming flags, cap sizes. */
+/**
+ * Freeze a live message for storage: drop streaming flags, cap sizes.
+ * Persist policy (user-visible history = Q&A only): the persisted record
+ * keeps the final answer text (+thought), but NEVER tool calls/results —
+ * they are live-view only and are stripped here, not at render time.
+ */
 export function freezeMessage(m: Message): Message {
   return {
     ...m,
     content: trunc(m.content),
     thought: typeof m.thought === "string" ? trunc(m.thought) : m.thought,
     isStreaming: false,
-    toolCalls: Array.isArray(m.toolCalls)
-      ? m.toolCalls.map((t) => ({ ...t, status: t.status === "pending" || t.status === "running" ? "cancelled" as const : t.status }))
-      : m.toolCalls,
+    toolCalls: undefined,
   };
 }
 

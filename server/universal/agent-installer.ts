@@ -7,123 +7,35 @@ import * as path from "node:path";
 /**
  * On-demand agent runtimes (fail-fast, no silent fallbacks).
  *
- * Managed agents live under ~/.acp-studio/agents/<agentId>/node_modules/<pkg>
- * and are installed/updated explicitly via the UI (one-click) or API — never
- * silently. Version freshness is always VISIBLE (install-state endpoint + UI
- * badge); nothing auto-installs behind the user's back.
+ * Runner-era note: stdio agents (codex, antigravity, claude, …) all launch
+ * via package runners (`bunx <pkg>@latest`, npx fallback) straight into the
+ * vendor CLI adapter — no managed installs, no big exes. The runner cache
+ * owns the bytes; first connect downloads, later connects reuse the cache.
+ *
+ * The table + job machinery below is generic and dormant: MANAGED_AGENTS is
+ * intentionally empty. If a future runtime ever needs an explicit install
+ * again, add a spec here and the install-state/install endpoints + UI badges
+ * pattern can be revived. Nothing auto-installs behind the user's back.
  */
 
 export interface ManagedAgentSpec {
-  /** Preset id, e.g. 'antigravity-stdio'. */
+  /** Preset id, e.g. 'some-future-exe-agent'. */
   id: string;
-  /** npm package providing the runtime, e.g. '@yitom/agy-acp-map'. */
+  /** npm package providing the runtime, e.g. '@vendor/agent-acp'. */
   pkg: string;
-  /** Bridge entry relative to the installed package dir. */
+  /** Runtime entry relative to the installed package dir. */
   exeRel: string;
   /** Headless launcher relative to the installed package dir. */
   headlessRel: string;
 }
 
-export const MANAGED_AGENTS: ManagedAgentSpec[] = [
-  {
-    id: "antigravity-stdio",
-    pkg: "@yitom/agy-acp-map",
-    exeRel: "dist/agy-acp-win-x64.exe",
-    headlessRel: "dist/agy-headless.exe",
-  },
-];
+// Runner era: empty on purpose. antigravity-stdio used to live here
+// (managed 86MB agy-acp-win-x64.exe); it now runs codex-style via
+// `bunx @yitom/agy-acp-map@latest` (thin JS bin, see presets.ts).
+export const MANAGED_AGENTS: ManagedAgentSpec[] = [];
 
 export function specFor(id: string): ManagedAgentSpec | undefined {
   return MANAGED_AGENTS.find((s) => s.id === id);
-}
-
-/** Dev-mode detection (mirrors desktop/main.ts ELECTRON_DEV convention). */
-export function isDevEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.ELECTRON_DEV === "1" || env.NODE_ENV === "development";
-}
-
-/** True when running from a source checkout (dev gateway, not packaged app). */
-export function isSourceCheckout(dir: string = process.cwd()): boolean {
-  try {
-    return fs.existsSync(path.join(dir, "server", "universal", "agent-installer.ts"));
-  } catch (err) {
-    console.error(`[UniversalACP] isSourceCheckout check failed: ${(err as Error).message}`);
-    return false;
-  }
-}
-
-export function isDev(): boolean {
-  return isDevEnv() || isSourceCheckout();
-}
-
-export type BridgeSource = "npm" | "local";
-
-/**
- * Bridge source selection. `AGY_ACP_SOURCE=local` is honored ONLY in dev;
- * in production it is ignored with a loud warning (dev-only option — a
- * stale checkout must never silently replace the managed install).
- */
-export function bridgeSource(): BridgeSource {
-  const raw = (process.env.AGY_ACP_SOURCE || "").trim().toLowerCase();
-  if (raw === "local") {
-    if (isDev()) return "local";
-    console.warn(
-      "[UniversalACP] AGY_ACP_SOURCE=local ignored outside dev (ELECTRON_DEV=1); using managed npm install.",
-    );
-  } else if (raw !== "" && raw !== "npm") {
-    console.warn(`[UniversalACP] Unknown AGY_ACP_SOURCE=${JSON.stringify(raw)}; using "npm".`);
-  }
-  return "npm";
-}
-
-/** Dev-checkout exe (scratch submodule). Null when not built — fails fast. */
-export function devCheckoutExe(): string | null {
-  const p = path.join(
-    process.cwd(),
-    "scratch",
-    "repos",
-    "yitom486-agy-acp-map",
-    "dist",
-    "agy-acp-win-x64.exe",
-  );
-  try {
-    fs.accessSync(p, fs.constants.F_OK);
-    return p;
-  } catch {
-    return null;
-  }
-}
-
-/** Dev-checkout headless launcher. Null when not built. */
-export function devCheckoutHeadless(): string | null {
-  const p = path.join(
-    process.cwd(),
-    "scratch",
-    "repos",
-    "yitom486-agy-acp-map",
-    "dist",
-    "agy-headless.exe",
-  );
-  try {
-    fs.accessSync(p, fs.constants.F_OK);
-    return p;
-  } catch {
-    return null;
-  }
-}
-
-/** Resolve the bridge entry for the CURRENT source (null = missing, fail fast). */
-export function resolveBridgeExe(): string | null {
-  if (bridgeSource() === "local") return devCheckoutExe();
-  const spec = specFor("antigravity-stdio");
-  return spec ? managedExe(spec) : null;
-}
-
-/** Resolve the headless launcher for the CURRENT source (null = missing). */
-export function resolveBridgeHeadless(): string | null {
-  if (bridgeSource() === "local") return devCheckoutHeadless();
-  const spec = specFor("antigravity-stdio");
-  return spec ? managedHeadless(spec) : null;
 }
 
 /** Override with ACP_AGENTS_HOME. */
@@ -256,7 +168,7 @@ export function latestVersion(pkg: string, timeoutMs = 20000): string | null {
  * spawnSync that stalls the event loop + SSE streams).
  * - Cache key: npm package name; value: {v, at}.
  * - TTL 10min by default, overridable via ACP_LATEST_TTL_MS (tests use small TTL).
- * - checkAgent() uses the cached variant so /install-state never blocks;
+ * - checkAgent() uses the cached variant so status queries never block;
  *   cache miss still does one sync `npm view`, cache hit returns instantly.
  */
 const latestCache = new Map<string, { v: string | null; at: number }>();
@@ -323,7 +235,7 @@ export function checkAgent(id: string): InstallState {
   }
   const exe = managedExe(spec);
   const installedVersion = exe ? readPkgVersion(managedPkgDir(spec)) : null;
-  // Cached latest: /install-state must never block the event loop (SSE stalls).
+  // Cached latest: status queries must never block the event loop (SSE stalls).
   const latest = latestVersionCached(spec.pkg);
   return {
     id,
@@ -339,7 +251,7 @@ export function checkAgent(id: string): InstallState {
     command: exe,
     installHint: exe
       ? ""
-      : `Agent '${id}' 尚未安装。请在界面点击「安装 ${spec.pkg}」一键拉取最新版（约 100MB，含 Windows 单文件 exe）。`,
+      : `Agent '${id}' 尚未安装。请在界面点击「安装 ${spec.pkg}」一键拉取最新版。`,
   };
 }
 

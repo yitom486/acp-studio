@@ -13,12 +13,14 @@ import type { AgentProfile } from "./types";
  * /api/universal/agents, or ~/.acp-studio/agents.json (all persisted).
  */
 /**
- * Antigravity bridge: managed on-demand install only (see agent-installer.ts).
- * Missing install fails fast at connect time via whichCommand + installHint,
- * and the UI offers one-click install. No bundled/dev fallbacks.
+ * Antigravity bridge, codex-style: `bunx @yitom/agy-acp-map@latest` runs the
+ * thin JS stdio adapter (dist/bin.js) against the local `agy` CLI — no
+ * managed installs, no big exes. The runner cache owns the bytes: first
+ * connect downloads, later connects reuse the cache. Missing runner/binary
+ * fails fast at connect time via whichCommand + installHint.
  */
 export const ANTIGRAVITY_EXE_MISSING_HINT =
-  "Antigravity 桥需要 bun（bunx）或 Node.js（npx）二选一：都没装就连不上。首次连接会下载最新版桥（约 5MB），之后走缓存。";
+  "Antigravity 桥需要 bun（bunx）或 Node.js（npx）二选一：都没装就连不上。首次连接会下载最新版桥（thin 包，约数 MB），之后走 runner 缓存。另需本地装好 Antigravity CLI（agy）并完成登录。";
 function resolveAntigravity(): { command: string; args: string[] } {
   // Same as codex: bunx first, npx fallback, pinned @latest (see runnerArgs).
   // No managed-install gate — the runner cache owns the bytes now.

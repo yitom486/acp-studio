@@ -51,15 +51,19 @@ describe("threads (per-agent persisted records)", () => {
     expect(out.full.messages).toHaveLength(2);
   });
 
-  test("freezeMessage strips streaming flags and truncates", () => {
+  test("freezeMessage strips streaming flags, tool calls, and truncates", () => {
     const m = msg("assistant", "x".repeat(25000), {
       isStreaming: true,
+      thought: "reasoning here",
       toolCalls: [{ id: "t", title: "t", status: "running" }],
     });
     const f = freezeMessage(m);
     expect(f.isStreaming).toBe(false);
     expect(f.content.length).toBeLessThanOrEqual(20000 + 100);
-    expect(f.toolCalls?.[0].status).toBe("cancelled");
+    // Persist policy: history keeps the final answer (+thought), never
+    // tool calls/results — those are live-view only.
+    expect(f.toolCalls).toBeUndefined();
+    expect(f.thought).toBe("reasoning here");
   });
 
   test("pruneThreads caps thread and message counts", () => {

@@ -5,7 +5,7 @@
 
 [![Protocol](https://img.shields.io/badge/Protocol-ACP%20v1%20%2F%20v2-blue.svg)](https://agentclientprotocol.com)
 [![Engine](https://img.shields.io/badge/Engine-Google%20Antigravity%20(agy)-green.svg)](https://antigravity.google)
-[![Core Library](https://img.shields.io/badge/@yitom/agy--acp--map-v0.1.6-purple.svg)](https://www.npmjs.com/package/@yitom/agy-acp-map)
+[![Core Library](https://img.shields.io/badge/@yitom/agy--acp--map-v0.1.13-purple.svg)](https://www.npmjs.com/package/@yitom/agy-acp-map)
 [![Tests](https://img.shields.io/badge/Tests-74%20Vitest%20(universal)-success.svg)]()
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-orange.svg)]()
 
@@ -41,7 +41,7 @@ Google Antigravity CLI (`agy`) 是 Google DeepMind 打造的新一代终端智�
 - **零额外 API Key 配置**，无需翻找云端控制台或手动导入 Token，启动即连通 Google 官方底层环境。
 
 ### 3. 多轮会话长效稳定 (Robust Multi-Turn Sessions)
-- 底层采用基于 `@yitom/agy-acp-map@^0.1.6`（以根 `package.json` 为准）的动态回调解耦机制（`setCallbacks`）。
+- 底层采用基于 `@yitom/agy-acp-map@^0.1.13`（以根 `package.json` 为准）的动态回调解耦机制（`setCallbacks`）。
 - 彻底解决传统进程在第二轮提问时因闭包泄漏导致的事件挂起问题，支持无上限连续问答。
 - 支持同一会话内动态热切换大模型（如 `gemini-3.8-flash-high` $\leftrightarrow$ `gemini-3.8-pro`），自动保持 `--conversation` 历史上下文。
 
@@ -51,6 +51,7 @@ Google Antigravity CLI (`agy`) 是 Google DeepMind 打造的新一代终端智�
 
 ### 5. Windows 11 静默运行与零闪框防御
 - 全链路调用统一注入 `{ windowsHide: true }`，有效压制控制台黑框。
+- 控制台二进制（`bunx.exe`/`npx.cmd` 等）走运行时白名单直起（`spawn` + `windowsHide`，见 `AgentConnection.spawnCrossPlatform`），Bun/Node 下均无闪框；只有显式设置 `AGY_HEADLESS_LAUNCHER` 才走 GUI shim，只认环境变量，绝不静默降级。
 - 结合进程池常驻写入管道，杜绝每轮问答唤起 `cmd.exe` / `conhost.exe` 的视觉干扰。
 
 ### 6. 自动化测试 (Test Grid)
@@ -69,7 +70,7 @@ Zed 编辑器原生支持 Agent Client Protocol (ACP)。您可以按照以下步
 
 1. 先本地启动网关：`bun run dev`（Bun 入口 `server/index.ts`，Node/Electron 入口 `server/node.ts`，网关实现在 `server/universal/`）；
 2. 打开 Zed 编辑器，按快捷键 <kbd>Ctrl</kbd>+<kbd>,</kbd> 打开用户配置文件 `settings.json`（或在菜单栏选择 `Zed` -> `Preferences` -> `Open Settings`）；
-3. 在 `settings.json` 中添加或合并 `agent_client_protocol` 配置项（任选其一）：
+3. 在 `settings.json` 中添加或合并 `agent_client_protocol` 配置项（codex 同款 runner 直起，和 Studio 预设完全一致）：
 
 ```json
 {
@@ -79,34 +80,33 @@ Zed 编辑器原生支持 Agent Client Protocol (ACP)。您可以按照以下步
   "agent_client_protocol": {
     "servers": {
       "antigravity": {
-        "command": "bun",
-        "args": [
-          "run",
-          "<你的本地绝对路径>/antigravity-acp/scratch/repos/yitom486-agy-acp-map/src/sdk-server.ts"
-        ]
+        "command": "bunx",
+        "args": ["@yitom/agy-acp-map@latest"]
       }
     }
   }
 }
 ```
-*(注：旧文档中的 `server/acp-stdio.ts` 已不存在——Stdio 入口现为桥接库自带的 `sdk-server.ts`（`bun run acp:stdio` 即跑它）；请将上述路径替换为你本地实际绝对路径。另见方式二直接用 npm 包，免路径。)*
+*(没装 bun 就把 `command` 换成 `npx`、`args` 换成 `["-y", "@yitom/agy-acp-map@latest"]`。`bun run acp:stdio` 跑的也是这一条。)*
 
-### 方式二：使用全局构建产物或已发布的 NPM 包
+### 方式二：全局安装后直连（离线/锁版场景）
 
-如果您希望脱离源码目录直接以命令行工具运行，也可以配置为：
+先 `npm install -g @yitom/agy-acp-map`，再配置为（和 Studio/方式一跑的是同一个 `bin.js`，只是来源换成本地全局包）：
 
 ```json
 {
   "agent_client_protocol": {
     "servers": {
       "antigravity": {
-        "command": "npx",
-        "args": ["-y", "@yitom/agy-acp-map"]
+        "command": "node",
+        "args": ["<npm-root-g>/@yitom/agy-acp-map/dist/bin.js"]
       }
     }
   }
 }
 ```
+
+其中 `<npm-root-g>` 为 `npm root -g` 的输出。日常推荐方式一（`bunx @latest`，永远最新，免维护）。
 
 ### 在 Zed 中使用：
 1. 配置保存后，在 Zed 右下角或按快捷键唤起 **Assistant** 面板；
@@ -183,7 +183,7 @@ antigravity-acp/ (acp-studio)
 │       ├── registry.ts            # agent profiles + 活连接注册表
 │       ├── presets.ts             # 内置 presets (codex/antigravity-stdio/...)
 │       ├── AgentConnection.ts     # 单 agent 长连接 (stdio 进程托管)
-│       ├── agent-installer.ts     # 按需安装/更新 (managed 目录)
+│       ├── agent-installer.ts     # headless launcher 定位/dev 本地源开关/空会话清理
 │       └── errors.ts              # GatewayError + 错误码
 ├── src/                           # Antigravity Studio 前端 (React + Vite)
 │   ├── App.tsx                    # Studio 主页面与多轮对话状态机
@@ -228,11 +228,25 @@ bun run dev
 
 | # | 来源 | 位置/写法 | 语义 |
 | :--- | :--- | :--- | :--- |
-| 1 | 根 `package.json` | `"@yitom/agy-acp-map": "^x.y.z"`（当前 `^0.1.6`，以文件为准） | 本地开发/打包时的版本基线 |
-| 2 | `scratch` 子仓库 | `scratch/repos/yitom486-agy-acp-map`（git submodule commit pin） | 桥源码联调位：`bun run acp:stdio` 默认跑它，升级靠切 commit |
-| 3 | 按需安装 | `npx/bunx -y @yitom/agy-acp-map@latest`（presets `pinLatest`） | 用户机器上实际跑的 agent：永远拉 `latest`，不锁旧版 |
+| 1 | 根 `package.json` | `"@yitom/agy-acp-map": "^x.y.z"`（当前 `^0.1.13`，以文件为准） | 本地开发/打包时的版本基线 |
+| 2 | `scratch` 子仓库 | `scratch/repos/yitom486-agy-acp-map`（git submodule commit pin） | 桥源码联调位：想调桥源码时手动跑它，升级靠切 commit；日常运行不经过它 |
+| 3 | runner 缓存 | `bunx @yitom/agy-acp-map@latest`（presets `pinLatest`，bun 优先、npx 兜底） | 用户机器上实际跑的 agent：Studio 直连 `@latest`，无 managed 常驻目录、不锁旧版 |
 
-对齐策略：发版前 `bun update @yitom/agy-acp-map`（或检查 `latest`）→ 同步根 `package.json` 版本徽章与正文 → 需要联调再切 `scratch` commit；Studio 的 Agent 面板显示 managed 安装版本（本地 `installedVersion` vs 远端 `latestVersion`），有更新只亮徽标、一键安装才拉取，绝不静默覆盖。
+对齐策略：发版前 `bun update @yitom/agy-acp-map`（或检查 `latest`）→ 同步根 `package.json` 版本徽章与正文 → 需要联调再切 `scratch` commit；实际运行版本以 `initialize` 返回的 `agentInfo.version` 为准（连接成功即打印）。
+
+---
+
+## 🔌 Antigravity 集成方式（外部集成看这里）
+
+三件事备齐即可接入，Studio、Zed、裸 `bunx` 走的是同一条桥：
+
+1. **前置要求**：本机装好 [Google Antigravity CLI](https://antigravity.google) 并完成登录（桥复用它的登录态，零 API Key）；再有 **bun 或 Node.js 二选一**（`bunx` 优先、`npx` 兜底，Electron 不自带 npx）。
+2. **Studio 内**：`antigravity-stdio` 预设即 `bunx @yitom/agy-acp-map@latest`（见 `server/universal/presets.ts`），首次连接下载约 5MB 进 runner 缓存，之后秒连；实际版本以连接成功打印的 `agentInfo.version` 为准。
+3. **Zed 内**：见上文“Zed 集成”方式一（runner 直起）/方式二（npm 全局锁版）。
+
+**记忆（两层，互不干扰）**：agy 原生 `agy -c/--conversation ID`（状态在 `~/.gemini/`）；桥的 `~/.agy-acp-map/history/*.jsonl` + `sessions.json`（bridge-sessionId → agy-conversationId 映射，换启动方式/升级不断档）。`session/load` 回放日记续聊，接不回去就明示报错并解绑，绝不静默串会话。
+
+**失败策略**：缺 runner、缺登录、握手被拒一律 fail-fast，大声报错 + 修复指引，不做静默降级（见 `.agents/rules/no-silent-fallbacks.md`）。
 
 ---
 

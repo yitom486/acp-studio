@@ -7,32 +7,27 @@ import {
   __clearInstallJobsForTest,
   __setLatestCacheForTest,
   agentsHome,
-  bridgeSource,
   checkAgent,
   clearLatestCache,
   compareVersions,
   getInstallJob,
-  isDev,
-  isDevEnv,
-  isSourceCheckout,
   latestTtlMs,
   latestVersionCached,
   managedDir,
-  resolveBridgeExe,
   selectEmptySessions,
   specFor,
   startInstall,
 } from "../../server/universal/agent-installer";
 
 describe("agent-installer (offline)", () => {
-  test("managed spec table covers antigravity-stdio with exe paths", () => {
-    const spec = specFor("antigravity-stdio");
-    expect(spec).toBeDefined();
-    expect(spec!.pkg).toBe("@yitom/agy-acp-map");
-    expect(spec!.exeRel).toContain("agy-acp-win-x64.exe");
-    expect(spec!.headlessRel).toContain("agy-headless.exe");
+  test("runner era: managed table is empty, unknown ids stay unmanaged", () => {
+    // antigravity-stdio runs codex-style via bunx runner (see presets.ts);
+    // nothing is managed anymore. Table stays as generic extension point.
+    expect(MANAGED_AGENTS.length).toBe(0);
+    expect(specFor("antigravity-stdio")).toBeUndefined();
     expect(specFor("no-such-agent")).toBeUndefined();
-    expect(MANAGED_AGENTS.length).toBeGreaterThanOrEqual(1);
+    const st = checkAgent("antigravity-stdio");
+    expect(st.managed).toBe(false);
   });
 
   test("managed paths stay under the agents home", () => {
@@ -47,32 +42,6 @@ describe("agent-installer (offline)", () => {
     expect(compareVersions("0.1.6", "0.1.6")).toBe(0);
     expect(compareVersions("0.2.0", "0.1.9")).toBe(1);
     expect(compareVersions("1.0.0", "0.9.9")).toBe(1);
-  });
-
-  test("bridge source is dev-gated: local only in dev, npm otherwise", () => {
-    // Pure env matrix (no fs): explicit local outside dev falls back to npm.
-    expect(isDevEnv({} as any)).toBe(false);
-    expect(isDevEnv({ ELECTRON_DEV: "1" } as any)).toBe(true);
-    expect(isDevEnv({ NODE_ENV: "development" } as any)).toBe(true);
-    // Source checkout counts as dev (this repo root qualifies).
-    expect(isSourceCheckout(process.cwd())).toBe(true);
-    expect(isDev()).toBe(true);
-
-    const prevSrc = process.env.AGY_ACP_SOURCE;
-    const prevDev = process.env.ELECTRON_DEV;
-    try {
-      delete process.env.AGY_ACP_SOURCE;
-      expect(bridgeSource()).toBe("npm");
-      // Explicit local is honored in dev.
-      process.env.ELECTRON_DEV = "1";
-      process.env.AGY_ACP_SOURCE = "local";
-      expect(bridgeSource()).toBe("local");
-    } finally {
-      if (prevSrc !== undefined) process.env.AGY_ACP_SOURCE = prevSrc;
-      else delete process.env.AGY_ACP_SOURCE;
-      if (prevDev !== undefined) process.env.ELECTRON_DEV = prevDev;
-      else delete process.env.ELECTRON_DEV;
-    }
   });
 
   test("selectEmptySessions keeps bound/recent/turned sessions, deletes stale empties", () => {
@@ -92,26 +61,6 @@ describe("agent-installer (offline)", () => {
     );
     expect(deletable.map((d) => d.sessionId).sort()).toEqual(["empty-old", "empty-old-nodate"]);
     expect(kept).toBe(4);
-  });
-
-  test("resolveBridgeExe returns null when nothing is installed (fail fast)", () => {
-    const prevHome = process.env.ACP_AGENTS_HOME;
-    const prevSrc = process.env.AGY_ACP_SOURCE;
-    try {
-      // Point managed home at a guaranteed-empty temp dir; local source would
-      // hit the real scratch checkout, so force npm source for determinism.
-      const tmp = `${process.cwd()}/node_modules/.cache/empty-agents-home`;
-      process.env.ACP_AGENTS_HOME = tmp;
-      delete process.env.AGY_ACP_SOURCE;
-      delete process.env.ELECTRON_DEV;
-      expect(bridgeSource()).toBe("npm");
-      expect(resolveBridgeExe()).toBeNull();
-    } finally {
-      if (prevHome !== undefined) process.env.ACP_AGENTS_HOME = prevHome;
-      else delete process.env.ACP_AGENTS_HOME;
-      if (prevSrc !== undefined) process.env.AGY_ACP_SOURCE = prevSrc;
-      else delete process.env.AGY_ACP_SOURCE;
-    }
   });
 
   test("latestTtlMs honors ACP_LATEST_TTL_MS (default 10min)", () => {
@@ -138,12 +87,16 @@ describe("agent-installer (offline)", () => {
     // Even with npm missing/bogus, TTL hit must return cached value (no spawn).
     process.env.ACP_NPM_BIN = "/definitely/not/exist/npm-xyz-123";
     process.env.ACP_LATEST_TTL_MS = String(10 * 60 * 1000);
+    // checkAgent() on a temp managed spec uses the cached latest internally.
+    MANAGED_AGENTS.push({ id: "tmp-check-xyz", pkg, exeRel: "dist/x.exe", headlessRel: "dist/h.exe" });
     try {
       expect(latestVersionCached(pkg)).toBe("9.9.9-test");
-      // checkAgent() uses the cached latest internally so /install-state never blocks.
-      const st = checkAgent("antigravity-stdio");
+      const st = checkAgent("tmp-check-xyz");
+      expect(st.managed).toBe(true);
       expect(st.latestVersion).toBe("9.9.9-test");
     } finally {
+      const idx = MANAGED_AGENTS.findIndex((s) => s.id === "tmp-check-xyz");
+      if (idx >= 0) MANAGED_AGENTS.splice(idx, 1);
       if (prevNpm !== undefined) process.env.ACP_NPM_BIN = prevNpm;
       else delete process.env.ACP_NPM_BIN;
       if (prevTtl !== undefined) process.env.ACP_LATEST_TTL_MS = prevTtl;

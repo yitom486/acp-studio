@@ -10,9 +10,10 @@
    找不到 → 连接期直接抛错（带 `installHint` 级别的修复指引），
    不准静默用一个过期本地文件顶上去。
 2. 现状举例：`antigravity-stdio` 预设只认
-   `node_modules/@yitom/agy-acp-map/dist/agy-acp-win-x64.exe`。
-   包没装 → `whichCommand` 失败 + 提示 `npm install …`，绝不回退
-   `scratch/…/src/*.ts` 或开发目录。
+   `bunx @yitom/agy-acp-map@latest`（npx 兜底，见
+   `server/universal/presets.ts`）。runner 缺失 → `whichCommand`
+   失败 + 提示装 bun/Node，绝不回退 `scratch/…/src/*.ts`、
+   本地 exe 或开发目录。
 3. 降级必须**大声**：实在要降级（如垫片缺失仍可直起），必须
    `console.warn` 明确写出缺了什么、后果是什么，不准静默。
 
@@ -25,18 +26,17 @@
 
 ## 三、版本新鲜度（默认最新）
 
-1. 按需安装的外部运行时（`~/.acp-studio/agents/<id>`，见
-   `server/universal/agent-installer.ts`）每次连接前只**检查**远端
-   `latest` 并展示“有更新”徽标，不静默安装；一键安装/更新永远拉
-   `@latest`。
+1. Runner 时代：stdio agent（codex/antigravity/…）一律走包 runner
+  （`bunx <pkg>@latest`，npx 兜底），runner 缓存即事实来源；不再设
+   “按需安装目录”，不展示安装徽标。
 2. `npx` 起的 agent 一律 `pkg@latest`，不准用本地 `require.resolve`
    捷径锁死旧版（离线起不来就 loud 报错，这是对的）。
-3. 内嵌到应用包里的只允许是**构建时快照**，运行时解析顺序永远是
-   按需目录优先，不准用包内旧拷贝掩盖“没装最新”的事实。
-4. 开发环境专属选项（如 `AGY_ACP_SOURCE=local` 切本地桥源码）必须双门禁：
-   服务端只在 dev 下认（`ELECTRON_DEV=1` / `NODE_ENV=development` / 源码检出运行；
-   生产遇到直接 warn + 走正式来源），UI 开关只在
-   `import.meta.env.DEV` 下渲染，打包产物里看不见。
+3. 内嵌到应用包里的只允许是**构建时快照**，不准用包内旧拷贝掩盖
+   “没拉到最新”的事实。
+4. 开发环境想调本地桥源码时，用自定义 profile 覆盖
+  （`ACP_AGENTS_JSON` / `POST /api/universal/agents` /
+   `~/.acp-studio/agents.json`，见 `server/universal/registry.ts`）：
+   用户显式覆盖永远优先于 builtin 默认；生产环境不提供来源切换开关。
 
 ## 四、审查清单
 

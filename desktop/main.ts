@@ -5,7 +5,6 @@
  */
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import * as path from "node:path";
-import { existsSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "../server/gateway";
 import { ensureGatewayToken, gatewayTokenPreview } from "../server/universal/security";
@@ -24,12 +23,10 @@ async function startGateway() {
   if (!process.env.ACP_GATEWAY_TOKEN) process.env.ACP_GATEWAY_TOKEN = token;
   freePortIfOccupied(PORT);
   // Packaged layout: frontend lives under <app>/dist, not cwd.
-  // Ship agy-headless.exe via electron-builder extraResources later;
-  // when present, all console children spawn with CREATE_NO_WINDOW.
+  // Runner era: agents spawn via bunx/npx directly (windowsHide, no shim);
+  // only an explicit AGY_HEADLESS_LAUNCHER env opts back into shimmed spawn.
   if (!isDev) {
     process.env.ACP_PUBLIC_DIR = path.join(app.getAppPath(), "dist");
-    const exe = path.join(process.resourcesPath, "agy-headless.exe");
-    if (existsSync(exe)) process.env.AGY_HEADLESS_LAUNCHER = exe;
   }
   const honoApp = buildApp();
   // hostname 127.0.0.1：只绑回环（ACP_PUBLIC_DIR 逻辑不动）。

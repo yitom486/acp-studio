@@ -83,7 +83,8 @@ interface StudioState {
 
   // per-agent last-used model/config memory (persisted to localStorage)
   agentPrefs: Record<string, AgentPrefs>;
-  // opt-in auto-update to registry latest on connect (default OFF; persisted)
+  // @deprecated Runner era: no managed installs left, so nothing reads this.
+  // Kept for localStorage persist compat only (do not add new readers).
   autoUpdate: Record<string, boolean>;
   // persisted chat threads, keyed by thread id (per-agent isolation enforced
   // by threads.ts lookups; live view stays in messages/sessionId)

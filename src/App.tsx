@@ -91,15 +91,10 @@ import {
   isAuthRequiredError,
   getWorkspaceDefault,
   validateWorkspace,
-  agentInstallState,
-  installAgent,
   cleanupEmptySessions,
-  getBridgeSource,
-  setBridgeSource,
   type PendingPermission,
   type PendingElicitation,
   type ActivityEvent,
-  type InstallState,
   type AgentSummary,
 } from "@/lib/universal-api";
 
@@ -132,7 +127,6 @@ export default function App() {
   const qc = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
   const ensuredRef = useRef<string | null>(null);
-  const installStatesRef = useRef<Record<string, boolean>>({});
   /**
    * Latest agent list, mirrored into a ref so callbacks can read it without
    * taking a dependency on it. `useAgentsQuery` polls every 15s, so closing
@@ -144,61 +138,7 @@ export default function App() {
   const s = useStudioShallow();
   const messages = useStudioMessages();
 
-  // Managed-install state per agent (on-demand runtimes, see
-  // .agents/rules/no-silent-fallbacks.md). Local state on purpose: it is
-  // derived UI chrome, not server truth.
-  const [installStates, setInstallStates] = useState<Record<string, InstallState | null>>({});
-  const [installingId, setInstallingId] = useState<string | null>(null);
   const [cleaningEmpty, setCleaningEmpty] = useState(false);
-  // Bridge source switch: dev UI only (import.meta.env.DEV is false in the
-  // packaged app, so the toggle can never appear in production).
-  const [bridgeSource, setBridgeSourceState] = useState<{ source: "npm" | "local" } | null>(null);
-  const [switchingSource, setSwitchingSource] = useState(false);
-
-  const refreshBridgeSource = async () => {
-    if (!import.meta.env.DEV) return;
-    try {
-      const st = await getBridgeSource();
-      setBridgeSourceState({ source: st.source });
-    } catch {
-      // gateway without the endpoint (old server): hide the toggle
-      setBridgeSourceState(null);
-    }
-  };
-
-  const handleBridgeSource = async (source: "npm" | "local") => {
-    setSwitchingSource(true);
-    try {
-      const st = await setBridgeSource(source);
-      setBridgeSourceState({ source: st.source });
-      invalidateAgents(qc);
-      alert(`桥来源已切换为 ${st.source === "npm" ? "npm 按需版" : "本地开发版"}，下次连接生效。`);
-    } catch (e: any) {
-      alert(`切换失败: ${e?.message || e}`);
-    } finally {
-      setSwitchingSource(false);
-    }
-  };
-
-  const refreshInstallState = async (id: string) => {
-    const st = await agentInstallState(id);
-    if (st) setInstallStates((prev) => ({ ...prev, [id]: st }));
-  };
-
-  const handleInstall = async (id: string) => {
-    setInstallingId(id);
-    try {
-      const res = await installAgent(id);
-      alert(`安装成功${res.version ? `（v${res.version}）` : ""}，正在连接…`);
-      await refreshInstallState(id);
-      invalidateAgents(qc);
-      await handleConnect(id);
-    } catch (e: any) {
-      alert(`安装失败: ${e?.message || e}`);
-    } finally {
-      setInstallingId(null);
-    }
-  };
 
   /** One-click cleanup of abandoned empty sessions (visible counts, never silent). */
   const handleCleanupEmpty = async () => {
@@ -269,19 +209,6 @@ export default function App() {
     }, 1500);
     return () => clearTimeout(t);
   }, [s.sessionId, s.activeAgentId, s.activeThreadId]);
-
-  // Fetch managed-install states once per agent id (missing/error -> null,
-  // silently: only managed agents report).
-  useEffect(() => {
-    for (const a of agents) {
-      if (!(a.id in installStatesRef.current)) {
-        installStatesRef.current[a.id] = true;
-        void refreshInstallState(a.id);
-      }
-    }
-    void refreshBridgeSource();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agents]);
 
   // One-time: probe local-auth reuse for connected agents + ensure a session
   // for the active one (StrictMode-safe via ensuredRef).
@@ -434,22 +361,23 @@ export default function App() {
    * True resume (Inkdown-style layer 2): reattach the remembered ACP session
    * so model-side context continues. Displayed messages already come from the
    * persisted thread cache, so no history replay is requested here (avoids
-   * duplicate bubbles). Returns true when the old session lives on.
+   * duplicate bubbles). Returns the resume result so the caller can apply
+   * modes/models/config (selectors must work before the first prompt).
    */
-  const restoreAgentSession = async (agentId: string): Promise<boolean> => {
+  const restoreAgentSession = async (agentId: string): Promise<{ resumed: boolean; result?: any }> => {
     const st = useStudioStore.getState();
     const sid = st.sessionId;
-    if (!sid || st.isStreaming) return false;
+    if (!sid || st.isStreaming) return { resumed: false };
     // Isolation: resume only ids bound to THIS agent's live thread.
     const thread = st.activeThreadId ? st.threads[st.activeThreadId] : undefined;
-    if (!thread || thread.agentId !== agentId || thread.sessionId !== sid) return false;
+    if (!thread || thread.agentId !== agentId || thread.sessionId !== sid) return { resumed: false };
     try {
-      await sessionRpc(agentId, "resume", {
+      const result: any = await sessionRpc(agentId, "resume", {
         sessionId: sid,
         ...(thread.cwd || st.currentWorkspace ? { cwd: thread.cwd || st.currentWorkspace } : {}),
         mcpServers: [],
       });
-      return true;
+      return { resumed: true, result };
     } catch {
       // Visible degrade (no silent fallback): keep cached messages on screen,
       // mark stale, drop the dead binding so the next prompt news a session.
@@ -461,7 +389,7 @@ export default function App() {
         content: `上次会话 (${sid.slice(0, 8)}…) 已失效（agent 重启或会话被清理），将自动新建会话续聊，历史消息保留在上方。`,
         timestamp: now(),
       });
-      return false;
+      return { resumed: false };
     }
   };
 
@@ -474,14 +402,22 @@ export default function App() {
       await probeAuth(id);
       invalidateSessions(qc, id);
       // Reattach the remembered session first; only news one when needed.
-      const resumed = await restoreAgentSession(id);
-      if (!resumed) {
+      // Resume result carries modes/models/config — apply them now so the
+      // model/thinking/permission selectors work before the first prompt.
+      const { resumed, result } = await restoreAgentSession(id);
+      const sid = useStudioStore.getState().sessionId;
+      if (resumed) {
+        const cur = useStudioStore.getState();
+        if (result?.modes) cur.setModes(result.modes);
+        if (result?.models) cur.setModels(result.models);
+        if (result?.configOptions) cur.setConfigOptions(result.configOptions);
+        if (sid) void applyDefaultConfigOptions(id, sid);
+        ensuredRef.current = id;
+      } else {
         // Auto-create or ensure an active session so model/thinking/permission selectors
         // (which come from session configOptions) show up immediately.
         ensuredRef.current = id;
         await ensureSession(id, true);
-      } else {
-        ensuredRef.current = id;
       }
     } catch (e: any) {
       const msg = e?.message && e.message !== "null" ? e.message : "连接超时或进程异常退出";
@@ -743,6 +679,19 @@ export default function App() {
         if (r.models) cur2.setModels(r.models);
         if (r.configOptions) cur2.setConfigOptions(r.configOptions);
         cur2.setAuthOk(agentId, true);
+        // History is on screen; now reattach the session so the next prompt
+        // continues model-side context immediately (no lazy resume on first
+        // input). Load already bound the session, so a resume failure only
+        // warns loudly and keeps the bound view.
+        try {
+          await sessionRpc(agentId, "resume", {
+            sessionId: item.sessionId,
+            ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+            mcpServers: [],
+          });
+        } catch (err) {
+          console.warn(`[App] 打开会话后 resume 失败（已绑定历史，可继续对话）: ${(err as Error).message}`);
+        }
         // 打开历史会话：把该会话的当前配置记为该 agent 的上次配置
         try {
           const sSnap = useStudioStore.getState();
@@ -1022,6 +971,18 @@ export default function App() {
       const c2 = useStudioStore.getState();
       c2.setStreaming(false);
       c2.patchMessage(assistantId, { isStreaming: false });
+      // Turn-end marker (done / error / abort): splice this turn's final
+      // text and persist ASYNC — fire-and-forget microtask so storage I/O
+      // never blocks the UI thread. Persisted record is text-only (user
+      // prompt + final answer; freezeMessage strips tool calls/results).
+      // Our "file" is the localStorage thread store (THREADS_KEY).
+      void Promise.resolve().then(() => {
+        try {
+          useStudioStore.getState().snapshotThread();
+        } catch (err) {
+          console.error("[App] turn persist failed:", err);
+        }
+      });
     }
   };
 
@@ -1075,16 +1036,8 @@ export default function App() {
         onSelectAgent={handleSelectAgent}
         onConnectAgent={handleConnect}
         connectingId={s.connectingId}
-        installStates={installStates}
-        installingId={installingId}
-        onInstallAgent={handleInstall}
-        bridgeSource={bridgeSource}
-        switchingSource={switchingSource}
-        onBridgeSource={handleBridgeSource}
         cleaningEmpty={cleaningEmpty}
         onCleanupEmpty={handleCleanupEmpty}
-        autoUpdate={s.autoUpdate}
-        onToggleAutoUpdate={(id, on) => useStudioStore.getState().setAutoUpdate(id, on)}
         authOk={s.authOk}
         sessions={sessions}
         sessionsLoading={sessionsQuery.isFetching}

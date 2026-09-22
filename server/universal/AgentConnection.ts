@@ -1,5 +1,4 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { createRequire } from "node:module";
 import { Readable, Writable } from "node:stream";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
@@ -19,41 +18,23 @@ interface TerminalRecord {
 }
 
 /**
- * Locate the native Windows headless launcher (GUI-subsystem shim that
- * spawns console binaries with CREATE_NO_WINDOW + stdio passthrough).
- * Order: explicit env, dev-layout workspace path, installed package path.
- * Cached; missing launcher degrades gracefully to windowsHide/shell spawn.
+ * Native Windows headless launcher (GUI-subsystem shim that spawns console
+ * binaries with CREATE_NO_WINDOW + stdio passthrough).
+ * Runner era: package-runner binaries (bunx/npx/node/…) spawn directly with
+ * windowsHide and bypass the launcher (see spawnCrossPlatform), so a missing
+ * launcher is the normal case — only an explicit AGY_HEADLESS_LAUNCHER env
+ * opts back into shimmed spawning. Debug-level when absent, never loud.
  */
 let cachedLauncher: string | null | undefined;
-/** Drop the cached lookup (call after a bridge-source switch). */
-export function resetHeadlessLauncherCache(): void {
-  cachedLauncher = undefined;
-}
 export function findHeadlessLauncher(): string | null {
   if (cachedLauncher !== undefined) return cachedLauncher;
   cachedLauncher = null;
-  const check = (p?: string | null) => {
-    if (p && fs.existsSync(p)) {
-      cachedLauncher = p;
-      return true;
-    }
-    return false;
-  };
-  if (check(process.env.AGY_HEADLESS_LAUNCHER)) return cachedLauncher;
-  // Managed on-demand install only (see agent-installer.ts): no bundled and
-  // no dev-checkout fallback. Missing launcher warns loudly below and spawns
-  // directly instead of silently using a stale local file.
-  try {
-    const meta = (import.meta as unknown as { url?: string })?.url;
-    const req = meta ? createRequire(meta) : (globalThis as any).require;
-    const installer = req("./agent-installer") as typeof import("./agent-installer");
-    check(installer.resolveBridgeHeadless());
-  } catch {
-    // fall through to the loud warning below
+  const p = process.env.AGY_HEADLESS_LAUNCHER;
+  if (p && fs.existsSync(p)) {
+    cachedLauncher = p;
+    return cachedLauncher;
   }
-  if (!cachedLauncher) {
-    console.warn("[UniversalACP] headless launcher not found; console windows may flash on Windows. Set AGY_HEADLESS_LAUNCHER.");
-  }
+  console.debug("[UniversalACP] no headless launcher configured; runners spawn directly with windowsHide.");
   return cachedLauncher;
 }
 

@@ -387,61 +387,6 @@ export async function agentStatus(agentId: string) {
   return res.json();
 }
 
-export interface InstallState {
-  id: string;
-  pkg: string;
-  managed: boolean;
-  installed: boolean;
-  installedVersion: string | null;
-  latestVersion: string | null;
-  updateAvailable: boolean;
-  command: string | null;
-  installHint: string;
-}
-
-/** Null when the agent has no managed installer (404) — never throws. */
-export async function agentInstallState(agentId: string): Promise<InstallState | null> {
-  try {
-    const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/install-state`);
-    const data = await res.json();
-    if (!data.ok) return null;
-    return data.state as InstallState;
-  } catch {
-    return null;
-  }
-}
-
-export async function installAgent(agentId: string): Promise<{ version?: string }> {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/install`, { method: "POST" });
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || `安装 ${agentId} 失败`);
-  return data;
-}
-
-export interface BridgeSourceState {
-  dev: boolean;
-  source: "npm" | "local";
-  exe: string | null;
-}
-
-export async function getBridgeSource(): Promise<BridgeSourceState> {
-  const res = await fetch("/api/universal/bridge-source");
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || "查询桥来源失败");
-  return data;
-}
-
-export async function setBridgeSource(source: "npm" | "local"): Promise<BridgeSourceState> {
-  const res = await fetch("/api/universal/bridge-source", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source }),
-  });
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || "切换桥来源失败");
-  return data;
-}
-
 export interface EmptyCleanupResult {
   deleted: string[];
   kept: number;

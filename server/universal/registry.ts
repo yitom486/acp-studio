@@ -4,7 +4,6 @@ import * as path from "node:path";
 import type { AgentProfile, AgentStatus } from "./types";
 import { BUILTIN_AGENTS, loadExtraProfilesFromEnv, resolveBuiltin, parseProfilesJson } from "./presets";
 import { UniversalAgentConnection } from "./AgentConnection";
-import { resolveBridgeExe } from "./agent-installer";
 
 /** User custom profiles live here (override with ACP_AGENTS_FILE). */
 export function customAgentsFile(): string {
@@ -120,28 +119,9 @@ export class UniversalRegistry {
     // Re-resolve builtin base each time (handles bun/npx path drift),
     // but user customizations of the same id always win.
     const freshBuiltin = resolveBuiltin(id);
-    let effective: AgentProfile = freshBuiltin
+    const effective: AgentProfile = freshBuiltin
       ? { ...freshBuiltin, ...profile, env: { ...(freshBuiltin.env || {}), ...(profile.env || {}) } }
       : profile;
-    if (id === "antigravity-stdio") {
-      // Re-resolve the bridge entry on every connect so a source switch
-      // (npm managed <-> dev checkout) takes effect without a restart.
-      // Explicit user customizations (a command that is not ours) are left
-      // alone — user request always wins over defaults.
-      const cmd = effective.command || "";
-      if (
-        cmd.endsWith("agy-acp-win-x64.exe") ||
-        cmd.startsWith("npm:@yitom/agy-acp-map") ||
-        cmd === freshBuiltin?.command
-      ) {
-        const exe = resolveBridgeExe();
-        effective = {
-          ...effective,
-          command: exe ?? "npm:@yitom/agy-acp-map (not installed)",
-          args: [],
-        };
-      }
-    }
     let c = this.conns.get(id);
     if (!c || c.profile.id !== id) {
       c = new UniversalAgentConnection(effective);

@@ -14,8 +14,12 @@
 - Studio store 新增 `useStudioShallow` / `useStudioMessages`：选择性订阅
   视图状态，刻意排除 `messages`（流式热路径字段）。
 - README 新增“桥接库三源版本对齐”小节：根 `package.json ^x.y.z` /
-  `scratch` 子模组 commit pin / 按需安装 `@latest` 三源语义与对齐策略
-  （发版前 `bun update` + 锁定，managed 安装版本显示）。
+  `scratch` 子模组 commit pin / runner 缓存 `@latest` 三源语义与对齐策略
+  （发版前 `bun update` + 锁定；实际运行版本以 `initialize` 的
+  `agentInfo.version` 为准）。
+- 新增 `tests/universal/presets-runner.test.ts`：断言
+  `antigravity-stdio` 解析为 runner 命令（含 `@yitom/agy-acp-map@latest`、
+  不含 `.exe`），codex 回归守卫同在。
 
 ### Changed
 - **Studio 外壳重渲染修复**：`App.tsx` 原先用无选择器
@@ -37,6 +41,35 @@
   （以根 `package.json` 为准）；测试徽章改为“74 Vitest (universal)”
   并注明黑盒需本地 `bun`；目录结构小节与真实布局对齐
   （`server/universal`、`desktop`、`tests/universal`）。
+- **agy 切 codex 式 runner**：`antigravity-stdio` 不再 spawn 86MB
+  managed exe，改为 `bunx @yitom/agy-acp-map@latest` 直起 thin JS
+  `bin.js`（与 codex 预设同构）；`registry.ts` 删除 exe override
+  分支；`agent-installer.ts` 的 `MANAGED_AGENTS` 清空为通用空表，
+  bridge/exe 解析（`bridgeSource` / `resolveBridgeExe` /
+  dev-checkout）与 `resetHeadlessLauncherCache` 一并退役；
+  `routes.ts` 删除 `/bridge-source`、`/install-state`、`/install`、
+  `/install/:jobId` 端点；前端删除安装徽标/安装按钮/bridge 切换/
+  自动更新开关整条线（`App`、`Sidebar`、`universal-api`）；
+  `desktop/main.ts` 删除 `agy-headless.exe` 打包挂载；
+  `acp:stdio` 脚本改为 `bunx @yitom/agy-acp-map@latest`；
+  依赖升 `@yitom/agy-acp-map ^0.1.13`（thin npm，无大 exe）；
+  `no-silent-fallbacks` 规则同步到 runner 语义（本地桥联调改走
+  自定义 profile 覆盖）。
+- **历史恢复丢回答修复**：`handleSend` 全程不调 `snapshotThread`，
+  trailing 自动快照只在会话/线程切换后触发，流式完成后再无落盘，
+  reload 回来只剩用户问。现改为每轮结束（成功/失败/abort）立即
+  `snapshotThread`；`freezeMessage` 落盘只保留最终答案（+thought），
+  tool 调用与结果展示层可见、永不落盘。
+- **连接即 resume**：`handleConnect` 的 resume 分支之前丢弃
+  `session/resume` 返回的 modes/models/config，模型选择器空到首问；
+  现回应用 + `applyDefaultConfigOptions`；`handleOpenSession` 在
+  load 回放成功后显式 `resume` 绑定（失败只 warn，不阻断已绑定的历史）。
+  编排归 Studio，桥只负责 ACP 协议动作。
+- **标题**：`index.html` 改为自有标题 `ACP Studio`。
+- **桥 0.1.14（reload 对等）**：取消/失败轮也落半截文本（`partial` 标记），
+  `session/load` 照常回放；子模组 pin 到 `v0.1.14`，CI 新增桥历史测试门禁
+  （`history-partial-persist` + `session-history`）；runner `@latest`
+  发布后自动跟进（本地 `package.json` 基线保持 `^0.1.13`，代码内无引用）。
 
 ### Fixed
 - **静默错误 loud 化**（`no-silent-fallbacks` / `error_handling`）：
