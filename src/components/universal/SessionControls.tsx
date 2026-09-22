@@ -84,13 +84,29 @@ export const SessionControls: React.FC<SessionControlsProps> = (p) => {
                     />
                   ) : (
                     <select
-                      value={String((c.currentValue as any)?.value ?? (c.currentValue as any) ?? "")}
+                      value={String(
+                        Array.isArray(c.currentValue)
+                          ? JSON.stringify(c.currentValue)
+                          : (c.currentValue as any)?.value ?? (c.currentValue as any) ?? ""
+                      )}
                       onChange={(e) => p.onSetConfig(c.id, e.target.value)}
                       className="bg-card border border-border rounded px-1 py-0.5 text-[11px] max-w-[160px]"
                     >
-                      {(c.options || []).map((o: any) => (
-                        <option key={String(o.value ?? o)} value={String(o.value ?? o)} className="bg-card">{o.name || o.value}</option>
-                      ))}
+                      {(c.options || []).map((o: any) =>
+                        o && Array.isArray(o.options) ? (
+                          <optgroup key={o.group || o.name} label={o.name || o.group}>
+                            {o.options.map((sub: any) => (
+                              <option key={String(sub.value)} value={String(sub.value)} className="bg-card" title={sub.description}>
+                                {sub.name || sub.value}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : (
+                          <option key={String(o.value ?? o)} value={String(o.value ?? o)} className="bg-card" title={o.description}>
+                            {o.name || o.value}
+                          </option>
+                        )
+                      )}
                     </select>
                   )}
                 </label>

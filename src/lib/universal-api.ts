@@ -57,6 +57,13 @@ export interface PendingElicitation {
   schema: any;
 }
 
+export interface FlattenedOption {
+  value: string;
+  name: string;
+  description?: string;
+  group?: string;
+}
+
 export interface ConfigOptionLike {
   id: string;
   name: string;
@@ -64,14 +71,43 @@ export interface ConfigOptionLike {
   category?: string;
   type: string;
   currentValue?: unknown;
-  options?: Array<{ value: string; name?: string; description?: string }>;
+  options?: Array<any>;
 }
 
-/** Current value of a config option as plain string (handles {value} objects). */
+/** Flatten flat or grouped ACP options (SessionConfigSelectGroup) into a single list. */
+export function flattenConfigOptions(options: any[] | null | undefined): FlattenedOption[] {
+  if (!options) return [];
+  const result: FlattenedOption[] = [];
+  for (const o of options) {
+    if (!o) continue;
+    if (Array.isArray(o.options)) {
+      const grp = o.name || o.group || "";
+      for (const sub of o.options) {
+        if (!sub) continue;
+        result.push({
+          value: String(sub.value ?? ""),
+          name: sub.name || String(sub.value ?? ""),
+          description: sub.description,
+          group: grp,
+        });
+      }
+    } else {
+      result.push({
+        value: String(o.value ?? ""),
+        name: o.name || String(o.value ?? ""),
+        description: o.description,
+      });
+    }
+  }
+  return result;
+}
+
+/** Current value of a config option as plain string (handles {value} objects, arrays, and JSON strings). */
 export function configCurrentValue(opt: ConfigOptionLike): string {
   const v = opt.currentValue as any;
   if (v == null) return "";
-  if (typeof v === "object") return String(v.value ?? "");
+  if (Array.isArray(v)) return JSON.stringify(v);
+  if (typeof v === "object") return String(v.value ?? JSON.stringify(v));
   return String(v);
 }
 
@@ -549,6 +585,12 @@ export async function consumeUniversalChat(
             if (u.currentModeId) handlers.onModeUpdate?.(u.currentModeId);
           } else if (kind === "config_option_update") {
             handlers.onConfigUpdate?.(u.configOption || u);
+          } else if (kind === "config_options_update") {
+            if (Array.isArray(u.configOptions)) {
+              for (const opt of u.configOptions) {
+                handlers.onConfigUpdate?.(opt);
+              }
+            }
           } else if (kind === "session_info_update") {
             handlers.onSessionInfo?.(u.sessionInfo || u);
           } else if (kind === "usage_update") {

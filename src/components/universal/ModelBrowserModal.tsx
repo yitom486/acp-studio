@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { X, RefreshCw, Check, Search, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { parseModelId, type ModelCatalog, type ConfigOptionLike } from "@/lib/universal-api";
+import { parseModelId, flattenConfigOptions, type ModelCatalog, type ConfigOptionLike } from "@/lib/universal-api";
 
 export interface ModelBrowserModalProps {
   isOpen: boolean;
@@ -24,11 +24,17 @@ function allModels(catalog: ModelCatalog | null, modelOption?: ConfigOptionLike 
     seen.add(m.modelId);
     out.push({ modelId: m.modelId, name: m.name || parseModelId(m.modelId).model, description: m.description, source: "catalog" });
   }
-  for (const o of modelOption?.options || []) {
-    const id = String(o.value);
+  const flat = flattenConfigOptions(modelOption?.options);
+  for (const o of flat) {
+    const id = o.value;
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    out.push({ modelId: id, name: o.name || id, description: o.description, source: "config" });
+    out.push({
+      modelId: id,
+      name: o.group ? `${o.group} / ${o.name || id}` : o.name || id,
+      description: o.description,
+      source: "config",
+    });
   }
   return out;
 }

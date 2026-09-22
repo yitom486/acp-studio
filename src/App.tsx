@@ -27,6 +27,7 @@ import {
   consumeUniversalChat,
   buildTranscriptFromReplay,
   findConfigOption,
+  flattenConfigOptions,
   parseModelId,
   isAuthRequiredError,
   getWorkspaceDefault,
@@ -186,6 +187,9 @@ export default function App() {
       st.setAuthOk(agentId, true);
       invalidateSessions(qc, agentId);
       invalidateAgents(qc);
+      if (res?.sessionId) {
+        void applyDefaultConfigOptions(agentId, res.sessionId);
+      }
       return res?.sessionId || null;
     } catch (e: any) {
       if (isAuthRequiredError(e)) {
@@ -248,12 +252,16 @@ export default function App() {
         ...(settings.additionalDirectories.length > 0 ? { additionalDirectories: settings.additionalDirectories } : {}),
         mcpServers: settings.mcpServers,
       });
-      st.applySessionResult(res);
+      // 先清聊天线程，再应用新会话的 modes/models/config（否则会被 resetThread 清掉）
       st.resetThread();
+      st.applySessionResult(res);
       st.setAuthOk(agentId, true);
       st.setSettingsOpen(false);
       invalidateAgents(qc);
       invalidateSessions(qc, agentId);
+      if (res?.sessionId) {
+        void applyDefaultConfigOptions(agentId, res.sessionId);
+      }
     } catch (e: any) {
       if (isAuthRequiredError(e)) {
         st.setAuthOk(agentId, false);
@@ -264,6 +272,99 @@ export default function App() {
       }
     } finally {
       useStudioStore.getState().setBusy(false);
+    }
+  };
+
+  /** Auto-apply saved / default config options (zustand per-agent prefs, 兼容旧 key) */
+  const applyDefaultConfigOptions = async (agentId: string, sessionId: string) => {
+    try {
+      // 一次性迁移旧 key: acp_default_config_<agentId> -> zustand agentPrefs
+      try {
+        const legacyRaw = localStorage.getItem(`acp_default_config_${agentId}`);
+        if (legacyRaw) {
+          const legacy = JSON.parse(legacyRaw);
+          if (legacy && typeof legacy === "object") {
+            useStudioStore.getState().saveAgentPref(agentId, { configValues: legacy });
+          }
+          localStorage.removeItem(`acp_default_config_${agentId}`);
+        }
+      } catch {
+        // ignore migration errors
+      }
+      const pref = useStudioStore.getState().agentPrefs?.[agentId];
+      const saved = pref?.configValues;
+      if (!saved || typeof saved !== "object" || Object.keys(saved).length === 0) {
+        // 无记忆时快照当前默认值，方便下次恢复
+        try {
+          const cur0 = useStudioStore.getState();
+          const snap: Record<string, unknown> = {};
+          for (const o of cur0.configOptions || []) {
+            if (o?.id == null) continue;
+            snap[o.id] = (o.currentValue as any)?.value ?? o.currentValue;
+          }
+          if (Object.keys(snap).length > 0) cur0.saveAgentPref(agentId, { configValues: snap });
+          if (cur0.models?.currentModelId) cur0.saveAgentPref(agentId, { fallbackModelId: cur0.models.currentModelId });
+          if (cur0.modes?.currentModeId) cur0.saveAgentPref(agentId, { modeId: cur0.modes.currentModeId });
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      // First apply model if saved, so dynamic options (like effort/thinking) unlock in agent response
+      const modelOptId =
+        useStudioStore.getState().configOptions?.find((c) => c.id === "model")?.id || (saved.model !== undefined ? "model" : undefined);
+      if (modelOptId && (saved as any).model !== undefined) {
+        const opt = useStudioStore.getState().configOptions?.find((c) => c.id === modelOptId);
+        const v = (saved as any).model;
+        const flat = flattenConfigOptions(opt?.options);
+        if (flat.length === 0 || flat.some((o) => o.value === String((v as any)?.value ?? v))) {
+          const body = { sessionId, configId: modelOptId, value: (v as any)?.value ?? v };
+          const res: any = await sessionRpc(agentId, "set_config", body).catch(() => null);
+          if (res?.configOptions) useStudioStore.getState().setConfigOptions(res.configOptions);
+          else if (Array.isArray(res)) useStudioStore.getState().setConfigOptions(res);
+          else if (res) useStudioStore.getState().patchConfigOption({ ...(opt || { id: modelOptId }), currentValue: (v as any)?.value ?? v });
+        }
+      }
+      // Then apply other options (e.g. effort, reasoning_effort, mode)
+      for (const [k, v] of Object.entries(saved)) {
+        if (k === "model") continue;
+        const opt = useStudioStore.getState().configOptions?.find((c) => c.id === k);
+        if (!opt) continue;
+        const flat = flattenConfigOptions(opt.options);
+        const vv = (v as any)?.value ?? v;
+        if (flat.length > 0 && !flat.some((o) => o.value === String(vv))) continue;
+        const curV = (opt.currentValue as any)?.value ?? opt.currentValue;
+        const wantV = (v as any)?.value ?? v;
+        if (String(curV ?? "") === String(wantV ?? "")) continue;
+        const body =
+          opt?.type === "boolean" || typeof wantV === "boolean"
+            ? { sessionId, configId: k, type: "boolean", value: wantV }
+            : { sessionId, configId: k, value: wantV };
+        const res: any = await sessionRpc(agentId, "set_config", body).catch(() => null);
+        if (res?.configOptions) useStudioStore.getState().setConfigOptions(res.configOptions);
+        else if (Array.isArray(res)) useStudioStore.getState().setConfigOptions(res);
+        else if (res) useStudioStore.getState().patchConfigOption({ ...(opt || { id: k }), currentValue: wantV });
+      }
+      // Restore fallback model highlight + mode (best-effort, ignore failures)
+      try {
+        const stAfter = useStudioStore.getState();
+        if (pref?.fallbackModelId && stAfter.models && stAfter.models.currentModelId !== pref.fallbackModelId) {
+          const listed = (stAfter.models.availableModels || []).some((m) => m.modelId === pref.fallbackModelId);
+          if (listed) stAfter.setModels({ ...stAfter.models, currentModelId: pref.fallbackModelId });
+        }
+        if (pref?.modeId && stAfter.modes && stAfter.modes.currentModeId !== pref.modeId) {
+          const avail = stAfter.modes.availableModes || [];
+          if (avail.some((m) => m.id === pref.modeId)) {
+            await sessionRpc(agentId, "set_mode", { sessionId, modeId: pref.modeId }).catch(() => null);
+            const sNow = useStudioStore.getState();
+            if (sNow.modes) sNow.setModes({ ...sNow.modes, currentModeId: pref.modeId });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    } catch {
+      // ignore
     }
   };
 
@@ -283,6 +384,9 @@ export default function App() {
       if (res?.configOptions) cur.setConfigOptions(res.configOptions);
       else if (Array.isArray(res)) cur.setConfigOptions(res);
       else cur.patchConfigOption({ ...(opt || { id: configId }), currentValue: value });
+
+      // Persist user preference for this agent (zustand per-agent prefs + localStorage)
+      useStudioStore.getState().rememberAgentConfig(st.activeAgentId, configId, value);
     } catch (e: any) {
       alert(`set_config 失败: ${e.message}`);
     }
@@ -360,6 +464,22 @@ export default function App() {
         if (r.models) cur2.setModels(r.models);
         if (r.configOptions) cur2.setConfigOptions(r.configOptions);
         cur2.setAuthOk(agentId, true);
+        // 打开历史会话：把该会话的当前配置记为该 agent 的上次配置
+        try {
+          const sSnap = useStudioStore.getState();
+          const cfg: Record<string, unknown> = {};
+          for (const o of sSnap.configOptions || []) {
+            if (o?.id == null) continue;
+            cfg[o.id] = (o.currentValue as any)?.value ?? o.currentValue;
+          }
+          sSnap.saveAgentPref(agentId, {
+            ...(Object.keys(cfg).length > 0 ? { configValues: cfg } : {}),
+            ...(sSnap.models?.currentModelId ? { fallbackModelId: sSnap.models.currentModelId } : {}),
+            ...(sSnap.modes?.currentModeId ? { modeId: sSnap.modes.currentModeId } : {}),
+          });
+        } catch {
+          // ignore
+        }
       } catch {
         // Fall back to resume (no replay) when load is unsupported/fails.
         const workspaceCwd = useStudioStore.getState().currentWorkspace || "";
@@ -402,8 +522,8 @@ export default function App() {
         ...(info?.cwd ? { cwd: info.cwd } : {}),
       });
       const cur = useStudioStore.getState();
-      cur.applySessionResult(res);
       cur.resetThread();
+      cur.applySessionResult(res);
       cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已从 ${source.slice(0, 8)}… fork 出新会话。`, timestamp: now() }]);
       invalidateSessions(qc, agentId);
     } catch (e: any) {
@@ -474,6 +594,7 @@ export default function App() {
     const modelOpt = findConfigOption(st.configOptions, "model");
     if (modelOpt) {
       await setSessionConfig(modelOpt.id, parseModelId(modelId).model);
+      useStudioStore.getState().saveAgentPref(st.activeAgentId, { fallbackModelId: modelId });
       return;
     }
     const sid = st.sessionId || (await ensureSession());
@@ -483,6 +604,7 @@ export default function App() {
       await sessionRpc(st.activeAgentId, "set_model", { sessionId: sid, modelId });
       const cur = useStudioStore.getState();
       if (cur.models) cur.setModels({ ...cur.models, currentModelId: modelId });
+      cur.saveAgentPref(st.activeAgentId, { fallbackModelId: modelId });
     } catch (e: any) {
       alert(`切换模型失败: ${e.message}`);
     }
@@ -497,12 +619,14 @@ export default function App() {
     if (effort) {
       const cur = useStudioStore.getState();
       const thinkOpt = findConfigOption(cur.configOptions, "thinking");
-      if (thinkOpt && (thinkOpt.options || []).some((o) => String(o.value) === effort)) {
+      const flat = flattenConfigOptions(thinkOpt?.options);
+      if (thinkOpt && flat.some((o) => o.value.toLowerCase() === effort.toLowerCase())) {
         await setSessionConfig(thinkOpt.id, effort);
       }
     }
     const cur2 = useStudioStore.getState();
     if (cur2.models) cur2.setModels({ ...cur2.models, currentModelId: modelId });
+    cur2.saveAgentPref(st.activeAgentId, { fallbackModelId: modelId });
     cur2.setModelsOpen(false);
   };
 
@@ -557,10 +681,17 @@ export default function App() {
           onPlan: (entries) => cur.patchMessage(assistantId, { plan: entries }),
           onAvailableCommands: (cmds) => cur.setAvailableCommands(cmds),
           onModeUpdate: (modeId) => {
-            const modes = useStudioStore.getState().modes;
-            if (modes) useStudioStore.getState().setModes({ ...modes, currentModeId: modeId });
+            const stNow = useStudioStore.getState();
+            if (stNow.modes) stNow.setModes({ ...stNow.modes, currentModeId: modeId });
+            useStudioStore.getState().saveAgentPref(agentId, { modeId });
           },
-          onConfigUpdate: (opt) => useStudioStore.getState().patchConfigOption(opt),
+          onConfigUpdate: (opt) => {
+            const stNow = useStudioStore.getState();
+            stNow.patchConfigOption(opt);
+            if (opt?.id) {
+              stNow.rememberAgentConfig(agentId, opt.id, (opt.currentValue as any)?.value ?? opt.currentValue);
+            }
+          },
           onSessionInfo: (info) => useStudioStore.getState().setSessionInfo(info),
           onUsage: (u) => {
             const c2 = useStudioStore.getState();

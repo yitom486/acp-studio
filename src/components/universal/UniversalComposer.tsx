@@ -246,6 +246,25 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
       </label>
     );
   };
+  const renderOptionItem = (o: any) => {
+    if (o && Array.isArray(o.options)) {
+      return (
+        <optgroup key={o.group || o.name} label={o.name || o.group} className="bg-card font-semibold text-muted-foreground">
+          {o.options.map((sub: any) => (
+            <option key={String(sub.value)} value={String(sub.value)} className="bg-card font-normal text-foreground" title={sub.description}>
+              {sub.name || sub.value}
+            </option>
+          ))}
+        </optgroup>
+      );
+    }
+    return (
+      <option key={String(o.value)} value={String(o.value)} className="bg-card font-normal text-foreground" title={o.description}>
+        {o.name || o.value}
+      </option>
+    );
+  };
+
   const renderSelect = (opt: ConfigOptionLike, icon: React.ReactNode, label: string) => (
     <label key={opt.id} className="flex items-center gap-1 text-xs text-muted-foreground" title={opt.description || opt.name}>
       {icon}
@@ -255,11 +274,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
         onChange={(e) => p.onSetConfig?.(opt.id, e.target.value)}
         className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-muted/80"
       >
-        {(opt.options || []).map((o) => (
-          <option key={String(o.value)} value={String(o.value)} className="bg-card" title={o.description}>
-            {o.name || o.value}
-          </option>
-        ))}
+        {(opt.options || []).map(renderOptionItem)}
       </select>
     </label>
   );

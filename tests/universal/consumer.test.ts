@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { consumeUniversalChat, buildTranscriptFromReplay, parseModelId, findConfigOption, configCurrentValue } from "../../src/lib/universal-api";
+import {
+  consumeUniversalChat,
+  buildTranscriptFromReplay,
+  parseModelId,
+  findConfigOption,
+  configCurrentValue,
+  flattenConfigOptions,
+} from "../../src/lib/universal-api";
 
 function sseResponse(frames: unknown[]): Response {
   const enc = new TextEncoder();
@@ -13,6 +20,7 @@ function sseResponse(frames: unknown[]): Response {
 }
 
 const realFetch = globalThis.fetch;
+
 afterEach(() => {
   globalThis.fetch = realFetch;
   vi.restoreAllMocks();
@@ -110,5 +118,35 @@ describe("consumeUniversalChat (v1 full updates)", () => {
     expect(findConfigOption(opts, "permission")?.id).toBe("mode");
     expect(configCurrentValue(opts[0])).toBe("agent");
     expect(configCurrentValue({ id: "x", name: "x", type: "select", currentValue: { value: "v" } })).toBe("v");
+    expect(configCurrentValue({ id: "arr", name: "arr", type: "select", currentValue: ["a", "b"] })).toBe('["a","b"]');
+
+    // OpenCode dynamic effort option
+    const openCodeOpts = [
+      { id: "model", name: "Model", category: "model", type: "select", currentValue: "opencode-go/muse-spark-1.3-contributor" },
+      { id: "effort", name: "Effort", category: "thought_level", type: "select", currentValue: "minimal" },
+      { id: "mode", name: "Session Mode", category: "mode", type: "select", currentValue: "build" },
+    ];
+    expect(findConfigOption(openCodeOpts, "thinking")?.id).toBe("effort");
+
+    // DeepSeek grouped options
+    const deepSeekGroups = [
+      {
+        group: "deepseek-official",
+        name: "DeepSeek",
+        options: [
+          { value: '["deepseek-official","deepseek-flash"]', name: "DeepSeek-V41-Flash" },
+          { value: '["deepseek-official","deepseek-v4-pro"]', name: "DeepSeek-V4-Pro" },
+        ],
+      },
+    ];
+    const flat = flattenConfigOptions(deepSeekGroups);
+    expect(flat).toHaveLength(2);
+    expect(flat[0]).toEqual({
+      value: '["deepseek-official","deepseek-flash"]',
+      name: "DeepSeek-V41-Flash",
+      group: "DeepSeek",
+      description: undefined,
+    });
+    expect(flat[1].value).toBe('["deepseek-official","deepseek-v4-pro"]');
   });
 });
