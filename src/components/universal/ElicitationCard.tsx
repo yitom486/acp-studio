@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { ExternalLink } from "lucide-react";
-import { Button } from "../ui/button";
-import { BlurFade } from "../magicui/blur-fade";
-import type { PendingElicitation } from "../../lib/universal-api";
+import { Button } from "@/components/ui/button";
+import { BlurFade } from "@/components/magicui/blur-fade";
+import type { PendingElicitation } from "@/lib/universal-api";
 
 export interface ElicitationCardProps {
   e: PendingElicitation;

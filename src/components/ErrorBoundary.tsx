@@ -1,7 +1,7 @@
 import React from "react";
 import { AlertTriangle, Copy, Check, RotateCcw } from "lucide-react";
-import { Button } from "./ui/button";
-import { reportError } from "../lib/error-bus";
+import { Button } from "@/components/ui/button";
+import { reportError } from "@/lib/error-bus";
 
 interface Props {
   children: React.ReactNode;

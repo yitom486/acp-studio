@@ -1,20 +1,20 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChatArea } from "./components/ChatArea";
-import { StudioHeader } from "./components/universal/StudioHeader";
-import { Sidebar, type SessionItem } from "./components/universal/Sidebar";
-import { SessionSettingsModal, type SessionSettings } from "./components/universal/SessionSettingsModal";
-import { ProvidersModal } from "./components/universal/ProvidersModal";
-import { PermissionDialog } from "./components/universal/PermissionDialog";
-import { ElicitationCard } from "./components/universal/ElicitationCard";
-import { UniversalAuthModal } from "./components/universal/AuthModal";
-import { UniversalComposer } from "./components/universal/UniversalComposer";
-import { CustomAgentModal } from "./components/universal/CustomAgentModal";
-import { GitChangesModal } from "./components/universal/GitChangesModal";
-import { TerminalDrawer } from "./components/universal/TerminalDrawer";
-import { ModelBrowserModal } from "./components/universal/ModelBrowserModal";
-import { useStudioStore } from "./stores/useStudioStore";
-import { useAgentsQuery, useSessionsQuery, invalidateAgents, invalidateSessions } from "./lib/acp-queries";
+import { ChatArea } from "@/components/ChatArea";
+import { StudioHeader } from "@/components/universal/StudioHeader";
+import { Sidebar, type SessionItem } from "@/components/universal/Sidebar";
+import { SessionSettingsModal, type SessionSettings } from "@/components/universal/SessionSettingsModal";
+import { ProvidersModal } from "@/components/universal/ProvidersModal";
+import { PermissionDialog } from "@/components/universal/PermissionDialog";
+import { ElicitationCard } from "@/components/universal/ElicitationCard";
+import { UniversalAuthModal } from "@/components/universal/AuthModal";
+import { UniversalComposer } from "@/components/universal/UniversalComposer";
+import { CustomAgentModal } from "@/components/universal/CustomAgentModal";
+import { GitChangesModal } from "@/components/universal/GitChangesModal";
+import { TerminalDrawer } from "@/components/universal/TerminalDrawer";
+import { ModelBrowserModal } from "@/components/universal/ModelBrowserModal";
+import { useStudioStore } from "@/stores/useStudioStore";
+import { useAgentsQuery, useSessionsQuery, invalidateAgents, invalidateSessions } from "@/lib/acp-queries";
 import {
   connectAgent,
   logoutAgent,
@@ -34,7 +34,7 @@ import {
   type PendingPermission,
   type PendingElicitation,
   type ActivityEvent,
-} from "./lib/universal-api";
+} from "@/lib/universal-api";
 
 /**
  * ACP Studio Universal — full ACP v1 client.

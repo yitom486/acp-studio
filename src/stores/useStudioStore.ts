@@ -1,11 +1,11 @@
 import { create } from "zustand";
-import type { Message } from "../components/ChatArea";
+import type { Message } from "@/components/ChatArea";
 import type {
   Attachment,
   ModelCatalog,
   PendingElicitation,
   PendingPermission,
-} from "../lib/universal-api";
+} from "@/lib/universal-api";
 
 export interface ModeState {
   currentModeId?: string;

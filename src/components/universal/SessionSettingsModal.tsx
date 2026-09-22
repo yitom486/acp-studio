@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, FolderGit2, Network, Boxes, FolderOpen } from "lucide-react";
-import { Button } from "../ui/button";
+import { Button } from "@/components/ui/button";
 
 export interface SessionSettings {
   cwd: string;

@@ -12,6 +12,17 @@ export default defineConfig({
   server: {
     port: 5188,
     strictPort: false,
+    watch: {
+      ignored: [
+        "**/scratch/**",
+        "**/dist/**",
+        "**/electron-dist/**",
+        "**/release/**",
+        "**/.tmp*/**",
+        "**/*.bun-build*",
+        "**/*.exe",
+      ],
+    },
     proxy: {
       "/api": {
         target: "http://localhost:3004",

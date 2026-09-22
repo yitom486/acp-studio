@@ -90,6 +90,30 @@ export function parseModelId(id: string): { model: string; effort?: string } {
   return m ? { model: m[1], effort: m[2] } : { model: id.trim() };
 }
 
+/** Extract thinking / reasoning effort from model parameter string (e.g. Cursor or Codex). */
+export function extractModelThinking(modelValue: string | undefined): string | null {
+  if (!modelValue) return null;
+  const m = /\[(.*)\]$/.exec(modelValue.trim());
+  if (!m) return null;
+  const raw = m[1].trim();
+  if (!raw) return null;
+  if (!raw.includes("=")) {
+    return raw;
+  }
+  const params = raw.split(",");
+  for (const p of params) {
+    const [k, v] = p.split("=").map((s) => s.trim());
+    if (!k) continue;
+    if (k === "reasoning_effort" || k === "effort" || k === "reasoning") {
+      return v || "on";
+    }
+    if (k === "thinking") {
+      return v === "false" ? "off" : "on";
+    }
+  }
+  return null;
+}
+
 export interface ModelCatalogEntry {
   modelId: string;
   name?: string;

@@ -20,11 +20,11 @@ import {
   Sparkles,
   Terminal,
 } from "lucide-react";
-import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
-import type { AgentSummary } from "../../lib/universal-api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import type { AgentSummary } from "@/lib/universal-api";
 import { WorkspaceDropdown } from "./WorkspaceDropdown";
-import type { RecentWorkspace } from "../../stores/useStudioStore";
+import type { RecentWorkspace } from "@/stores/useStudioStore";
 
 export interface StudioHeaderProps {
   agents: AgentSummary[];

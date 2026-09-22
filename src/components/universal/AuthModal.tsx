@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { X, ShieldCheck, LogOut, RefreshCw, Key } from "lucide-react";
-import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
-import type { AgentSummary } from "../../lib/universal-api";
-import { authenticateAgent } from "../../lib/universal-api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import type { AgentSummary } from "@/lib/universal-api";
+import { authenticateAgent } from "@/lib/universal-api";
 
 export interface UniversalAuthModalProps {
   isOpen: boolean;

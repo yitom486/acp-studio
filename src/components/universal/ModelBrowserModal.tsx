@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { X, RefreshCw, Check, Search, Cpu } from "lucide-react";
-import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
-import { parseModelId, type ModelCatalog, type ConfigOptionLike } from "../../lib/universal-api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { parseModelId, type ModelCatalog, type ConfigOptionLike } from "@/lib/universal-api";
 
 export interface ModelBrowserModalProps {
   isOpen: boolean;

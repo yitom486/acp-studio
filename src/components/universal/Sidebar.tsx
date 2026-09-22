@@ -1,7 +1,7 @@
 import React from "react";
 import { Bot, PlusCircle, RefreshCw, GitFork, Trash2, XCircle, Cpu, Plug } from "lucide-react";
-import { Badge } from "../ui/badge";
-import type { AgentSummary } from "../../lib/universal-api";
+import { Badge } from "@/components/ui/badge";
+import type { AgentSummary } from "@/lib/universal-api";
 
 export interface SessionItem {
   sessionId: string;

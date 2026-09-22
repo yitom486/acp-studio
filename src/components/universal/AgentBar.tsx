@@ -1,8 +1,8 @@
 import React from "react";
 import { Bot, Plug, PlugZap, RefreshCw, ShieldCheck, LogOut } from "lucide-react";
-import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
-import type { AgentSummary } from "../../lib/universal-api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import type { AgentSummary } from "@/lib/universal-api";
 
 export interface AgentBarProps {
   agents: AgentSummary[];

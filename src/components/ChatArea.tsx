@@ -1,11 +1,11 @@
 import React, { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { User, Sparkles, Terminal, Copy, Check, Wrench, ShieldAlert, FileText, ArrowRight, FileDiff } from "lucide-react";
-import { Badge } from "./ui/badge";
-import { Skeleton } from "./ui/skeleton";
-import { BlurFade } from "./magicui/blur-fade";
-import { AnimatedShinyText } from "./magicui/animated-shiny-text";
-import { Markdown } from "./universal/Markdown";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { BlurFade } from "@/components/magicui/blur-fade";
+import { AnimatedShinyText } from "@/components/magicui/animated-shiny-text";
+import { Markdown } from "@/components/universal/Markdown";
 
 export interface Message {
   id: string;

@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { X, RefreshCw, FileDiff, Columns2, AlignLeft, Plus, Undo2, Check } from "lucide-react";
-import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
-import { BlurFade } from "../magicui/blur-fade";
-import { CodeComparison } from "../magicui/code-comparison";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { BlurFade } from "@/components/magicui/blur-fade";
+import { CodeComparison } from "@/components/magicui/code-comparison";
 import {
   gitStatus,
   gitFile,
@@ -13,7 +13,7 @@ import {
   guessLanguage,
   type GitFileChange,
   type GitFileResult,
-} from "../../lib/universal-api";
+} from "@/lib/universal-api";
 
 export interface GitChangesModalProps {
   isOpen: boolean;

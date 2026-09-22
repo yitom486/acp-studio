@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { AlertTriangle, X, Copy, Check, Trash2 } from "lucide-react";
-import { BlurFade } from "./magicui/blur-fade";
-import { subscribeErrors, dismissError, clearErrors, type AppError } from "../lib/error-bus";
+import { BlurFade } from "@/components/magicui/blur-fade";
+import { subscribeErrors, dismissError, clearErrors, type AppError } from "@/lib/error-bus";
 
 /**
  * Central error toasts, mounted beside <App/> (outside the ErrorBoundary)

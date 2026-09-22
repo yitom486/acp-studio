@@ -1,11 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import App from "./App";
-import { ErrorBoundary } from "./components/ErrorBoundary";
-import { ErrorToast } from "./components/ErrorToast";
-import { installGlobalErrorCapture } from "./lib/error-bus";
-import "./index.css";
+import App from "@/App";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorToast } from "@/components/ErrorToast";
+import { installGlobalErrorCapture } from "@/lib/error-bus";
+import "@/index.css";
 
 installGlobalErrorCapture();
 

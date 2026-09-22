@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
 import { Send, Square, Trash2, Paperclip, ImagePlus, X, Command, Cpu, Brain, ShieldCheck, LayoutGrid, Settings2 } from "lucide-react";
-import { Button } from "../ui/button";
-import { configCurrentValue, findConfigOption, type Attachment, type ConfigOptionLike, type ModelCatalogEntry } from "../../lib/universal-api";
+import { Button } from "@/components/ui/button";
+import { configCurrentValue, findConfigOption, extractModelThinking, type Attachment, type ConfigOptionLike, type ModelCatalogEntry } from "@/lib/universal-api";
 
 export type { Attachment };
 
@@ -205,6 +205,8 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
   const otherOpts = (p.configOptions || []).filter(
     (o) => o !== modelOpt && o !== thinkOpt && o !== permOpt
   );
+  const currentModelValue = modelOpt ? curVal(modelOpt) : (p.fallbackCurrentModel || "");
+  const modelThinking = extractModelThinking(currentModelValue);
 
   const muted = (text: string, title?: string) => (
     <span className="text-[11px] text-muted-foreground font-mono" title={title}>
@@ -372,9 +374,19 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = (p) => {
                 {modelOpt
                   ? renderSelect(modelOpt, <Cpu className="w-3.5 h-3.5 text-primary shrink-0" />, "模型")
                   : renderFallbackModel()}
-                {thinkOpt
-                  ? renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-primary shrink-0" />, "思考")
-                  : muted("思考：—", "该 Agent 未提供思考等级配置")}
+                {thinkOpt ? (
+                  renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-primary shrink-0" />, "思考")
+                ) : modelThinking ? (
+                  <span
+                    className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground"
+                    title={`当前模型内置思考参数: ${modelThinking} (跟随模型切换)`}
+                  >
+                    <Brain className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+                    思考: {modelThinking}
+                  </span>
+                ) : (
+                  muted("思考：—", "该 Agent 未提供独立思考等级配置")
+                )}
                 {permOpt
                   ? renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-warning shrink-0" />, "权限")
                   : muted("权限：—", "该 Agent 未提供权限配置")}

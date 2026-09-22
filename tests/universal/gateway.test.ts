@@ -37,7 +37,7 @@ describe("Universal ACP gateway (v1)", () => {
 
   it("ships all expected builtins (official CLI entries)", () => {
     const ids = BUILTIN_AGENTS.map((a) => a.id);
-    for (const want of ["codex", "antigravity-stdio", "gemini", "claude", "opencode", "cursor-cli", "cursor-adapter", "deepseek", "copilot"]) {
+    for (const want of ["codex", "antigravity-stdio", "gemini", "claude", "opencode", "cursor-cli", "deepseek", "copilot"]) {
       expect(ids).toContain(want);
     }
   });

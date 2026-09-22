@@ -1,7 +1,7 @@
 import React from "react";
 import { List, PlusCircle, Trash2, XCircle, Gauge, Command, Settings2, GitFork, Cpu, FileDiff } from "lucide-react";
-import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 export interface SessionControlsProps {
   sessionId: string | null;

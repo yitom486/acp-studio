@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { X, Plus, Trash2, Pencil } from "lucide-react";
-import { Button } from "../ui/button";
-import { upsertAgentProfile, deleteAgentProfile, type AgentSummary, type CustomAgentInput } from "../../lib/universal-api";
+import { Button } from "@/components/ui/button";
+import { upsertAgentProfile, deleteAgentProfile, type AgentSummary, type CustomAgentInput } from "@/lib/universal-api";
 
 export interface CustomAgentModalProps {
   isOpen: boolean;

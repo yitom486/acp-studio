@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Folder, FolderOpen, ExternalLink, ChevronDown, Check, Clock } from "lucide-react";
-import { validateWorkspace } from "../../lib/universal-api";
-import type { RecentWorkspace } from "../../stores/useStudioStore";
+import { validateWorkspace } from "@/lib/universal-api";
+import type { RecentWorkspace } from "@/stores/useStudioStore";
 
 export interface WorkspaceDropdownProps {
   currentWorkspace: string | null;

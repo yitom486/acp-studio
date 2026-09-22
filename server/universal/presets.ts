@@ -12,9 +12,50 @@ import type { AgentProfile } from "./types";
  * Users can override / extend via ACP_AGENTS_JSON env, POST
  * /api/universal/agents, or ~/.acp-studio/agents.json (all persisted).
  */
-function npxArgs(pkg: string, extra: string[] = []): string[] {
-  return ["-y", pkg, ...extra];
+/**
+ * Antigravity bridge: compiled single-file exe only (no bun/TS fallback).
+ * Missing exe fails fast at connect time via whichCommand + installHint.
+ * The exe is CUI like codex's; entry flash is covered by Zed's
+ * CREATE_NO_WINDOW (well-behaved) or dist/agy-headless.exe as command.
+ */
+export const ANTIGRAVITY_EXE_MISSING_HINT =
+  "缺少 dist/agy-acp-win-x64.exe：请在 scratch/repos/yitom486-agy-acp-map 下跑 bun run build:exe 后重试（不再回退 bun/TS）。";
+function resolveAntigravity(): { command: string; args: string[] } {
+  const sep = process.platform === "win32" ? "\\" : "/";
+  const devExe = `${process.cwd()}${sep}scratch${sep}repos${sep}yitom486-agy-acp-map${sep}dist${sep}agy-acp-win-x64.exe`;
+  try {
+    const meta = (import.meta as unknown as { url?: string })?.url;
+    const req = meta ? createRequire(meta) : (globalThis as any).require;
+    const pkgJson = req?.resolve?.("@yitom/agy-acp-map/package.json");
+    if (pkgJson) {
+      const dir = pkgJson.replace(/package\.json$/, "").replace(/\//g, sep);
+      return { command: `${dir}dist${sep}agy-acp-win-x64.exe`, args: [] };
+    }
+  } catch {
+    // ignore, use dev-layout path below
+  }
+  return { command: devExe, args: [] };
 }
+
+function resolveCursorCli(): { command: string; args: string[] } {
+  const isWin = process.platform === "win32";
+  if (isWin) {
+    const localAppData = process.env.LOCALAPPDATA || (process.env.USERPROFILE ? `${process.env.USERPROFILE}\\AppData\\Local` : "");
+    const directCmd = localAppData ? `${localAppData}\\cursor-agent\\agent.cmd` : "";
+    if (directCmd && fs.existsSync(directCmd)) {
+      return { command: directCmd, args: ["acp"] };
+    }
+    return { command: "agent.cmd", args: ["acp"] };
+  }
+  const home = process.env.HOME || "";
+  const directBin = home ? `${home}/.local/bin/agent` : "";
+  if (directBin && fs.existsSync(directBin)) {
+    return { command: directBin, args: ["acp"] };
+  }
+  return { command: "agent", args: ["acp"] };
+}
+
+const npxArgs = (pkg: string, extra: string[] = []): string[] => ["-y", pkg, ...extra];
 
 const npx = () => (process.platform === "win32" ? "npx.cmd" : "npx");
 
@@ -55,13 +96,13 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
     id: "antigravity-stdio",
     name: "antigravity-acp-stdio",
     title: "Antigravity (stdio)",
-    description: "Official Antigravity ACP stdio server via @yitom/agy-acp-map (sdk-server.ts).",
+    description: "Antigravity ACP bridge, compiled single-file exe (no bun/TS at runtime).",
     homepage: "https://antigravity.google",
     builtin: true,
-    command: process.platform === "win32" ? "bun.exe" : "bun",
-    args: ["run", "scratch/repos/yitom486-agy-acp-map/src/sdk-server.ts"],
+    ...resolveAntigravity(),
     env: {},
     authHint: "复用 Antigravity CLI 本地登录态（~/.gemini/），零额外配置。",
+    installHint: ANTIGRAVITY_EXE_MISSING_HINT,
   },
   {
     id: "opencode",
@@ -78,28 +119,15 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
   },
   {
     id: "cursor-cli",
-    name: "cursor-cli-acp",
+    name: "cursor-agent",
     title: "Cursor CLI",
-    description: "Cursor 官方 CLI 的 ACP 模式（agent acp，stdio）。需先用官方 CLI 完成一次登录。",
+    description: "Cursor 官方 CLI 的原生 ACP 模式（agent acp，stdio）。",
     homepage: "https://cursor.com/docs/cli/acp",
     builtin: true,
-    command: process.platform === "win32" ? "agent.exe" : "agent",
-    args: ["acp"],
+    ...resolveCursorCli(),
     env: {},
-    authHint: "官方文档流程：先跑一次 `agent login`（凭证留在 Cursor CLI 自己的存储里）；或透传 CURSOR_API_KEY / CURSOR_AUTH_TOKEN，也可在命令前加参数。",
-    installHint: "curl https://cursor.com/install | bash（默认落到 ~/.local/bin/agent，Windows 请确认 agent.exe 在 PATH 中）。",
-  },
-  {
-    id: "cursor-adapter",
-    name: "cursor-agent-acp",
-    title: "Cursor (adapter)",
-    description: "社区 ACP 适配器（cursor-agent-acp），桥接 cursor-agent CLI。官方 CLI 不可用时的备选。",
-    homepage: "https://github.com/konsumer/cursor-agent-acp",
-    builtin: true,
-    ...resolveNpxOrLocal("cursor-agent-acp"),
-    env: {},
-    authHint: "复用 `cursor-agent login` 的本地登录（可用 CURSOR_AGENT_EXECUTABLE 覆盖二进制路径）。",
-    installHint: "先装好 cursor-agent 并跑一次 `cursor-agent login`。",
+    authHint: "已自动复用本地 Cursor 登录态（未登录可运行 `agent login`）。",
+    installHint: "已自动安装在 %LOCALAPPDATA%\\cursor-agent。若需手动安装请在终端执行 `irm https://cursor.com/install?win32=true | iex`。",
   },
   {
     id: "deepseek",

@@ -15,3 +15,4 @@ Thumbs.db
 launcher/
 run-zed-acp-silent.exe
 *.exe
+*.bun-build*

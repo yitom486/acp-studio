@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { fetchAgents, sessionRpc, type AgentSummary } from "./universal-api";
-import type { SessionItem } from "../components/universal/Sidebar";
+import { fetchAgents, sessionRpc, type AgentSummary } from "@/lib/universal-api";
+import type { SessionItem } from "@/components/universal/Sidebar";
 
 export const acpKeys = {
   agents: ["universal", "agents"] as const,
