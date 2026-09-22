@@ -18,6 +18,20 @@
       ],
       "signAndEditExecutable": false
     },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development"
+    },
     "directories": {
       "output": "release"
     }
@@ -31,6 +45,8 @@
     "build": "tsc && vite build",
     "build:electron": "bun desktop/build.ts",
     "package:win": "bunx electron-builder --win nsis dir --publish never",
+    "package:mac": "bunx electron-builder --mac dmg zip --publish never",
+    "package:linux": "bunx electron-builder --linux AppImage deb --publish never",
     "start:electron": "electron electron-dist/main.cjs",
     "dev:electron": "ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:5188 electron electron-dist/main.cjs",
     "preview": "vite preview",
@@ -49,7 +65,7 @@
     "@tanstack/react-query": "^5.103.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "@yitom/agy-acp-map": "^0.1.14",
+    "@yitom/agy-acp-map": "^0.1.16",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^13.4.0",

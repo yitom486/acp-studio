@@ -67,9 +67,10 @@
   编排归 Studio，桥只负责 ACP 协议动作。
 - **标题**：`index.html` 改为自有标题 `ACP Studio`。
 - **桥 0.1.14（reload 对等）**：取消/失败轮也落半截文本（`partial` 标记），
-  `session/load` 照常回放；子模组 pin 到 `v0.1.14`，CI 新增桥历史测试门禁
-  （`history-partial-persist` + `session-history`）；`0.1.14` 已发布，
-  本地基线跟进到 `^0.1.14`（`bun.lock` 同步，代码内无直接引用）。
+  `session/load` 照常回放；子模组 pin 到桥 `9d270f4`（`v0.1.15`），CI 新增桥历史测试门禁
+  （`history-partial-persist` + `session-history`）；npm 线上为 `0.1.16`
+  （含本轮 MCP+partial 全部修复，已验 tarball：旧硬错无残留），
+  本地基线跟进到 `^0.1.16`（`bun.lock` 同步，代码内无直接引用）。
 
 ### Fixed
 - **静默错误 loud 化**（`no-silent-fallbacks` / `error_handling`）：
