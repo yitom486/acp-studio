@@ -25,6 +25,10 @@ interface TerminalRecord {
  * Cached; missing launcher degrades gracefully to windowsHide/shell spawn.
  */
 let cachedLauncher: string | null | undefined;
+/** Drop the cached lookup (call after a bridge-source switch). */
+export function resetHeadlessLauncherCache(): void {
+  cachedLauncher = undefined;
+}
 export function findHeadlessLauncher(): string | null {
   if (cachedLauncher !== undefined) return cachedLauncher;
   cachedLauncher = null;
@@ -43,8 +47,7 @@ export function findHeadlessLauncher(): string | null {
     const meta = (import.meta as unknown as { url?: string })?.url;
     const req = meta ? createRequire(meta) : (globalThis as any).require;
     const installer = req("./agent-installer") as typeof import("./agent-installer");
-    const spec = installer.specFor("antigravity-stdio");
-    if (spec) check(installer.managedHeadless(spec));
+    check(installer.resolveBridgeHeadless());
   } catch {
     // fall through to the loud warning below
   }

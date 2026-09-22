@@ -269,8 +269,58 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
     }
   }
 
-  const agentMatch = p.match(/^\/api\/universal\/agents\/([^/]+)(\/.*)?$/);
-  if (agentMatch) {
+  // ---- bridge source (dev-only switch: managed npm <-> dev checkout) ----
+  if (p === "/api/universal/bridge-source" && req.method === "GET") {
+    try {
+      const installer = await import("./agent-installer");
+      return json({
+        ok: true,
+        dev: installer.isDev(),
+        source: installer.bridgeSource(),
+        exe: installer.resolveBridgeExe(),
+      });
+    } catch (err) {
+      return json({ ok: false, error: (err as Error).message }, 500);
+    }
+  }
+
+  if (p === "/api/universal/bridge-source" && req.method === "POST") {
+    try {
+      const installer = await import("./agent-installer");
+      if (!installer.isDev()) {
+        return json({ ok: false, error: "切换桥来源仅开发环境可用（ELECTRON_DEV=1）。" }, 403);
+      }
+      const body = await readJson(req);
+      const source = String(body.source || "");
+      if (source !== "npm" && source !== "local") {
+        return json({ ok: false, error: 'source 必须是 "npm" 或 "local"。' }, 400);
+      }
+      process.env.AGY_ACP_SOURCE = source;
+      const { resetHeadlessLauncherCache } = await import("./AgentConnection");
+      resetHeadlessLauncherCache();
+      // Drop the live connection so the next connect() resolves the new binary.
+      try {
+        await universalRegistry.connFor("antigravity-stdio").disconnect().catch(() => undefined);
+      } catch {
+        // never connected: nothing to drop
+      }
+      const exe = installer.resolveBridgeExe();
+      if (!exe) {
+        return json({
+          ok: false,
+          error:
+            source === "local"
+              ? "本地源码未构建：请先在内嵌仓库跑 bun run build:exe。"
+              : "按需目录为空：请先一键安装。",
+        }, 404);
+      }
+      return json({ ok: true, source: installer.bridgeSource(), exe });
+    } catch (err) {
+      return json({ ok: false, error: (err as Error).message }, 500);
+    }
+  }
+
+  const agentMatch = p.match(/^\/api\/universal\/agents\/([^/]+)(\/.*)?$/);  if (agentMatch) {
     const agentId = decodeURIComponent(agentMatch[1]);
     const rest = agentMatch[2] || "";
 

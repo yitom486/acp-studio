@@ -36,6 +36,81 @@ export function specFor(id: string): ManagedAgentSpec | undefined {
   return MANAGED_AGENTS.find((s) => s.id === id);
 }
 
+/** Dev-mode detection (mirrors desktop/main.ts ELECTRON_DEV convention). */
+export function isDev(): boolean {
+  return process.env.ELECTRON_DEV === "1" || process.env.NODE_ENV === "development";
+}
+
+export type BridgeSource = "npm" | "local";
+
+/**
+ * Bridge source selection. `AGY_ACP_SOURCE=local` is honored ONLY in dev;
+ * in production it is ignored with a loud warning (dev-only option — a
+ * stale checkout must never silently replace the managed install).
+ */
+export function bridgeSource(): BridgeSource {
+  const raw = (process.env.AGY_ACP_SOURCE || "").trim().toLowerCase();
+  if (raw === "local") {
+    if (isDev()) return "local";
+    console.warn(
+      "[UniversalACP] AGY_ACP_SOURCE=local ignored outside dev (ELECTRON_DEV=1); using managed npm install.",
+    );
+  } else if (raw !== "" && raw !== "npm") {
+    console.warn(`[UniversalACP] Unknown AGY_ACP_SOURCE=${JSON.stringify(raw)}; using "npm".`);
+  }
+  return "npm";
+}
+
+/** Dev-checkout exe (scratch submodule). Null when not built — fails fast. */
+export function devCheckoutExe(): string | null {
+  const p = path.join(
+    process.cwd(),
+    "scratch",
+    "repos",
+    "yitom486-agy-acp-map",
+    "dist",
+    "agy-acp-win-x64.exe",
+  );
+  try {
+    fs.accessSync(p, fs.constants.F_OK);
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+/** Dev-checkout headless launcher. Null when not built. */
+export function devCheckoutHeadless(): string | null {
+  const p = path.join(
+    process.cwd(),
+    "scratch",
+    "repos",
+    "yitom486-agy-acp-map",
+    "dist",
+    "agy-headless.exe",
+  );
+  try {
+    fs.accessSync(p, fs.constants.F_OK);
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve the bridge entry for the CURRENT source (null = missing, fail fast). */
+export function resolveBridgeExe(): string | null {
+  if (bridgeSource() === "local") return devCheckoutExe();
+  const spec = specFor("antigravity-stdio");
+  return spec ? managedExe(spec) : null;
+}
+
+/** Resolve the headless launcher for the CURRENT source (null = missing). */
+export function resolveBridgeHeadless(): string | null {
+  if (bridgeSource() === "local") return devCheckoutHeadless();
+  const spec = specFor("antigravity-stdio");
+  return spec ? managedHeadless(spec) : null;
+}
+
 /** Override with ACP_AGENTS_HOME. */
 export function agentsHome(): string {
   return process.env.ACP_AGENTS_HOME || path.join(os.homedir(), ".acp-studio", "agents");

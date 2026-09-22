@@ -418,6 +418,30 @@ export async function installAgent(agentId: string): Promise<{ version?: string 
   return data;
 }
 
+export interface BridgeSourceState {
+  dev: boolean;
+  source: "npm" | "local";
+  exe: string | null;
+}
+
+export async function getBridgeSource(): Promise<BridgeSourceState> {
+  const res = await fetch("/api/universal/bridge-source");
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "查询桥来源失败");
+  return data;
+}
+
+export async function setBridgeSource(source: "npm" | "local"): Promise<BridgeSourceState> {
+  const res = await fetch("/api/universal/bridge-source", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source }),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "切换桥来源失败");
+  return data;
+}
+
 export interface CustomAgentInput {
   id: string;
   name?: string;

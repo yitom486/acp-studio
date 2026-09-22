@@ -1,7 +1,7 @@
-import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentProfile } from "./types";
+import { resolveBridgeExe } from "./agent-installer";
 
 /**
  * Built-in agent presets (ACP v1 stdio) — shell principle:
@@ -21,17 +21,10 @@ import type { AgentProfile } from "./types";
 export const ANTIGRAVITY_EXE_MISSING_HINT =
   "Antigravity 桥尚未安装：请在工作室 Agent 面板点击「安装」一键拉取最新版（约 100MB），安装完成后再连接。";
 function resolveAntigravity(): { command: string; args: string[] } {
-  try {
-    // require() keeps this synchronous (preset table builds at import time);
-    // agent-installer never imports presets, so no cycle.
-    const req = createRequire(import.meta.url);
-    const installer = req("./agent-installer") as typeof import("./agent-installer");
-    const spec = installer.specFor("antigravity-stdio");
-    const exe = spec ? installer.managedExe(spec) : null;
-    if (exe) return { command: exe, args: [] };
-  } catch {
-    // fall through to the explicit failure below
-  }
+  // Managed on-demand install only (see agent-installer.ts): the exe path is
+  // re-resolved on every call so a source switch takes effect immediately.
+  const exe = resolveBridgeExe();
+  if (exe) return { command: exe, args: [] };
   return { command: `npm:@yitom/agy-acp-map (not installed)`, args: [] };
 }
 

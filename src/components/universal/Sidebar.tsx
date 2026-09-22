@@ -34,6 +34,10 @@ export interface SidebarProps {
   installStates: Record<string, InstallState | null>;
   installingId: string | null;
   onInstallAgent: (id: string) => void;
+  /** Bridge source switch (dev only; null hides it entirely). */
+  bridgeSource: { source: "npm" | "local" } | null;
+  switchingSource: boolean;
+  onBridgeSource: (source: "npm" | "local") => void;
 }
 
 function shortCwd(cwd?: string): string {
@@ -115,6 +119,27 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
                     </span>
                   );
                 })()}
+                {a.id === "antigravity-stdio" && p.bridgeSource && (
+                  <span className="flex items-center gap-1" title="开发环境专用：桥来源切换（生产环境不显示）">
+                    {(["npm", "local"] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (s !== p.bridgeSource!.source) p.onBridgeSource(s);
+                        }}
+                        disabled={p.switchingSource}
+                        className={`text-[9px] font-mono px-1 rounded ${
+                          p.bridgeSource!.source === s
+                            ? "bg-primary/20 text-primary"
+                            : "text-muted-foreground hover:text-foreground"
+                        } disabled:opacity-50`}
+                      >
+                        {s === "npm" ? "npm" : "本地"}
+                      </button>
+                    ))}
+                  </span>
+                )}
                 {!connected && (
                   <button
                     onClick={(e) => {

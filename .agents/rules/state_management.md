@@ -30,3 +30,10 @@
 fetch/SSE 封装只做协议与解析，不持有任何状态；
 `buildTranscriptFromReplay`、`parseModelId`、`findConfigOption` 等纯函数
 就近测试（见 `tests/universal/`）。
+
+## 四、线程持久化与自动续聊（`src/lib/threads.ts` + store 线程镜像）
+
+1. 对话记录按 agent 隔离存 `localStorage`（`acp_threads_v1`，40 线程/200 条/2 万字截断，空线程丢弃，`isStreaming` 落盘前冻结）。读写只经 `threads.ts` 纯函数，便于单测。
+2. 打开即渲染缓存（零网络），重连后用缓存里的 `sessionId` 调 `session/resume` 续模型上下文；缓存为空才用 `session/load` 回放，避免气泡重复。
+3. `sessionId` 绝不跨 agent：写入只发生在当前 agent 活跃时（`bindThreadSession` 校验归属），读取只取本 agent 最新线程；`resume` 失败必须落一条 system 消息并清绑定（可见降级，见 no-silent-fallbacks.md），下一次 prompt 惰性建新会话。
+4. 快照节流 1500ms trailing + 会话事件即时写；`sessionId` 等 live 视图保持原样，线程只做镜像，不替代。

@@ -6,6 +6,14 @@ import type {
   PendingElicitation,
   PendingPermission,
 } from "@/lib/universal-api";
+import {
+  loadThreads,
+  newThreadId,
+  pruneThreads,
+  saveThreads,
+  threadForAgent,
+  type ChatThread,
+} from "@/lib/threads";
 
 export interface ModeState {
   currentModeId?: string;
@@ -74,6 +82,10 @@ interface StudioState {
 
   // per-agent last-used model/config memory (persisted to localStorage)
   agentPrefs: Record<string, AgentPrefs>;
+  // persisted chat threads, keyed by thread id (per-agent isolation enforced
+  // by threads.ts lookups; live view stays in messages/sessionId)
+  threads: Record<string, ChatThread>;
+  activeThreadId: string | null;
 
   // actions
   setWorkspace: (path: string, name?: string) => void;
@@ -115,6 +127,16 @@ interface StudioState {
   clearAgentPref: (agentId: string) => void;
   /** Clear thread + session-scoped view state (used on agent switch / new thread). */
   resetThread: () => void;
+  /** Snapshot the live view into the persisted per-agent thread record. */
+  snapshotThread: () => void;
+  /** Restore an agent's latest thread into the live view (instant, no network). */
+  restoreThread: (agentId: string) => ChatThread | null;
+  /** Start a fresh empty thread for an agent. */
+  newThread: (agentId: string) => ChatThread;
+  /** Bind an ACP sessionId to the live thread (same agent only). */
+  bindThreadSession: (sessionId: string | null, cwd?: string | null) => void;
+  /** Mark the live thread stale after a failed resume (visible degrade). */
+  markThreadStale: () => void;
   /** Full reset (tests / logout flows). */
   resetStudio: () => void;
 }
@@ -172,12 +194,15 @@ function persistAgentPrefs(prefs: Record<string, AgentPrefs>) {
 }
 
 const initialAgentPrefs = loadAgentPrefs();
+const initialThreads = loadThreads();
 
 export const useStudioStore = create<StudioState>()((set) => ({
   activeAgentId: "codex",
   connectingId: null,
   authOk: {},
   sessionId: null,
+  threads: initialThreads,
+  activeThreadId: null,
   ...initialThread,
   input: "",
   isStreaming: false,
@@ -303,13 +328,84 @@ export const useStudioStore = create<StudioState>()((set) => ({
       return { agentPrefs: nextPrefs };
     }),
   resetThread: () => set({ ...initialThread }),
-  resetStudio: () =>
+  snapshotThread: () =>
+    set((s) => {
+      const id = s.activeThreadId ?? newThreadId();
+      const thread: ChatThread = {
+        id,
+        agentId: s.activeAgentId,
+        sessionId: s.sessionId,
+        messages: s.messages,
+        updatedAt: Date.now(),
+      };
+      const next = pruneThreads({ ...s.threads, [id]: thread }, [id]);
+      saveThreads(next);
+      return { threads: next, activeThreadId: id };
+    }),
+  restoreThread: (agentId) => {
+    const s = useStudioStore.getState();
+    const t = threadForAgent(s.threads, agentId);
+    if (!t) return null;
+    set({
+      ...initialThread,
+      messages: t.messages.map((m) => ({ ...m })),
+      sessionId: t.sessionId,
+      activeThreadId: t.id,
+    });
+    return t;
+  },
+  newThread: (agentId) => {
+    const t: ChatThread = {
+      id: newThreadId(),
+      agentId,
+      sessionId: null,
+      messages: [],
+      updatedAt: Date.now(),
+    };
+    const s = useStudioStore.getState();
+    const next = pruneThreads({ ...s.threads, [t.id]: t }, [t.id]);
+    saveThreads(next);
+    set({ ...initialThread, sessionId: null, threads: next, activeThreadId: t.id });
+    return t;
+  },
+  bindThreadSession: (sessionId, cwd) =>
+    set((s) => {
+      if (!s.activeThreadId) return { sessionId };
+      const cur = s.threads[s.activeThreadId];
+      // Isolation: only bind when the live thread belongs to the active agent.
+      if (!cur || cur.agentId !== s.activeAgentId) return { sessionId };
+      const next = {
+        ...cur,
+        sessionId,
+        cwd: cwd !== undefined ? cwd : cur.cwd,
+        stale: false,
+        updatedAt: Date.now(),
+      };
+      const threads = pruneThreads({ ...s.threads, [next.id]: next }, [next.id]);
+      saveThreads(threads);
+      return { sessionId, threads };
+    }),
+  markThreadStale: () =>
+    set((s) => {
+      if (!s.activeThreadId) return {};
+      const cur = s.threads[s.activeThreadId];
+      if (!cur) return {};
+      const next = { ...cur, stale: true, updatedAt: Date.now() };
+      const threads = pruneThreads({ ...s.threads, [next.id]: next }, [next.id]);
+      saveThreads(threads);
+      return { threads };
+    }),
+  resetStudio: () => {
+    const s = useStudioStore.getState();
     set({
       ...initialThread,
       activeAgentId: "codex",
       connectingId: null,
       authOk: {},
       sessionId: null,
+      activeThreadId: null,
+      // Persisted thread records survive a full reset (tests clear storage).
+      threads: s.threads,
       input: "",
       isStreaming: false,
       busy: false,
@@ -322,5 +418,6 @@ export const useStudioStore = create<StudioState>()((set) => ({
       terminalOpen: false,
       gitChangesOpen: false,
       gitDiffFile: null,
-    }),
+    })
+  }
 }));
