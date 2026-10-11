@@ -3,7 +3,7 @@ import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { TerminalCard } from "@/components/assistant/AcpToolWidgets";
-import { applyTerminalCap, TERMINAL_OUTPUT_CAP } from "@/components/universal/TerminalDrawer";
+import { applyTerminalCap, TERMINAL_OUTPUT_CAP, defaultTerminalGeom, clampTerminalGeom, moveTerminalGeom, resizeTerminalGeom } from "@/components/universal/TerminalDrawer";
 import { useStudioStore } from "@/stores/useStudioStore";
 
 describe("terminal integration (P0/P1)", () => {
@@ -66,5 +66,39 @@ describe("terminal integration (P0/P1)", () => {
     expect(applyTerminalCap(TERMINAL_OUTPUT_CAP, "more")).toEqual({ write: "", capped: true });
     const edge = applyTerminalCap(TERMINAL_OUTPUT_CAP - 2, "abcd");
     expect(edge).toEqual({ write: "ab", capped: true });
+  });
+
+  it("defaults the floating panel to bottom-right without covering the chat", () => {
+    const g = defaultTerminalGeom(1600, 900);
+    expect(g.w).toBe(720);
+    expect(g.h).toBe(340);
+    expect(g.x).toBe(1600 - 720 - 16);
+    expect(g.y).toBe(900 - 340 - 16);
+  });
+
+  it("clamps geometry into the viewport and minimum size", () => {
+    const g = clampTerminalGeom({ x: -5000, y: -5000, w: 50, h: 50 }, 1600, 900);
+    expect(g.w).toBe(380);
+    expect(g.h).toBe(200);
+    expect(g.x).toBeGreaterThanOrEqual(8 - g.w + 120);
+    expect(g.y).toBeGreaterThanOrEqual(8);
+    const big = clampTerminalGeom({ x: 0, y: 0, w: 5000, h: 5000 }, 1600, 900);
+    expect(big.w).toBe(1600 - 16);
+    expect(big.h).toBe(900 - 16);
+  });
+
+  it("moves and resizes with edge fixing at minimum size", () => {
+    const g = { x: 100, y: 100, w: 500, h: 300 };
+    expect(moveTerminalGeom(g, 20, -30, 1600, 900)).toMatchObject({ x: 120, y: 70, w: 500, h: 300 });
+    // 东边拉宽 / 南边拉高
+    expect(resizeTerminalGeom(g, "se", 40, 50, 1600, 900)).toMatchObject({ w: 540, h: 350 });
+    // 西边右拉：x 前进、宽收缩
+    expect(resizeTerminalGeom(g, "w", 60, 0, 1600, 900)).toMatchObject({ x: 160, w: 440 });
+    // 西边压到最小宽：对侧边（右）固定，x 回退
+    const squeezed = resizeTerminalGeom(g, "w", 400, 0, 1600, 900);
+    expect(squeezed.w).toBe(380);
+    expect(squeezed.x).toBe(100 + 500 - 380);
+    // 北边下拉：y 前进、高收缩
+    expect(resizeTerminalGeom(g, "n", 0, 40, 1600, 900)).toMatchObject({ y: 140, h: 260 });
   });
 });

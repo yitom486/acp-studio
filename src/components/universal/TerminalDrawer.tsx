@@ -30,12 +30,100 @@ export interface TerminalDrawerProps {
   cwd: string | null;
 }
 
+/** 浮动终端几何（纯函数，可测；组件只负责指针事件接线）。 */
+export interface TerminalGeom {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export const TERMINAL_MIN_W = 380;
+export const TERMINAL_MIN_H = 200;
+const TERMINAL_GEOM_KEY = "acp_terminal_geom";
+
+export function defaultTerminalGeom(vw: number, vh: number): TerminalGeom {
+  const w = Math.min(720, Math.max(TERMINAL_MIN_W, vw - 32));
+  const h = Math.min(340, Math.max(TERMINAL_MIN_H, vh - 200));
+  return { w, h, x: Math.max(8, vw - w - 16), y: Math.max(8, vh - h - 16) };
+}
+
+export function clampTerminalGeom(g: TerminalGeom, vw: number, vh: number): TerminalGeom {
+  const w = Math.min(Math.max(Math.round(g.w), TERMINAL_MIN_W), Math.max(TERMINAL_MIN_W, vw - 16));
+  const h = Math.min(Math.max(Math.round(g.h), TERMINAL_MIN_H), Math.max(TERMINAL_MIN_H, vh - 16));
+  return {
+    w,
+    h,
+    x: Math.min(Math.max(Math.round(g.x), 8 - w + 120), Math.max(8, vw - 80)),
+    y: Math.min(Math.max(Math.round(g.y), 8), Math.max(8, vh - 60)),
+  };
+}
+
+export function moveTerminalGeom(g: TerminalGeom, dx: number, dy: number, vw: number, vh: number): TerminalGeom {
+  return clampTerminalGeom({ ...g, x: g.x + dx, y: g.y + dy }, vw, vh);
+}
+
+export type TerminalResizeDir = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
+
+export function resizeTerminalGeom(
+  g: TerminalGeom,
+  dir: TerminalResizeDir,
+  dx: number,
+  dy: number,
+  vw: number,
+  vh: number
+): TerminalGeom {
+  let { x, y, w, h } = g;
+  if (dir.includes("e")) w += dx;
+  if (dir.includes("s")) h += dy;
+  if (dir.includes("w")) {
+    x += dx;
+    w -= dx;
+  }
+  if (dir.includes("n")) {
+    y += dy;
+    h -= dy;
+  }
+  // 西/北边触最小尺寸时固定对侧边（x/y 回退多余位移）。
+  if (w < TERMINAL_MIN_W && dir.includes("w")) x -= TERMINAL_MIN_W - w;
+  if (h < TERMINAL_MIN_H && dir.includes("n")) y -= TERMINAL_MIN_H - h;
+  return clampTerminalGeom({ x, y, w, h }, vw, vh);
+}
+
+function loadTerminalGeom(): TerminalGeom | null {
+  try {
+    const raw = localStorage.getItem(TERMINAL_GEOM_KEY);
+    if (!raw) return null;
+    const g = JSON.parse(raw) as Partial<TerminalGeom>;
+    if (
+      typeof g.x !== "number" ||
+      typeof g.y !== "number" ||
+      typeof g.w !== "number" ||
+      typeof g.h !== "number"
+    ) {
+      return null;
+    }
+    return { x: g.x, y: g.y, w: g.w, h: g.h };
+  } catch {
+    return null;
+  }
+}
+
 export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose, cwd }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [running, setRunning] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [geom, setGeom] = useState<TerminalGeom | null>(null);
+  // 拖拽会话（pointer down 时快照，move 时按增量换算，避免闭包过期）。
+  const dragRef = useRef<{
+    mode: "move" | TerminalResizeDir;
+    startX: number;
+    startY: number;
+    orig: TerminalGeom;
+  } | null>(null);
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
@@ -227,13 +315,89 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     return () => clearTimeout(timer);
   }, [isOpen, activeCwd]);
 
+  // 首次打开时初始化几何：localStorage 优先，校验后按视口钳制。
   useEffect(() => {
+    if (!isOpen) return;
+    setGeom((prev) => {
+      if (prev) return clampTerminalGeom(prev, window.innerWidth, window.innerHeight);
+      const stored = loadTerminalGeom();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      if (stored) return clampTerminalGeom(stored, vw, vh);
+      return defaultTerminalGeom(vw, vh);
+    });
+  }, [isOpen]);
+
+  // 几何持久化（拖拽每帧写 localStorage 成本可忽略，失败静默）。
+  useEffect(() => {
+    if (!geom) return;
     try {
-      fitAddonRef.current?.fit();
+      localStorage.setItem(TERMINAL_GEOM_KEY, JSON.stringify(geom));
     } catch {
-      // ignore
+      // ignore storage errors
     }
-  }, [maximized]);
+  }, [geom]);
+
+  // 视口变化时把面板钳回可见区。
+  useEffect(() => {
+    if (!isOpen) return;
+    const onResize = () => {
+      setGeom((prev) => (prev ? clampTerminalGeom(prev, window.innerWidth, window.innerHeight) : prev));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [isOpen]);
+
+  // 拖拽/缩放走 window 级监听：pointer capture 在标题栏按钮上易丢，冒泡更稳。
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      setGeom(d.mode === "move" ? moveTerminalGeom(d.orig, dx, dy, vw, vh) : resizeTerminalGeom(d.orig, d.mode, dx, dy, vw, vh));
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      setDragging(false);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [dragging]);
+
+  const beginDrag = (e: React.PointerEvent, mode: "move" | TerminalResizeDir) => {
+    if (maximized || e.button !== 0) return;
+    const cur = geom;
+    if (!cur) return;
+    e.preventDefault();
+    dragRef.current = { mode, startX: e.clientX, startY: e.clientY, orig: cur };
+    setDragging(true);
+  };
+
+  useEffect(() => {
+    // 打开/几何变化后重排 xterm 列数（双 rAF 等布局落定）。
+    let raf = 0;
+    const fit = () => {
+      try {
+        fitAddonRef.current?.fit();
+      } catch {
+        // ignore
+      }
+    };
+    raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(fit);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [maximized, geom, isOpen]);
 
   const handleCancel = () => {
     abortRef.current?.abort();
@@ -350,14 +514,34 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
 
   if (!isOpen) return null;
 
+  // 最大化：占视口主体（留边），禁用拖拽/缩放。
+  const panelStyle: React.CSSProperties = maximized
+    ? { left: 16, right: 16, top: 16, bottom: 16 }
+    : geom
+      ? { left: geom.x, top: geom.y, width: geom.w, height: geom.h }
+      : { right: 16, bottom: 16, width: 640, height: 340 };
+
+  const resizeHandle = (dir: TerminalResizeDir, className: string, cursor: string) => (
+    <div
+      onPointerDown={(e) => beginDrag(e, dir)}
+      className={`absolute z-10 touch-none ${className}`}
+      style={{ cursor }}
+    />
+  );
+
   return (
     <div
-      className={`fixed left-0 right-0 bottom-0 z-40 bg-card/95 border-t border-border shadow-2xl flex flex-col transition-all duration-200 backdrop-blur-md ${
-        maximized ? "h-[75vh]" : "h-64 sm:h-72"
-      }`}
+      className="fixed z-40 bg-card/95 border border-border rounded-xl shadow-2xl flex flex-col backdrop-blur-md overflow-hidden"
+      style={panelStyle}
     >
-      {/* Terminal Title Bar */}
-      <div className="h-9 px-4 border-b border-border/70 flex items-center justify-between text-xs bg-muted/40 select-none">
+      {/* Terminal Title Bar（拖拽手柄；按钮区 stopPropagation 不触发拖动） */}
+      <div
+        className={`h-9 px-3 border-b border-border/70 flex items-center justify-between text-xs bg-muted/40 select-none shrink-0 ${maximized ? "" : dragging ? "cursor-grabbing touch-none" : "cursor-move touch-none"}`}
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest("button")) return;
+          beginDrag(e, "move");
+        }}
+      >
         <div className="flex items-center gap-2 font-semibold text-foreground">
           <TerminalIcon className="w-3.5 h-3.5 text-primary" />
           <span>终端 (Terminal)</span>
@@ -417,6 +601,20 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
 
       {/* Terminal Body */}
       <div className="flex-1 p-2 bg-[#0b0e14] overflow-hidden" ref={containerRef} />
+
+      {/* 八向缩放手柄（最大化时隐藏；拖拽中保持命中） */}
+      {!maximized && (
+        <>
+          {resizeHandle("n", "left-2 right-2 top-0 h-1.5", "ns-resize")}
+          {resizeHandle("s", "left-2 right-2 bottom-0 h-1.5", "ns-resize")}
+          {resizeHandle("w", "top-2 bottom-2 left-0 w-1.5", "ew-resize")}
+          {resizeHandle("e", "top-2 bottom-2 right-0 w-1.5", "ew-resize")}
+          {resizeHandle("nw", "left-0 top-0 w-3 h-3", "nwse-resize")}
+          {resizeHandle("se", "right-0 bottom-0 w-3 h-3", "nwse-resize")}
+          {resizeHandle("ne", "right-0 top-0 w-3 h-3", "nesw-resize")}
+          {resizeHandle("sw", "left-0 bottom-0 w-3 h-3", "nesw-resize")}
+        </>
+      )}
     </div>
   );
 };
