@@ -14,12 +14,19 @@ export interface UsageUpdate {
   totalTokens?: number;
 }
 
-/** Pick numeric extras off a raw usage_update (unknown fields never pass). */
+/** Pick numeric extras off a raw usage_update (unknown fields never pass).
+ * Top level first; agy-style adapters nest the breakdown under `_meta`. */
 function pickUsageExtras(u: any): Partial<UsageUpdate> {
   const out: Partial<UsageUpdate> = {};
+  const meta = u?._meta && typeof u._meta === "object" ? u._meta : {};
   for (const k of ["cachedTokens", "inputTokens", "outputTokens", "totalTokens"] as const) {
     const v = u?.[k];
-    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+    if (typeof v === "number" && Number.isFinite(v)) {
+      out[k] = v;
+      continue;
+    }
+    const mv = meta[k];
+    if (typeof mv === "number" && Number.isFinite(mv)) out[k] = mv;
   }
   return out;
 }
@@ -54,6 +61,41 @@ export interface ToolCallItem {
   kind?: string;
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   content?: unknown;
+  /**
+   * Rich payloads (agent 透传、有则收）：raw tool name / params / file
+   * locations / result output / error. Display-only; capped below.
+   */
+  name?: string;
+  rawInput?: unknown;
+  locations?: Array<{ path: string; line?: number }>;
+  rawOutput?: unknown;
+  rawError?: unknown;
+}
+
+/** Longest tool text we keep client-side (terminal/file outputs can be huge). */
+export const MAX_TOOL_TEXT = 8000;
+
+function capToolText(v: unknown): unknown {
+  if (typeof v === "string") {
+    return v.length > MAX_TOOL_TEXT ? v.slice(0, MAX_TOOL_TEXT) + "\n…[truncated]" : v;
+  }
+  return v;
+}
+
+/** Pick rich tool payloads off a tool_call(_update) (unknown fields never pass). */
+function pickToolExtras(u: any): Partial<ToolCallItem> {
+  const out: Partial<ToolCallItem> = {};
+  if (typeof u?.name === "string" && u.name) out.name = u.name;
+  if (u?.rawInput !== undefined) out.rawInput = u.rawInput;
+  if (Array.isArray(u?.locations)) {
+    out.locations = u.locations
+      .filter((l: any) => l && typeof l.path === "string")
+      .slice(0, 10)
+      .map((l: any) => ({ path: l.path, ...(typeof l.line === "number" ? { line: l.line } : {}) }));
+  }
+  if (u?.rawOutput !== undefined) out.rawOutput = capToolText(u.rawOutput);
+  if (u?.rawError !== undefined) out.rawError = capToolText(u.rawError);
+  return out;
 }
 
 export interface PlanEntry {
@@ -356,10 +398,31 @@ export interface ActivityEvent {
   detail?: any;
 }
 
+/** Agent-sent image (renderable src + mime). Live-view only (never persisted). */
+export interface ChatImage {
+  src: string;
+  mimeType: string;
+}
+
+/** Normalize an ACP image content block to a renderable image (null when unusable). */
+export function toChatImage(content: any): ChatImage | null {
+  if (!content || typeof content !== "object") return null;
+  const mimeType = typeof content.mimeType === "string" && content.mimeType ? content.mimeType : "image/png";
+  if (typeof content.data === "string" && content.data) {
+    return { src: `data:${mimeType};base64,${content.data}`, mimeType };
+  }
+  for (const k of ["url", "uri", "src"] as const) {
+    const v = (content as Record<string, unknown>)[k];
+    if (typeof v === "string" && /^(https?:|data:|blob:)/.test(v)) return { src: v, mimeType };
+  }
+  return null;
+}
+
 export interface UniversalHandlers {
   onSessionId?: (sid: string) => void;
   onTextChunk?: (chunk: string, messageId?: string) => void;
   onThoughtChunk?: (chunk: string) => void;
+  onImageChunk?: (img: ChatImage, messageId?: string) => void;
   onToolCall?: (call: ToolCallItem) => void;
   onToolCallUpdate?: (call: ToolCallItem) => void;
   onPlan?: (entries: PlanEntry[]) => void;
@@ -606,6 +669,9 @@ export async function consumeUniversalChat(
           const kind = u.sessionUpdate as string;
           if (kind === "agent_message_chunk" && u.content?.type === "text") {
             handlers.onTextChunk?.(u.content.text, u.messageId);
+          } else if (kind === "agent_message_chunk" && u.content?.type === "image") {
+            const img = toChatImage(u.content);
+            if (img) handlers.onImageChunk?.(img, u.messageId);
           } else if (kind === "agent_thought_chunk" && u.content?.type === "text") {
             handlers.onThoughtChunk?.(u.content.text);
           } else if (kind === "user_message_chunk") {
@@ -618,6 +684,7 @@ export async function consumeUniversalChat(
               kind: u.kind,
               status: (u.status as ToolCallItem["status"]) || "pending",
               content: u.content,
+              ...pickToolExtras(u),
             });
           } else if (kind === "tool_call_update") {
             handlers.onToolCallUpdate?.({
@@ -626,6 +693,7 @@ export async function consumeUniversalChat(
               kind: u.kind,
               status: mapToolStatus(u.status),
               content: u.content,
+              ...pickToolExtras(u),
             });
           } else if (kind === "plan") {
             handlers.onPlan?.((u.entries || []) as PlanEntry[]);
@@ -721,6 +789,7 @@ export interface RebuiltTranscript {
     content: string;
     thought?: string;
     toolCalls?: ToolCallItem[];
+    images?: ChatImage[];
     messageId?: string;
   }>;
   plan: PlanEntry[];
@@ -772,6 +841,7 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
     content: string;
     thought?: string;
     toolCalls?: ToolCallItem[];
+    images?: ChatImage[];
     messageId?: string;
   }>();
   const order: string[] = [];
@@ -787,7 +857,7 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
     }
     const k = mid || `${role}-replay-${seq++}`;
     if (!byId.has(k)) {
-      byId.set(k, { role, content: "", messageId: mid, toolCalls: [] });
+      byId.set(k, { role, content: "", messageId: mid, toolCalls: [], images: [] });
       order.push(k);
     }
     return k;
@@ -808,6 +878,8 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
       lastAssistantKey = k;
       const m = byId.get(k)!;
       m.content += extractText(u);
+      const img = u.content?.type === "image" ? toChatImage(u.content) : null;
+      if (img) m.images = [...(m.images || []), img].slice(-8);
     } else if (kind === "agent_thought_chunk") {
       const k = u.messageId ? ensureMessage("assistant", u.messageId) : (lastAssistantKey || ensureMessage("assistant"));
       lastAssistantKey = k;
@@ -823,6 +895,7 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
         title: u.title || (u.rawInput?.command ? String(u.rawInput.command) : "Tool call"),
         kind: u.kind,
         status: (u.status as ToolCallItem["status"]) || "pending",
+        ...pickToolExtras(u),
       };
       m.toolCalls = [...(m.toolCalls || []), newTool];
     } else if (kind === "tool_call_update") {
@@ -833,6 +906,7 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
             title: u.title || t.title,
             kind: u.kind ?? t.kind,
             status: mapToolStatus(u.status),
+            ...pickToolExtras(u),
           });
           break;
         }
@@ -861,7 +935,7 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
 
   out.messages = order
     .map((k) => byId.get(k)!)
-    .filter((m) => m.content || m.thought || (m.toolCalls && m.toolCalls.length > 0));
+    .filter((m) => m.content || m.thought || (m.toolCalls && m.toolCalls.length > 0) || (m.images && m.images.length > 0));
 
   return out;
 }

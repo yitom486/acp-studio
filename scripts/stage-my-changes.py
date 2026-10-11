@@ -1,4 +1,4 @@
-"""Stage only my hunks (assistant-ui chat migration) from mixed dirty files.
+"""Round 2: stage only my post-bf4b227 hunks (media/widgets follow-ups).
 
 Run from repo root:  python scripts/stage-my-changes.py
 Stages via `git apply --cached`; never touches the working tree.
@@ -61,162 +61,87 @@ def render(preamble, hunks):
     return "\n".join(out) + "\n"
 
 
-def check_no_forbidden(kept_plus_minus, where: str):
-    for ln in kept_plus_minus:
-        if ln.startswith(("+", "-")) and not ln.startswith(("+++", "---")):
-            if any(m in ln for m in FORBIDDEN):
-                print(f"!! forbidden marker in {where}: {ln}")
-                sys.exit(1)
+def pm_lines(hunk):
+    return [ln for ln in hunk["lines"] if ln.startswith(("+", "-")) and not ln.startswith(("+++", "---"))]
 
 
-def surgery_app_1(h):  # imports: drop teammate imports
-    h["lines"] = [ln for ln in h["lines"]
-                  if not (ln.startswith("+") and ("TitleBar" in ln or "useThemeStore" in ln))]
+def check_no_forbidden(kept, where: str):
+    for ln in kept:
+        if any(m in ln for m in FORBIDDEN):
+            print(f"!! forbidden marker in {where}: {ln}")
+            sys.exit(1)
 
 
-def surgery_app_312(h):  # ensureSession: revert teammate edits to context
-    out = []
-    for ln in h["lines"]:
-        body = ln[1:] if ln[:1] in "+-" else ln
-        if ln.startswith("+") and ("autoServers" in ln or "Auto-created sessions inherit" in ln):
-            continue
-        if ln.startswith("+") and "if (!force && (st.isStreaming || st.busy)) return null;" in ln:
-            continue
-        if ln.startswith("-") and "if (st.isStreaming || st.busy) return null;" in ln:
-            out.append(" " + body)
-            continue
-        if ln.startswith("-") and body.strip().startswith("const res: any = await sessionNew"):
-            out.append(" " + body)
-            continue
-        if ln.startswith("-") and "bindThreadSession(useStudioStore.getState().sessionId, reqCwd);" in ln:
-            out.append(" " + body)
-            continue
-        out.append(ln)
-    h["lines"] = out
-
-
-APP_KEEP_JSX = (
-    "<PermissionDialog pending=",
-    "!s.sessionId || p.sessionId === s.sessionId",
-    "s.sessionId && p.sessionId !== s.sessionId",
-    "matchPermToToolCalls",
-    "已在工具卡",
-    "imperative",
-    "return true;",
-    "onRespond={handlePermRespond}",
-)
-
-
-def surgery_app_1029(h):  # mega layout hunk: diseased context; drop entirely,
-    # the PermissionDialog pair is re-based onto HEAD by head_perm_hunk().
-    h["lines"] = []
-
-
-PERM_PLUS = [
-    "        <PermissionDialog pending={s.pendingPerms.filter((p) => {",
-    "          if (s.sessionId && p.sessionId !== s.sessionId) return false;",
-    "          // 已在工具卡内联展示的不再进全局弹窗 (匹配器见 acp-assistant.ts)。",
-    "          // 用 getState  imperative 读取 messages，避免 shell 订阅流式热路径。",
-    "          if (matchPermToToolCalls(p, useStudioStore.getState().messages, s.sessionId)) return false;",
-    "          return true;",
-    "        })} onRespond={handlePermRespond} respondingId={s.respondingId} />",
-]
-
-
-def head_perm_hunk():
-    """PermissionDialog filter change, based on HEAD context (1-based)."""
-    blob = subprocess.run(
-        ["git", "show", "HEAD:src/App.tsx"], cwd=REPO, capture_output=True,
-    ).stdout.decode("utf-8")
-    if blob.endswith("\n"):
-        blob = blob[:-1]
-    lines = blob.split("\n")
-    idx = next(i for i, ln in enumerate(lines) if "PermissionDialog pending=" in ln)
-    if "matchPermToToolCalls" in lines[idx]:
-        print("!! HEAD already contains the new filter; abort")
-        sys.exit(1)
-    body = (
-        [" " + lines[idx - 3], " " + lines[idx - 2], " " + lines[idx - 1]]
-        + ["-" + lines[idx]]
-        + ["+" + ln for ln in PERM_PLUS]
-        + [" " + lines[idx + 1], " " + lines[idx + 2], " " + lines[idx + 3]]
-    )
-    return {"old_start": idx - 2, "tail": " export default function App() {", "lines": body}
-
-
-def surgery_app_1117(h):  # composer swap: drop teammate wrapper close
-    drops = [ln for ln in h["lines"] if ln == "+    </div>"]
-    if len(drops) != 1:
-        print(f"!! hunk 1117: expected 1 wrapper-close drop, got {len(drops)}")
-        sys.exit(1)
-    h["lines"] = [ln for ln in h["lines"] if ln != "+    </div>"]
-
-
-APP_RULES = {
-    1: surgery_app_1, 72: "keep", 89: "keep", 136: "keep", 191: "drop",
-    212: "keep", 233: "keep", 312: surgery_app_312, 331: "keep", 352: "keep",
-    375: "drop", 393: "keep", 401: "keep", 443: "drop", 628: "drop", 713: "drop", 726: "drop",
-    754: "drop", 881: "keep", 892: "drop", 903: "keep", 937: "keep",
-    965: "keep", 998: "keep", 1029: surgery_app_1029, 1117: surgery_app_1117,
-}
-
-STORE_KEEP = {25, 50, 99, 149, 281, 485}
+# ---------------- App.tsx (round 2: media wiring only) ----------------
+APP_KEEP = {668, 945}
+APP_MINE = ("images: m.images", "onImageChunk")
 
 
 def filter_app() -> str:
     preamble, hunks = parse_hunks(git_diff("src/App.tsx"))
     kept = []
     for h in hunks:
-        rule = APP_RULES.get(h["old_start"])
-        if rule is None:
-            print(f"!! App.tsx: no rule for hunk @@ -{h['old_start']}")
-            sys.exit(1)
-        if rule == "drop":
+        if h["old_start"] in APP_KEEP:
+            kept.append(h)
             continue
-        if callable(rule):
-            rule(h)
-        if not [ln for ln in h["lines"] if ln != ""]:
-            continue  # surgery emptied it (1029)
-        kept.append(h)
-    kept.append(head_perm_hunk())
-    kept.sort(key=lambda h: h["old_start"])
-    check_no_forbidden([ln for h in kept for ln in h["lines"]], "App.tsx")
+        # dropped hunks must not carry my lines
+        for ln in pm_lines(h):
+            if any(a in ln for a in APP_MINE):
+                print(f"!! App hunk {h['old_start']} wrongly dropped, contains: {ln}")
+                sys.exit(1)
+    check_no_forbidden([ln for h in kept for ln in pm_lines(h)], "App.tsx")
+    # kept hunks must actually hold my lines
+    blob = "\n".join(ln for h in kept for ln in pm_lines(h))
+    for a in APP_MINE:
+        if a not in blob:
+            print(f"!! App kept hunks missing expected marker: {a}")
+            sys.exit(1)
     return render(preamble, kept)
 
 
-def filter_store() -> str:
-    preamble, hunks = parse_hunks(git_diff("src/stores/useStudioStore.ts"))
-    kept = [h for h in hunks if h["old_start"] in STORE_KEEP]
-    if len(kept) != len(STORE_KEEP):
-        print("!! store: kept hunk set mismatch")
+# ---------------- threads.ts (round 2: freezeMessage images) ----------------
+THREADS_KEEP = {41, 51}
+
+
+def filter_threads() -> str:
+    preamble, hunks = parse_hunks(git_diff("src/lib/threads.ts"))
+    kept = [h for h in hunks if h["old_start"] in THREADS_KEEP]
+    if {h["old_start"] for h in hunks} - THREADS_KEEP - {15}:
+        print("!! threads.ts: unexpected hunk set")
         sys.exit(1)
-    check_no_forbidden([ln for h in kept for ln in h["lines"]], "useStudioStore.ts")
+    check_no_forbidden([ln for h in kept for ln in pm_lines(h)], "threads.ts")
+    blob = "\n".join(ln for h in kept for ln in pm_lines(h))
+    if "images: undefined" not in blob:
+        print("!! threads kept hunks missing images strip")
+        sys.exit(1)
     return render(preamble, kept)
 
 
+# ---------------- package.json (round 2: mermaid dep only) ----------------
 def pkg_patch() -> str:
     head = subprocess.run(
         ["git", "show", "HEAD:package.json"], cwd=REPO, capture_output=True,
-        text=True, encoding="utf-8",
-    ).stdout
-    if not head.endswith("\n"):
-        print("!! package.json has no trailing newline; abort")
-        sys.exit(1)
-    lines = head.split("\n")[:-1]
-    anchor = '    "@agentclientprotocol/sdk": "^1.0.0",'
+    ).stdout.decode("utf-8")
+    lines = head.split("\n")
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    anchor = '    "@assistant-ui/react-markdown": "^0.14.20",'
     idx = lines.index(anchor)
     body = (
         [" " + ln for ln in lines[: idx + 1]]
-        + ['+    "@assistant-ui/react": "^0.15.27",', '+    "@assistant-ui/react-markdown": "^0.14.20",']
+        + ['+    "mermaid": "^12.1.0",']
         + [" " + ln for ln in lines[idx + 1:]]
     )
     patch = (
         "diff --git a/package.json b/package.json\n"
         "--- a/package.json\n"
         "+++ b/package.json\n"
-        f"@@ -1,{len(lines)} +1,{len(lines) + 2} @@\n" + "\n".join(body) + "\n"
+        f"@@ -1,{len(lines)} +1,{len(lines) + 1} @@\n" + "\n".join(body) + "\n"
     )
     added = [ln for ln in body if ln.startswith("+") and not ln.startswith("+++")]
+    if len(added) != 1 or "mermaid" not in added[0]:
+        print("!! package.json patch wrong")
+        sys.exit(1)
     if any("dev:desktop" in ln or "acp-client" in ln for ln in added):
         print("!! package.json patch leaked teammate lines")
         sys.exit(1)
@@ -225,7 +150,7 @@ def pkg_patch() -> str:
 
 def apply_cached(patch: str, path: str):
     # NOTE: bytes, not text — Windows text-mode pipes translate \n -> \r\n
-    # and corrupt the patch (see: "patch failed" on valid hunks).
+    # and corrupt the patch.
     blob = patch.encode("utf-8")
     p = subprocess.run(
         ["git", "apply", "--cached", "--check", "-"], cwd=REPO,
@@ -245,11 +170,11 @@ def apply_cached(patch: str, path: str):
 
 
 def main():
-    only = sys.argv[1:] or ["store", "app", "pkg"]
-    if "store" in only:
-        apply_cached(filter_store(), "src/stores/useStudioStore.ts")
+    only = sys.argv[1:] or ["app", "threads", "pkg"]
     if "app" in only:
         apply_cached(filter_app(), "src/App.tsx")
+    if "threads" in only:
+        apply_cached(filter_threads(), "src/lib/threads.ts")
     if "pkg" in only:
         apply_cached(pkg_patch(), "package.json")
     print("OK: filtered patches staged; workdir untouched")

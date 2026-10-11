@@ -105,6 +105,25 @@ describe("consumeUniversalChat (v1 full updates)", () => {
     expect(t.currentModeId).toBe("agent");
   });
 
+  it("forwards usage breakdown from _meta without ever summing", async () => {
+    const frames = [
+      // agy-style: per-step input snapshot + breakdown under _meta
+      { type: "update", update: { sessionUpdate: "usage_update", used: 5000, size: 200000, _meta: { inputTokens: 5000, outputTokens: 300, totalTokens: 5300 } } },
+      // top level wins on conflict; later snapshots overwrite (replace, not add)
+      { type: "update", update: { sessionUpdate: "usage_update", used: 1200, size: 200000, inputTokens: 1200, _meta: { inputTokens: 9999 } } },
+      { type: "done", stopReason: "end_turn" },
+    ];
+    globalThis.fetch = vi.fn(async () => sseResponse(frames)) as unknown as typeof fetch;
+    const seen: any[] = [];
+    await consumeUniversalChat(
+      { agentId: "codex", prompt: "hi" },
+      { onUsage: (u) => seen.push(u) }
+    );
+    expect(seen[0]).toMatchObject({ used: 5000, size: 200000, inputTokens: 5000, outputTokens: 300, totalTokens: 5300 });
+    // 压缩后变小直接采用（替换语义，无加法）
+    expect(seen[1]).toMatchObject({ used: 1200, size: 200000, inputTokens: 1200 });
+  });
+
   it("parses catalog model ids and maps config roles", () => {
     expect(parseModelId("gpt-5.6-luna[xhigh]")).toEqual({ model: "gpt-5.6-luna", effort: "xhigh" });
     expect(parseModelId("plain-model")).toEqual({ model: "plain-model" });

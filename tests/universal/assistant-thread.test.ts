@@ -59,6 +59,11 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     expect(html).toContain("执行计划");
     expect(html).toContain("复制");
     expect(html).toContain("animate-fade-slide-in");
+    // 用户区无外挂行：时间戳/复制/编辑同处气泡内底部单行，常驻挂载只换透明度
+    expect(html).toContain("03:14");
+    expect(html).toContain("编辑后重发");
+    expect(html).not.toContain("text-muted-foreground/60");
+    expect(html).not.toContain("-top-3");
     // 真实耗时：整轮 + 思考（静态文本直出）
     expect(html).toContain("用时 5.1s");
     expect(html).toContain("用时 4.0s");
@@ -85,7 +90,8 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     await act(async () => {
       groupBtn!.click();
     });
-    expect(el.innerHTML).toContain("read src/App.tsx");
+    // 文件卡：显示解析出的路径 + 预览区 + Diff + 真实耗时
+    expect(el.innerHTML).toContain("src/App.tsx");
     expect(el.innerHTML).toContain("Diff");
     // 工具行真实耗时（3400ms -> 3.4s）
     expect(el.innerHTML).toContain("3.4s");
@@ -241,6 +247,98 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     expect(el.innerHTML).toContain("重试");
     root.unmount();
     el.remove();
+  });
+
+  it("renders tables via remark-gfm with ACP styling", async () => {
+    useStudioStore.setState({
+      messages: [
+        {
+          id: "a4",
+          role: "assistant",
+          content: "对比如下：\n\n| 方案 | 成本 |\n| --- | --- |\n| A | 低 |\n",
+          timestamp: "03:18",
+        } as any,
+      ],
+      isStreaming: false,
+    } as any);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+    });
+    expect(el.querySelector("table")).toBeTruthy();
+    expect(el.innerHTML).toContain("方案");
+    expect(el.innerHTML).toContain("低");
+    root.unmount();
+    el.remove();
+    useStudioStore.setState({ messages: [], isStreaming: false } as any);
+  });
+
+  it("renders a mermaid fence through the lazy diagram renderer", async () => {
+    useStudioStore.setState({
+      messages: [
+        {
+          id: "a3",
+          role: "assistant",
+          content: "流程如下：\n\n```mermaid\nflowchart LR\n  A-->B\n```\n",
+          timestamp: "03:17",
+        } as any,
+      ],
+      isStreaming: false,
+    } as any);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    // 图表容器（或其加载/回退态）必须出现，而不是裸代码
+    const html = el.innerHTML;
+    expect(html).toContain("data-mermaid-block");
+    expect(html).toContain("mermaid");
+    root.unmount();
+    el.remove();
+    useStudioStore.setState({ messages: [], isStreaming: false } as any);
+  });
+
+  it("floats the scroll-to-bottom button with zero layout footprint", async () => {
+    useStudioStore.setState({
+      messages: [{ id: "u1", role: "user", content: "hi", timestamp: "03:14" } as any],
+      isStreaming: false,
+    } as any);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+    });
+    const btn = Array.from(el.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("回到底部")
+    );
+    expect(btn).toBeTruthy();
+    // 浮层：不占文档流，显隐不再挤压上方消息
+    expect(btn!.className).toContain("absolute");
+    expect(btn!.className).toContain("pointer-events-auto");
+    const footer = btn!.parentElement;
+    expect(footer!.className).toContain("pointer-events-none");
+    expect(footer!.className).toContain("h-0");
+    root.unmount();
+    el.remove();
+    useStudioStore.setState({ messages: [], isStreaming: false } as any);
   });
 
   it("paginates long histories with a load-earlier button", async () => {

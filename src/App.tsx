@@ -668,6 +668,7 @@ export default function App() {
             content: m.content,
             thought: m.thought,
             toolCalls: m.toolCalls,
+            images: m.images,
             timestamp: now(),
           }))
         );
@@ -945,6 +946,14 @@ export default function App() {
               thought: (m.thought || "") + chunk,
               thoughtTiming: m.thoughtTiming ?? { startedAt: Date.now() },
             })),
+          onImageChunk: (img) =>
+            cur.patchMessage(assistantId, (m) => {
+              const images = [...(m.images || []), img];
+              if (images.length > 8) {
+                console.debug("[App] 图片附件超限，已丢弃旧图 (保留最新 8 张)");
+              }
+              return { ...m, images: images.slice(-8) };
+            }),
           onToolCall: (c) =>
             cur.patchMessage(assistantId, (m) => ({
               ...m,

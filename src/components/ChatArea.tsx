@@ -25,8 +25,16 @@ export interface Message {
     /** Client-observed wall clock (epoch ms): first sighting / terminal update. */
     startedAt?: number;
     completedAt?: number;
+    /** Rich payloads (allowlisted from tool_call(_update), display-only). */
+    name?: string;
+    rawInput?: unknown;
+    locations?: Array<{ path: string; line?: number }>;
+    rawOutput?: unknown;
+    rawError?: unknown;
   }>;
   isStreaming?: boolean;
+  /** Agent-sent images (live-view only, stripped on persist like toolCalls). */
+  images?: Array<{ src: string; mimeType: string }>;
   /** Client-observed turn timing (epoch ms): placeholder append -> turn end. */
   startedAt?: number;
   completedAt?: number;

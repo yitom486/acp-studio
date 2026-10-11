@@ -69,6 +69,10 @@ export default defineConfig({
           if (norm.includes("@xterm")) {
             return "xterm";
           }
+          // Mermaid diagrams load on demand with the first mermaid fence.
+          if (norm.includes("/mermaid/") || norm.includes("/dagre") || norm.includes("/d3") || norm.includes("cytoscape") || norm.includes("/elkjs/") || norm.includes("/katex/")) {
+            return "mermaid";
+          }
           // React runtime stays separate so it can be long-term cached.
           // NOTE: exact package-dir match only — a bare "/react/" substring
           // would also catch zustand/react/* (zustand's React bindings) and

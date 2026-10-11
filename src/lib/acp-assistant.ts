@@ -57,6 +57,7 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
   const content: Array<
     | { type: "text"; text: string }
     | { type: "reasoning"; text: string; timing?: { startedAt: number; completedAt?: number } }
+    | { type: "image"; image: string }
     | {
         type: "tool-call";
         toolCallId: string;
@@ -92,6 +93,13 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
 
   // Always keep a text part so streaming / empty states render.
   content.push({ type: "text", text: msg.content || "" });
+
+  // Agent-sent images (after text; order within a turn is text-then-images).
+  for (const img of msg.images || []) {
+    if (img && typeof img.src === "string" && img.src) {
+      content.push({ type: "image", image: img.src });
+    }
+  }
 
   return {
     id: msg.id,

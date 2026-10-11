@@ -41,8 +41,9 @@ function trunc(text: unknown): string {
 /**
  * Freeze a live message for storage: drop streaming flags, cap sizes.
  * Persist policy (user-visible history = Q&A only): the persisted record
- * keeps the final answer text (+thought), but NEVER tool calls/results —
- * they are live-view only and are stripped here, not at render time.
+ * keeps the final answer text (+thought), but NEVER tool calls/results or
+ * agent images (data URLs would blow up localStorage) — they are live-view
+ * only and are stripped here, not at render time.
  */
 export function freezeMessage(m: Message): Message {
   return {
@@ -51,6 +52,7 @@ export function freezeMessage(m: Message): Message {
     thought: typeof m.thought === "string" ? trunc(m.thought) : m.thought,
     isStreaming: false,
     toolCalls: undefined,
+    images: undefined,
   };
 }
 

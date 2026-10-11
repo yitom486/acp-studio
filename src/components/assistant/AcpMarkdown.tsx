@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from "react";
+import React, { Suspense, lazy, memo, useMemo, useState } from "react";
 import {
   MarkdownTextPrimitive,
   memoizeMarkdownComponents,
@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 import type { TextMessagePartComponent } from "@assistant-ui/react";
 import { cn } from "@/lib/utils";
+import { AcpImageView, isSafeLinkHref, isSafeMediaSrc } from "@/components/assistant/AcpMedia";
 
 const AcpCodeHeader: React.FC<CodeHeaderProps> = ({ language, code }) => {
   const [copied, setCopied] = useState(false);
@@ -59,9 +60,22 @@ const acpComponents = memoizeMarkdownComponents({
   blockquote: ({ className, ...props }: any) => (
     <blockquote className={cn("my-2 border-l-2 border-primary/50 pl-3 text-muted-foreground", className)} {...props} />
   ),
-  a: ({ className, ...props }: any) => (
-    <a className={cn("text-primary underline-offset-2 hover:underline")} target="_blank" rel="noreferrer" {...props} />
-  ),
+  a: ({ className, href, children, ...props }: any) => {
+    if (!isSafeLinkHref(href)) {
+      return <span className="text-muted-foreground">{children}</span>;
+    }
+    return (
+      <a
+        className={cn("text-primary underline-offset-2 hover:underline")}
+        target="_blank"
+        rel="noreferrer"
+        href={href}
+        {...props}
+      >
+        {children}
+      </a>
+    );
+  },
   strong: ({ className, ...props }: any) => (
     <strong className={cn("font-semibold text-foreground", className)} {...props} />
   ),
@@ -92,6 +106,16 @@ const acpComponents = memoizeMarkdownComponents({
     }
     return <code className={className} {...props} />;
   },
+  img: function AcpImg({ src, alt }: any) {
+    if (!isSafeMediaSrc(src)) {
+      return (
+        <span className="text-muted-foreground text-xs">
+          {typeof alt === "string" && alt ? alt : "（已拦截不安全图片地址）"}
+        </span>
+      );
+    }
+    return <AcpImageView src={src} alt={typeof alt === "string" ? alt : undefined} />;
+  },
   CodeHeader: AcpCodeHeader,
 });
 
@@ -100,14 +124,42 @@ const acpComponents = memoizeMarkdownComponents({
  * - 文本取自 part 上下文，无需传参
  * - defer: 解析降优先级，token 流不阻塞输入/滚动
  * - smooth(默认开): 打字机揭示动效，prefers-reduced-motion 自动关
+ * - componentsByLanguage.mermaid: 图表走懒加载渲染器（与引擎无关，
+ *   streamdown 同理也要另装插件；此处直接注册即可）
  */
+const AcpMermaidDiagram = lazy(() => import("./AcpMermaidDiagram"));
+
+const MermaidBlock: React.FC<{ code: string }> = ({ code }) => (
+  <div data-mermaid-block>
+    <Suspense
+      fallback={
+        <div
+          className="my-2 flex items-center gap-2 rounded-lg border border-border bg-background/60 px-3 py-4 text-xs text-muted-foreground"
+          role="status"
+        >
+          <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
+          <span className="animate-pulse">图表组件加载中…</span>
+        </div>
+      }
+    >
+      <AcpMermaidDiagram code={code} />
+    </Suspense>
+  </div>
+);
+
+const mermaidByLanguage = {
+  mermaid: { SyntaxHighlighter: MermaidBlock },
+};
+
 export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   const components = useMemo(() => acpComponents, []);
+  const byLanguage = useMemo(() => mermaidByLanguage, []);
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
       className="text-sm leading-relaxed break-words text-foreground"
       components={components}
+      componentsByLanguage={byLanguage}
       defer
     />
   );

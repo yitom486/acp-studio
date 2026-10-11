@@ -16,10 +16,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  FileDiff,
   Pencil,
   RefreshCw,
-  ShieldAlert,
   Sparkles,
   User,
   Wrench,
@@ -29,8 +27,21 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatedShinyText } from "@/components/magicui/animated-shiny-text";
 import { AcpMarkdownText } from "@/components/assistant/AcpMarkdown";
-import { matchPermToToolCalls } from "@/lib/acp-assistant";
-import { respondPermission } from "@/lib/universal-api";
+import { AcpImagePart } from "@/components/assistant/AcpMedia";
+import {
+  DiffButton,
+  FileEditCard,
+  FileReadCard,
+  InlineApproval,
+  LiveElapsed,
+  SearchCard,
+  StatusDot,
+  TerminalCard,
+  extractFileFromTool,
+  fmtElapsed,
+  resolveWidgetKey,
+  type WidgetTool,
+} from "@/components/assistant/AcpToolWidgets";
 import type { Message } from "@/components/ChatArea";
 import type { UsageState } from "@/stores/useStudioStore";
 import { useStudioStore } from "@/stores/useStudioStore";
@@ -46,22 +57,6 @@ export interface AssistantChatViewProps {
   sessionError?: string | null;
   sessionLoading?: boolean;
   onEnsureSession?: () => void;
-}
-
-function extractFileFromTool(title: string): string | null {
-  if (!title) return null;
-  const match = title.match(/([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]{1,10})/);
-  if (match) {
-    const candidate = match[1];
-    if (
-      candidate.includes("/") ||
-      candidate.includes("\\") ||
-      /\.(tsx?|jsx?|json|md|css|html|rs|py|go|cs)$/i.test(candidate)
-    ) {
-      return candidate;
-    }
-  }
-  return null;
 }
 
 // ---------- part renderers (Text 由 AcpMarkdownText 直供 primitive) ----------
@@ -155,34 +150,6 @@ const UsagePanel: React.FC<{ msg: Message }> = ({ msg }) => {
     </div>
   );
 };
-export function fmtElapsed(ms: number): string {
-  if (ms < 0) return "";
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const m = Math.floor(ms / 60_000);
-  const s = Math.round((ms % 60_000) / 1000);
-  return `${m}分${String(s).padStart(2, "0")}s`;
-}
-
-/**
- * 真实耗时：完成后静态，运行中每 500ms 跳一次。
- * 数据来自 App 发送路径的客户端打点（首见/终态时间戳）。
- */
-const LiveElapsed: React.FC<{ startedAt?: number; completedAt?: number }> = ({
-  startedAt,
-  completedAt,
-}) => {
-  const [, setTick] = React.useState(0);
-  const live = startedAt != null && completedAt == null;
-  React.useEffect(() => {
-    if (!live) return;
-    const t = setInterval(() => setTick((n) => n + 1), 500);
-    return () => clearInterval(t);
-  }, [live, startedAt]);
-  if (startedAt == null) return null;
-  const ms = (completedAt ?? Date.now()) - startedAt;
-  return <span className="font-mono text-[10px] text-muted-foreground/80 tabular-nums">{fmtElapsed(ms)}</span>;
-};
-
 /**
  * 思维链 · 思考过程折叠卡（社区 ChainOfThought 的轻量实现）。
  * 运行时默认展开，完成后自动收起；用户手动切换后不再自动干预。
@@ -242,61 +209,15 @@ const AcpReasoningView: React.FC<{
   );
 };
 
-type AcpToolCall = {
-  id: string;
-  title: string;
-  kind?: string;
-  status: "pending" | "running" | "completed" | "failed" | "cancelled";
-  startedAt?: number;
-  completedAt?: number;
-};
+type AcpToolCall = WidgetTool;
 
-/** 单条工具行（含 Diff 快捷入口 + 内联审批）。 */
+/** 单条工具行（未知种类回落；含 Diff 快捷入口 + 内联审批）。 */
 const ToolCallRow: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
-  const onOpenDiff = useStudioStore((s) => s.setGitChangesOpen);
-  const sessionId = useStudioStore((s) => s.sessionId);
-  const respondingId = useStudioStore((s) => s.respondingId);
-  const pendingPerms = useStudioStore((s) => s.pendingPerms);
   const { title, kind = "", status } = tc;
   const targetFile = extractFileFromTool(title);
   const isFileTool =
     kind === "edit" || kind === "file" || kind === "diff" || !!targetFile;
   const active = status === "running" || status === "pending";
-
-  const inlinePerm = React.useMemo(() => {
-    const st = useStudioStore.getState();
-    for (const perm of pendingPerms) {
-      if (sessionId && perm.sessionId !== sessionId) continue;
-      const tool = (perm.toolCall ?? {}) as { toolCallId?: string; id?: string; title?: string };
-      const wantId = tool.toolCallId || tool.id || null;
-      const wantTitle = tool.title || null;
-      if ((wantId && tc.id === wantId) || (wantTitle && title === wantTitle)) {
-        const match = matchPermToToolCalls(perm, st.messages, sessionId);
-        if (match) return perm;
-      }
-    }
-    return null;
-  }, [pendingPerms, sessionId, tc.id, title]);
-
-  const respondInline = async (optionId: string | null) => {
-    if (!inlinePerm) return;
-    const st = useStudioStore.getState();
-    st.setRespondingId(inlinePerm.permissionId);
-    try {
-      await respondPermission(
-        inlinePerm.agentId,
-        inlinePerm.permissionId,
-        optionId ? { outcome: "selected", optionId } : { outcome: "cancelled" },
-      );
-      useStudioStore.getState().removePermission(inlinePerm.permissionId);
-    } catch (e: any) {
-      alert(`permission respond 失败: ${e.message}`);
-    } finally {
-      useStudioStore.getState().setRespondingId(null);
-    }
-  };
-
-  const busy = inlinePerm != null && respondingId === inlinePerm.permissionId;
 
   return (
     <div className="rounded-lg bg-background/80 border border-border text-xs text-muted-foreground animate-fade-slide-in">
@@ -309,61 +230,28 @@ const ToolCallRow: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
           {title}
         </span>
         <LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />
-        {isFileTool && (
-          <button
-            type="button"
-            onClick={() => onOpenDiff(true, targetFile)}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-sans transition-colors shrink-0"
-            title={targetFile ? `在 Git 审查中查看 ${targetFile}` : "在 Git 审查中查看变更"}
-          >
-            <FileDiff className="w-3 h-3" />
-            <span>Diff</span>
-          </button>
-        )}
-        <span
-          className={cn(
-            "w-2 h-2 rounded-full shrink-0",
-            active
-              ? "bg-warning animate-pulse"
-              : status === "completed"
-                ? "bg-success"
-                : status === "cancelled"
-                  ? "bg-muted-foreground"
-                  : "bg-destructive",
-          )}
-        />
+        {isFileTool && <DiffButton file={targetFile} />}
+        <StatusDot status={status} />
       </div>
-      {inlinePerm && (
-        <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2 pt-0.5 border-t border-warning/30 font-sans">
-          <span className="flex items-center gap-1 text-warning font-semibold text-[11px]">
-            <ShieldAlert className="w-3.5 h-3.5" />
-            需要授权
-          </span>
-          {(inlinePerm.options || []).slice(0, 3).map((o) => (
-            <button
-              key={o.optionId}
-              type="button"
-              disabled={busy}
-              onClick={() => respondInline(o.optionId)}
-              className="px-2 py-0.5 rounded-md border border-warning/40 text-warning text-[11px] font-medium hover:bg-warning hover:text-warning-foreground transition-colors disabled:opacity-40"
-              title={o.kind || o.optionId}
-            >
-              {busy ? "提交中..." : o.name}
-            </button>
-          ))}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => respondInline(null)}
-            className="px-2 py-0.5 rounded-md text-muted-foreground text-[11px] hover:text-destructive transition-colors disabled:opacity-40"
-            title="拒绝 / 取消"
-          >
-            拒绝
-          </button>
-        </div>
-      )}
+      <InlineApproval tc={tc} />
     </div>
   );
+};
+
+/** 按工具种类分发富卡片，未知种类回落通用行。 */
+const ToolWidget: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
+  switch (resolveWidgetKey(tc)) {
+    case "terminal":
+      return <TerminalCard tc={tc} />;
+    case "file-read":
+      return <FileReadCard tc={tc} />;
+    case "file-edit":
+      return <FileEditCard tc={tc} />;
+    case "search":
+      return <SearchCard tc={tc} />;
+    default:
+      return <ToolCallRow tc={tc} />;
+  }
 };
 
 /**
@@ -416,7 +304,7 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[] }> = ({ tools }) => {
       {open && (
         <div className="px-1.5 pb-1.5 space-y-1.5">
           {tools.map((tc) => (
-            <ToolCallRow key={tc.id} tc={tc} />
+            <ToolWidget key={tc.id} tc={tc} />
           ))}
         </div>
       )}
@@ -535,38 +423,41 @@ const UserMessageView: React.FC = () => {
     setTimeout(() => setCopied(false), 1500);
   };
   if (isEditing) return <EditComposerView />;
+  const threadRunning = useAuiState((s) => s.thread.isRunning);
   return (
     <MessagePrimitive.Root className="flex gap-3 justify-end items-start group animate-fade-slide-in">
-      <div className="flex flex-col items-end gap-1 max-w-[80%]">
+      <div className="relative max-w-[80%]">
         <div className="rounded-2xl rounded-tr-xs bg-primary text-primary-foreground px-4 py-2.5 shadow-sm break-words whitespace-pre-wrap text-sm leading-relaxed font-sans">
           <MessagePrimitive.Parts components={{ Text: AcpMarkdownText }} />
-        </div>
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60 px-1 font-mono">
-          {acp?.timestamp && <span>{acp.timestamp}</span>}
-          <button
-            onClick={copy}
-            className="opacity-0 group-hover:opacity-100 hover:text-foreground transition-opacity"
-            title="复制内容"
-          >
-            {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
-          </button>
-        </div>
-        <div className="flex items-center gap-1">
-          <BranchPickerView className="justify-end" />
-          <ActionBarPrimitive.Root
-            hideWhenRunning
-            autohide="not-last"
-            className="flex items-center"
-          >
-            <ActionBarPrimitive.Edit asChild>
+          {/* 底部 meta 单行：常驻挂载，只换透明度，宽高恒定不挤布局 */}
+          <div className="flex items-center justify-end gap-0.5 pt-1.5">
+            {acp?.timestamp && (
+              <span className="text-[10px] font-mono opacity-60 select-none mr-1">{acp.timestamp}</span>
+            )}
+            <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-sm:opacity-100 transition-opacity">
               <button
-                className="p-1 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/80 transition-colors opacity-0 group-hover:opacity-100"
-                title="编辑后重发"
+                onClick={copy}
+                className="p-1 rounded-md text-primary-foreground hover:bg-primary-foreground/10 transition-colors"
+                title="复制内容"
               >
-                <Pencil className="w-3 h-3" />
+                {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
               </button>
-            </ActionBarPrimitive.Edit>
-          </ActionBarPrimitive.Root>
+              <ActionBarPrimitive.Root className="flex items-center">
+                <ActionBarPrimitive.Edit asChild>
+                  <button
+                    disabled={threadRunning}
+                    className="p-1 rounded-md text-primary-foreground hover:bg-primary-foreground/10 transition-colors disabled:opacity-40"
+                    title="编辑后重发"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                </ActionBarPrimitive.Edit>
+              </ActionBarPrimitive.Root>
+            </span>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <BranchPickerView className="justify-end" />
         </div>
       </div>
       <div className="shrink-0 w-8 h-8 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shadow-sm mt-0.5">
@@ -636,7 +527,7 @@ const AssistantMessageView: React.FC<{ agentName: string }> = ({ agentName }) =>
   // 首 token 到达前：无正文、无思考、无工具调用。
   // 不渲染整张卡（空卡会被骨架屏撑成又高又窄），只给一行紧凑状态胶囊。
   const awaitingFirstToken =
-    running && !acp?.content && !acp?.thought && !(acp?.toolCalls && acp.toolCalls.length > 0);
+    running && !acp?.content && !acp?.thought && !(acp?.toolCalls && acp.toolCalls.length > 0) && !(acp?.images && acp.images.length > 0);
 
   if (awaitingFirstToken) {
     return (
@@ -742,6 +633,7 @@ const AssistantMessageView: React.FC<{ agentName: string }> = ({ agentName }) =>
               components={{
                 Text: AcpMarkdownText,
                 Reasoning: () => null,
+                Image: AcpImagePart,
                 tools: { Fallback: () => null },
               }}
             />
@@ -751,12 +643,15 @@ const AssistantMessageView: React.FC<{ agentName: string }> = ({ agentName }) =>
           </div>
         </>
 
-        <div className="flex items-center gap-1 text-muted-foreground pt-1">
+        {/* 固定 h-7 槽位：bar 的挂载/卸载只换透明度，不挤布局；
+            hover 时官方 Floating 模式以 data-floating 浮层盖在卡内 */}
+        <div className="flex items-center gap-1 h-7 text-muted-foreground select-none">
           <BranchPickerView />
           <ActionBarPrimitive.Root
             hideWhenRunning
             autohide="not-last"
-            className="flex items-center gap-1"
+            autohideFloat="always"
+            className="flex items-center gap-1 data-[floating=true]:absolute data-[floating=true]:bottom-2 data-[floating=true]:left-3 data-[floating=true]:z-10 data-[floating=true]:rounded-full data-[floating=true]:border data-[floating=true]:border-border data-[floating=true]:bg-card/95 data-[floating=true]:px-1.5 data-[floating=true]:py-1 data-[floating=true]:shadow-md data-[floating=true]:backdrop-blur"
           >
             <ActionBarPrimitive.Copy asChild>
               <button
@@ -841,10 +736,10 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
             {() => <ThreadMessageRouter agentName={agentName} />}
           </ThreadPrimitive.Messages>
         </div>
-        <ThreadPrimitive.ViewportFooter className="max-w-4xl mx-auto sticky bottom-0 flex justify-center pt-2">
+        <ThreadPrimitive.ViewportFooter className="max-w-4xl mx-auto sticky bottom-0 z-10 flex justify-center pointer-events-none h-0 overflow-visible">
           <ThreadPrimitive.ScrollToBottom asChild>
             <button
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card/90 backdrop-blur text-xs text-muted-foreground hover:text-primary hover:border-primary/40 shadow-md transition-colors disabled:invisible"
+              className="absolute bottom-3 pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card/90 backdrop-blur text-xs text-muted-foreground hover:text-primary hover:border-primary/40 shadow-md transition-colors disabled:invisible"
               title="回到底部"
             >
               <ArrowDown className="w-3.5 h-3.5" />
