@@ -66,43 +66,34 @@ function recyclePort(port: number, serviceName: string): void {
   }
 }
 
-async function killProcessTree(proc: ChildProcess | undefined) {
-  if (!proc || !proc.pid) return;
-  try {
-    if (isWin) {
-      spawn("taskkill", ["/F", "/T", "/PID", String(proc.pid)], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
-    } else {
-      proc.kill("SIGTERM");
-    }
-  } catch {
-    // Process might already be dead
-  }
-}
-
 async function cleanupAndExit(code = 0) {
   if (isExiting) return;
   isExiting = true;
   console.log(`\n${c.yellow}[dev:desktop] 正在优雅关闭前后端与桌面进程...${c.reset}`);
 
-  // Kill tracked child processes
-  for (const child of children) {
-    await killProcessTree(child);
-  }
+  // Collect active child PIDs for atomic batch shutdown
+  const pids = children
+    .map((child) => child.pid)
+    .filter((pid): pid is number => typeof pid === "number");
 
-  // Windows safety net: kill any remaining electron.exe and ensure ports are cleanly freed
-  if (isWin) {
+  if (isWin && pids.length > 0) {
+    const pidFlags = pids.flatMap((pid) => ["/PID", String(pid)]).join(" ");
+    try {
+      execSync(`taskkill /F /T ${pidFlags}`, { windowsHide: true, stdio: "ignore" });
+    } catch {}
     try {
       execSync("taskkill /F /IM electron.exe", { windowsHide: true, stdio: "ignore" });
     } catch {}
-    recyclePort(VITE_PORT, "Vite Dev Server");
+  } else {
+    for (const child of children) {
+      try {
+        child.kill("SIGTERM");
+      } catch {}
+    }
   }
 
-  setTimeout(() => {
-    process.exit(code);
-  }, 300);
+  console.log(`${c.green}[dev:desktop] 所有服务已安全退出。${c.reset}`);
+  process.exit(code);
 }
 
 process.on("SIGINT", () => cleanupAndExit(0));
