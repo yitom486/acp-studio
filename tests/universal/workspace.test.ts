@@ -81,7 +81,9 @@ describe("workspace and terminal routes", () => {
     }
   });
 
-  it("streams terminal execution output", async () => {
+  // 真 shell 冷启动（尤其 Windows runner 上 PowerShell + Defender 首次
+  // 加载）5s 默认超时不够，第一轮发版即因此 flake；放宽到 30s。
+  it("streams terminal execution output", { timeout: 30000 }, async () => {
     const tmp = os.tmpdir();
     const isWin = process.platform === "win32";
     const command = isWin ? "Write-Output 'acp_terminal_ok'" : "echo 'acp_terminal_ok'";
