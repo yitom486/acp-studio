@@ -46,7 +46,8 @@
     "asarUnpack": [
       "**/*.node",
       "node_modules/node-pty/**/*"
-    ]
+    ],
+    "npmRebuild": false
   },
   "scripts": {
     "dev": "concurrently -k -n \"server,client\" -c \"cyan,green\" \"bun run dev:server\" \"bun run dev:client\"",

@@ -918,12 +918,12 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
   // resize 独立 POST：WS 文本帧全量透传给 shell，不掺控制帧（避免用户
   // 回显命中控制协议的歧义）。
   if (p === "/api/universal/terminal/pty/status" && req.method === "GET") {
-    const { isPtyAvailable } = await import("./pty");
+    const { isPtyAvailable, ptyUnavailableReason } = await import("./pty");
     const available = isPtyAvailable();
     return json({
       ok: true,
       available,
-      reason: available ? null : "node-pty 不可用（Bun 网关请切 dev:server:node 或用 Electron 内置网关）",
+      reason: available ? null : ptyUnavailableReason(),
     });
   }
   if (p === "/api/universal/terminal/pty/resize" && req.method === "POST") {

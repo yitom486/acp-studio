@@ -59,6 +59,10 @@ electron electron-dist/main.cjs   # main 内起网关并打开窗口
   重编（需配好编译工具链：Windows 要 VS Build Tools）。dev 下 Bun 网关无
   PTY（回落单次执行），要真 PTY 请用 `dev:server:node`（Node 网关）或
   Electron 内置网关。
+  例外：`npmRebuild` 已关（`false`）——node-pty 是 N-API 模块，prebuild
+  跨 Node/Electron ABI 通用，源码重编纯属浪费（且本机缺 Spectre 库会编
+  失败，见 MSB8040）；只有换 node-pty 大版本或缺对应平台 prebuild 时才
+  需要开重编（届时配好工具链再开）。
 
 ## GitHub 运维流程
 
