@@ -344,6 +344,7 @@ export default function App() {
 
             <AcpComposer
               onSendAttachmentOnly={() => handleSend("")}
+              onStop={handleStop}
               onClear={() => !s.isStreaming && s.setMessages([])}
               isStreaming={s.isStreaming}
               commands={s.availableCommands}

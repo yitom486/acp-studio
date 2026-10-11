@@ -2,9 +2,27 @@ import React, { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder } from "lucide-react";
+import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
+import { useStudioStore } from "@/stores/useStudioStore";
+
+/** 终端输出写屏上限：超长只保留前 128KB 并注明，避免巨量输出卡死 xterm。 */
+export const TERMINAL_OUTPUT_CAP = 131072;
+
+/**
+ * 输出截断（纯函数，可测）：决定本块写多少、是否已触顶。
+ * 调用方触顶后应 cancel reader 并打印截断提示。
+ */
+export function applyTerminalCap(
+  written: number,
+  chunk: string,
+  cap: number = TERMINAL_OUTPUT_CAP
+): { write: string; capped: boolean } {
+  if (written >= cap) return { write: "", capped: true };
+  if (written + chunk.length > cap) return { write: chunk.slice(0, cap - written), capped: true };
+  return { write: chunk, capped: false };
+}
 
 export interface TerminalDrawerProps {
   isOpen: boolean;
@@ -17,10 +35,15 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [maximized, setMaximized] = useState(false);
+  const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const currentLineRef = useRef("");
   const historyRef = useRef<string[]>([]);
   const historyIdxRef = useRef(-1);
+  // 聊天卡片“在终端中打开”预填的命令（只填行、不执行，消费后清零）。
+  const prefill = useStudioStore((s) => s.terminalPrefill);
 
   // NOTE: xterm is intentionally statically imported here and nowhere else
   // (verified: only this file references @xterm/*). App.tsx lazy-loads this
@@ -112,7 +135,11 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
 
       // Handle key input
       term.onData((data) => {
-        if (runningRef.current) return;
+        // 运行中只响应 Ctrl+C（取消），其余输入丢弃防交错
+        if (runningRef.current) {
+          if (data === "\x03") handleCancel();
+          return;
+        }
 
         // Enter
         if (data === "\r") {
@@ -208,6 +235,11 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     }
   }, [maximized]);
 
+  const handleCancel = () => {
+    abortRef.current?.abort();
+    readerRef.current?.cancel().catch(() => {});
+  };
+
   const executeCommand = async (command: string, term: Terminal) => {
     if (command === "clear" || command === "cls") {
       term.clear();
@@ -223,35 +255,91 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     }
 
     runningRef.current = true;
+    setRunning(true);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     term.writeln("");
+    let written = 0;
     try {
       const res = await fetch("/api/universal/terminal/exec", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: activeCwd, command }),
+        signal: ctrl.signal,
       });
 
       if (!res.ok || !res.body) {
         term.writeln(`\x1b[31m[执行失败: HTTP ${res.status}]\x1b[0m`);
       } else {
         const reader = res.body.getReader();
+        readerRef.current = reader;
         const decoder = new TextDecoder();
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          if (ctrl.signal.aborted) break;
           const text = decoder.decode(value, { stream: true });
           // Normalize newlines for xterm
-          term.write(text.replace(/\r?\n/g, "\r\n"));
+          const normalized = text.replace(/\r?\n/g, "\r\n");
+          const { write, capped } = applyTerminalCap(written, normalized);
+          if (write) {
+            term.write(write);
+            written += write.length;
+          }
+          if (capped) {
+            term.writeln("\r\n\x1b[33m[输出超长，已截断，只保留前 128KB]\x1b[0m");
+            try {
+              await reader.cancel();
+            } catch {
+              // ignore
+            }
+            break;
+          }
         }
       }
     } catch (err: any) {
-      console.error("[TerminalDrawer] command exec failed:", err);
-      term.writeln(`\x1b[31m[错误: ${err.message}]\x1b[0m`);
+      if (ctrl.signal.aborted || err?.name === "AbortError") {
+        term.writeln("\x1b[33m[已取消]\x1b[0m");
+      } else {
+        console.error("[TerminalDrawer] command exec failed:", err);
+        term.writeln(`\x1b[31m[错误: ${err.message}]\x1b[0m`);
+      }
     } finally {
+      readerRef.current = null;
+      abortRef.current = null;
       runningRef.current = false;
+      setRunning(false);
       printPrompt(term);
     }
   };
+
+  // 聊天卡片“在终端中打开”：预填命令到当前行，绝不自动执行。
+  // 抽屉刚打开时终端可能还没建好（同一 effect 内创建），轮询等就绪；
+  // 若有命令正在跑则保留 prefill，等下一轮就绪再填（3s 上限）。
+  useEffect(() => {
+    if (!isOpen || !prefill) return;
+    let cancelled = false;
+    let tries = 0;
+    const attempt = () => {
+      if (cancelled) return;
+      const term = termRef.current;
+      if (term && !runningRef.current) {
+        while (currentLineRef.current.length > 0) {
+          term.write("\b \b");
+          currentLineRef.current = currentLineRef.current.slice(0, -1);
+        }
+        currentLineRef.current = prefill;
+        term.write(prefill);
+        useStudioStore.getState().setTerminalPrefill(null);
+        return;
+      }
+      if (++tries < 30) setTimeout(attempt, 100);
+    };
+    attempt();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, prefill]);
 
   const handleClear = () => {
     if (termRef.current) {
@@ -282,6 +370,18 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         </div>
 
         <div className="flex items-center gap-1 text-muted-foreground">
+          {running && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleCancel}
+              className="h-6 px-1.5 text-[11px] gap-1 text-destructive hover:text-destructive"
+              title="取消当前命令 (Ctrl+C)"
+            >
+              <Square className="w-3 h-3 fill-current" />
+              <span className="hidden sm:inline">停止</span>
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"

@@ -8,6 +8,7 @@ import {
   Search,
   ShieldAlert,
   SquareTerminal,
+  Terminal,
   Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -338,11 +339,32 @@ export const TerminalCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
   const output = toolText(tc.rawOutput);
   const err = toolText(tc.rawError);
   const failed = tc.status === "failed";
+  const openInTerminal = () => {
+    if (!cmd) return;
+    const st = useStudioStore.getState();
+    st.setTerminalPrefill(cmd);
+    st.setTerminalOpen(true);
+  };
   return (
     <CardShell
       icon={<SquareTerminal className="w-3.5 h-3.5 text-primary shrink-0" />}
       title={cmd}
-      right={<LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />}
+      right={
+        <>
+          <LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />
+          {cmd && (
+            <button
+              type="button"
+              onClick={openInTerminal}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-sans transition-colors shrink-0"
+              title="在终端中打开（只填入、不自动执行）"
+            >
+              <Terminal className="w-3 h-3" />
+              <span>终端打开</span>
+            </button>
+          )}
+        </>
+      }
       dot={<StatusDot status={tc.status} />}
     >
       {output || err || tc.status === "running" || tc.status === "pending" ? (

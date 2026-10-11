@@ -25,6 +25,7 @@ import {
   Clock,
   Check,
   FileText,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AnimatedShinyText } from "@/components/magicui/animated-shiny-text";
@@ -51,6 +52,8 @@ export interface AcpComposerProps {
   onEnsureSession?: () => void;
   /** session/new 在途：模型区显示加载态而非“点击加载”。 */
   sessionLoading?: boolean;
+  /** 中断当前生成（插队发送用；需等待其落定再发送）。 */
+  onStop?: () => Promise<void>;
   currentWorkspace?: string | null;
   recentWorkspaces?: Array<{ path: string; name: string; lastOpened: number }>;
   onSelectWorkspace?: (path: string, name?: string) => void;
@@ -399,6 +402,13 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     else if (p.attachments.length > 0) p.onSendAttachmentOnly();
   };
 
+  // 插队发送：中断当前生成，清空跑道后立即发送（排队中的旧消息随后继续）。
+  const handleSteer = async () => {
+    if (!canSendText) return;
+    await p.onStop?.();
+    aui.composer.send();
+  };
+
   return (
     <div className="p-4 md:p-6 bg-background shrink-0 select-none">
       <div className="max-w-3xl mx-auto space-y-2">
@@ -479,7 +489,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
               rows={1}
               onKeyDown={handleInputKeyDown}
               onPaste={handlePaste}
-              placeholder={p.isStreaming ? `${p.agentTitle} 正在响应中…可继续编辑，结束后发送` : `Ask anything, @ to mention, / for actions (随便问点什么)`}
+              placeholder={p.isStreaming ? `${p.agentTitle} 正在响应中…可继续编辑，发送将排队；或点插队立即打断` : `Ask anything, @ to mention, / for actions (随便问点什么)`}
               className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none max-h-48 min-h-[46px]"
             />
             <div className="flex items-center justify-between px-3 pb-2 pt-1 text-xs gap-2">
@@ -566,24 +576,37 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                 </button>
 
                 {canCancel ? (
-                  <ComposerPrimitive.Cancel asChild>
-                    <button
-                      type="button"
-                      title="停止生成"
-                      className="h-7 px-2.5 rounded-full bg-destructive text-destructive-foreground hover:opacity-90 flex items-center gap-1 text-xs font-medium cursor-pointer"
-                    >
-                      <Square className="w-3 h-3 fill-current" />
-                      <span>停止</span>
-                    </button>
-                  </ComposerPrimitive.Cancel>
+                  <>
+                    {canSendText && (
+                      <button
+                        type="button"
+                        onClick={handleSteer}
+                        title="插队发送：中断当前生成并立即发送（排队中的消息随后继续）"
+                        className="h-7 px-2.5 rounded-full border border-warning/50 text-warning hover:bg-warning/10 flex items-center gap-1 text-xs font-medium cursor-pointer transition-colors"
+                      >
+                        <Zap className="w-3 h-3" />
+                        <span>插队</span>
+                      </button>
+                    )}
+                    <ComposerPrimitive.Cancel asChild>
+                      <button
+                        type="button"
+                        title="停止生成"
+                        className="h-7 px-2.5 rounded-full bg-destructive text-destructive-foreground hover:opacity-90 flex items-center gap-1 text-xs font-medium cursor-pointer"
+                      >
+                        <Square className="w-3 h-3 fill-current" />
+                        <span>停止</span>
+                      </button>
+                    </ComposerPrimitive.Cancel>
+                  </>
                 ) : (
                   <button
                     type="button"
                     onClick={handleSendClick}
-                    disabled={!canSendAny || p.isStreaming}
-                    title="发送消息"
+                    disabled={!canSendAny || (p.isStreaming && !canSendText)}
+                    title={p.isStreaming ? "发送（将在当前生成结束后排队执行）" : "发送消息"}
                     className={`h-7 w-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                      canSendAny && !p.isStreaming
+                      canSendText || (!p.isStreaming && canSendAny)
                         ? "bg-foreground text-background hover:opacity-90 shadow-xs"
                         : "bg-muted text-muted-foreground/50 opacity-60 cursor-not-allowed"
                     }`}
@@ -724,7 +747,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
           </div>
 
           <div className="text-[10px] font-mono text-muted-foreground/50 hidden sm:inline">
-            Enter 发送 · Shift+Enter 换行 · / 命令
+            {p.isStreaming ? "Enter 排队 · 插队立即打断 · Shift+Enter 换行" : "Enter 发送 · Shift+Enter 换行 · / 命令"}
           </div>
         </div>
       </div>

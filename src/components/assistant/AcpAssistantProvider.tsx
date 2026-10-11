@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AssistantRuntimeProvider,
+  createMessageQueue,
   useExternalStoreRuntime,
   type AppendMessage,
 } from "@assistant-ui/react";
@@ -9,7 +10,7 @@ import { convertAcpMessages, extractAppendText } from "@/lib/acp-assistant";
 
 export interface AcpAssistantProviderProps {
   children: React.ReactNode;
-  onSend: (text?: string) => void;
+  onSend: (text?: string) => void | Promise<void>;
   onStop: () => void;
 }
 
@@ -27,6 +28,8 @@ export const ACP_THREAD_PAGE_SIZE = 30;
  * - onCancel: existing handleStop (abort + session/cancel RPC)
  * - onReload: re-send last user text through the same ACP path
  * - onEdit: truncate the ACP transcript at the edited message, then resend
+ * - queue: sends during a run buffer and drain in order (排队); cancel
+ *   pauses draining instead of dropping; edit/reload clear stale items
  */
 export const AcpAssistantProvider: React.FC<AcpAssistantProviderProps> = ({
   children,
@@ -51,6 +54,44 @@ export const AcpAssistantProvider: React.FC<AcpAssistantProviderProps> = ({
 
   const converted = useMemo(() => convertAcpMessages(visibleMessages), [visibleMessages]);
 
+  // Message queue (排队): sends during a run buffer instead of dropping.
+  // All runs funnel through onSend/handleSend, so run settle is observed
+  // via the isStreaming edges below; the driver only dispatches.
+  const onSendRef = useRef(onSend);
+  const busyEdges = useRef(0);
+  const wasRunning = useRef(isStreaming);
+  useLayoutEffect(() => {
+    onSendRef.current = onSend;
+  }, [onSend]);
+
+  const [queue] = useState(() => {
+    const controller = createMessageQueue({
+      run: async (message) => {
+        const edgesAtDispatch = busyEdges.current;
+        controller.notifyBusy();
+        try {
+          await onSendRef.current(extractAppendText(message));
+        } finally {
+          if (busyEdges.current === edgesAtDispatch && !wasRunning.current) {
+            controller.notifyIdle();
+          }
+        }
+      },
+    });
+    if (isStreaming) controller.notifyBusy();
+    return controller;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+
+  useEffect(() => {
+    if (!wasRunning.current && isStreaming) {
+      busyEdges.current++;
+      queue.notifyBusy();
+    }
+    if (wasRunning.current && !isStreaming) queue.notifyIdle();
+    wasRunning.current = isStreaming;
+  }, [isStreaming, queue]);
+
   const runtime = useExternalStoreRuntime({
     messages: converted,
     convertMessage: (m) => m,
@@ -59,6 +100,7 @@ export const AcpAssistantProvider: React.FC<AcpAssistantProviderProps> = ({
     onLoadEarlier: async () => {
       setVisibleCount((c) => c + ACP_THREAD_PAGE_SIZE);
     },
+    queue: queue.adapter,
     onNew: async (message: AppendMessage) => {
       onSend(extractAppendText(message));
     },
@@ -67,11 +109,13 @@ export const AcpAssistantProvider: React.FC<AcpAssistantProviderProps> = ({
     },
     // Regenerate last turn: re-send last user text through the same ACP path.
     onReload: async () => {
+      queue.clear();
       const st = useStudioStore.getState();
       const lastUser = [...st.messages].reverse().find((m) => m.role === "user");
       if (lastUser) onSend(lastUser.content);
     },
     onEdit: async (message: AppendMessage) => {
+      queue.clear();
       const text = extractAppendText(message);
       const st = useStudioStore.getState();
       // Docs pattern: parentId points at the message before the edited one,
