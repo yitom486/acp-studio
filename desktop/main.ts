@@ -258,4 +258,14 @@ if (!app.requestSingleInstanceLock()) {
       console.warn(`[Electron] 退出前关闭桥接失败：${(err as Error)?.message || err}`);
     });
   });
+
+  const handleSignal = () => {
+    try {
+      gateway?.close();
+    } catch {}
+    app.quit();
+  };
+  process.on("SIGINT", handleSignal);
+  process.on("SIGTERM", handleSignal);
 }
+
