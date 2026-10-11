@@ -1,8 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon } from "@xterm/addon-search";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import "@xterm/xterm/css/xterm.css";
-import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder, Square } from "lucide-react";
+import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder, Square, Search, ChevronUp, ChevronDown, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 import { useStudioStore } from "@/stores/useStudioStore";
@@ -94,6 +98,14 @@ export interface TerminalDrawerProps {
   cwd: string | null;
 }
 
+/**
+ * 导出文件名（纯函数，可测）：terminal-<目录短名>-<时间戳>.log。
+ */
+export function buildTerminalExportFilename(cwd: string, now: number = Date.now()): string {
+  const short = (cwd.split(/[/\\]/).filter(Boolean).pop() || "terminal").replace(/[^\w\-一-鿿]+/g, "_");
+  return `terminal-${short}-${now}.log`;
+}
+
 /** 浮动终端几何（纯函数，可测；组件只负责指针事件接线）。 */
 export interface TerminalGeom {
   x: number;
@@ -180,6 +192,11 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   const [maximized, setMaximized] = useState(false);
   const [running, setRunning] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [searchCount, setSearchCount] = useState(0);
+  const searchAddonRef = useRef<SearchAddon | null>(null);
+  const serializeAddonRef = useRef<SerializeAddon | null>(null);
   const [geom, setGeom] = useState<TerminalGeom | null>(null);
   // 拖拽会话（pointer down 时快照，move 时按增量换算，避免闭包过期）。
   const dragRef = useRef<{
@@ -260,6 +277,25 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
 
       const fit = new FitAddon();
       term.loadAddon(fit);
+      // 链接可点（输出里的 URL/文件路径直接打开）
+      term.loadAddon(new WebLinksAddon());
+      // CJK/emoji 列宽按 unicode11（中文输出不对齐的根治）
+      const unicode11 = new Unicode11Addon();
+      term.loadAddon(unicode11);
+      term.unicode.activeVersion = "11";
+      // 回滚搜索（Ctrl+F 搜索条）
+      const search = new SearchAddon();
+      term.loadAddon(search);
+      searchAddonRef.current = search;
+      try {
+        search.onDidChangeResults((e) => setSearchCount(e.resultCount));
+      } catch {
+        // 旧版 addon 无此事件：计数保持 0，只上下跳转
+      }
+      // 回滚导出（.log 下载）
+      const serialize = new SerializeAddon();
+      term.loadAddon(serialize);
+      serializeAddonRef.current = serialize;
       term.open(containerRef.current);
       termRef.current = term;
       fitAddonRef.current = fit;
@@ -279,6 +315,16 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         // 运行中只响应 Ctrl+C（取消），其余输入丢弃防交错
         if (runningRef.current) {
           if (data === "\x03") handleCancel();
+          return;
+        }
+
+        // Ctrl+F 搜索回滚 / Ctrl+L 清屏
+        if (data === "\x06") {
+          setSearchOpen(true);
+          return;
+        }
+        if (data === "\x0c") {
+          handleClear();
           return;
         }
 
@@ -461,7 +507,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
       raf = requestAnimationFrame(fit);
     });
     return () => cancelAnimationFrame(raf);
-  }, [maximized, geom, isOpen]);
+  }, [maximized, geom, isOpen, searchOpen]);
 
   const handleCancel = () => {
     abortRef.current?.abort();
@@ -576,6 +622,33 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     }
   };
 
+  // 搜索条：输入即跳首个命中；关闭时清高亮。
+  useEffect(() => {
+    const addon = searchAddonRef.current;
+    if (!addon || !termRef.current) return;
+    if (!searchOpen || !searchText) {
+      try {
+        addon.clearActiveDecoration();
+      } catch {
+        // 旧版 addon 无此 API：忽略
+      }
+      return;
+    }
+    addon.findNext(searchText);
+  }, [searchOpen, searchText]);
+
+  const handleExport = () => {
+    const addon = serializeAddonRef.current;
+    if (!addon) return;
+    const blob = new Blob([addon.serialize()], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = buildTerminalExportFilename(activeCwd);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
   if (!isOpen) return null;
 
   // 最大化：占视口主体（留边），禁用拖拽/缩放。
@@ -633,6 +706,24 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
           <Button
             size="sm"
             variant="ghost"
+            onClick={() => setSearchOpen((v) => !v)}
+            className={`h-6 w-6 p-0 ${searchOpen ? "text-foreground bg-muted" : "hover:text-foreground"}`}
+            title="搜索回滚 (Ctrl+F)"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleExport}
+            className="h-6 w-6 p-0 hover:text-foreground"
+            title="导出回滚为 .log"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={handleClear}
             className="h-6 px-1.5 text-[11px] gap-1 hover:text-foreground"
             title="清屏 (Ctrl+L / clear)"
@@ -662,6 +753,62 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
           </Button>
         </div>
       </div>
+
+      {/* 搜索条 */}
+      {searchOpen && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/70 bg-muted/40 text-xs shrink-0">
+          <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <input
+            autoFocus
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (e.shiftKey) searchAddonRef.current?.findPrevious(searchText);
+                else searchAddonRef.current?.findNext(searchText);
+              } else if (e.key === "Escape") {
+                setSearchOpen(false);
+                setSearchText("");
+              }
+            }}
+            placeholder="搜索回滚… Enter 下一个 · Shift+Enter 上一个 · Esc 关闭"
+            className="flex-1 min-w-0 bg-transparent outline-none placeholder:text-muted-foreground/60 text-foreground"
+          />
+          {searchText && (
+            <span className="font-mono text-[10px] text-muted-foreground tabular-nums shrink-0">
+              {searchCount > 0 ? `${searchCount} 命中` : "无命中"}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => searchAddonRef.current?.findPrevious(searchText)}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title="上一个 (Shift+Enter)"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => searchAddonRef.current?.findNext(searchText)}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title="下一个 (Enter)"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen(false);
+              setSearchText("");
+            }}
+            className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
+            title="关闭 (Esc)"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Terminal Body（底色跟主题卡片走，xterm 画布同色无接缝） */}
       <div className="flex-1 p-2 bg-card overflow-hidden" ref={containerRef} />

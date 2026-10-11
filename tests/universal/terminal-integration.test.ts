@@ -3,7 +3,7 @@ import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { TerminalCard } from "@/components/assistant/AcpToolWidgets";
-import { applyTerminalCap, TERMINAL_OUTPUT_CAP, defaultTerminalGeom, clampTerminalGeom, moveTerminalGeom, resizeTerminalGeom, buildXtermTheme, readTerminalCssVars, isLightTerminalTheme } from "@/components/universal/TerminalDrawer";
+import { applyTerminalCap, TERMINAL_OUTPUT_CAP, defaultTerminalGeom, clampTerminalGeom, moveTerminalGeom, resizeTerminalGeom, buildXtermTheme, readTerminalCssVars, isLightTerminalTheme, buildTerminalExportFilename } from "@/components/universal/TerminalDrawer";
 import { useStudioStore } from "@/stores/useStudioStore";
 
 describe("terminal integration (P0/P1)", () => {
@@ -120,5 +120,12 @@ describe("terminal integration (P0/P1)", () => {
     const vars = readTerminalCssVars();
     expect(vars.card).toBeTruthy();
     expect(isLightTerminalTheme()).toBe(false);
+  });
+
+  it("builds export filenames from workspace short name", () => {
+    expect(buildTerminalExportFilename("D:/project/js/Electron/antigravity-acp", 1234567890)).toBe(
+      "terminal-antigravity-acp-1234567890.log"
+    );
+    expect(buildTerminalExportFilename("", 1)).toBe("terminal-terminal-1.log");
   });
 });
