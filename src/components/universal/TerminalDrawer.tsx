@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder, Square } from "lucide-react";
@@ -22,6 +22,70 @@ export function applyTerminalCap(
   if (written >= cap) return { write: "", capped: true };
   if (written + chunk.length > cap) return { write: chunk.slice(0, cap - written), capped: true };
   return { write: chunk, capped: false };
+}
+
+/** xterm 配色所需的主题通道（读自 :root 计算样式，随 data-theme 切换）。 */
+export interface TerminalCssVars {
+  background: string;
+  card: string;
+  cardForeground: string;
+  primary: string;
+}
+
+/** 读主题变量；非浏览器/DOM 缺省时回退深色默认（happy-dom 单测走此分支）。 */
+export function readTerminalCssVars(): TerminalCssVars {
+  const fallback: TerminalCssVars = {
+    background: "#0b0e14",
+    card: "#11151d",
+    cardForeground: "#e2e8f0",
+    primary: "#38bdf8",
+  };
+  try {
+    const cs = getComputedStyle(document.documentElement);
+    const pick = (name: string, fb: string) => {
+      const v = cs.getPropertyValue(name).trim();
+      return v ? `hsl(${v})` : fb;
+    };
+    return {
+      background: pick("--background", fallback.background),
+      card: pick("--card", fallback.card),
+      cardForeground: pick("--card-foreground", fallback.cardForeground),
+      primary: pick("--primary", fallback.primary),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+/** 只有 light 主题是浅色（见 useThemeStore.THEMES），其余 dark/oled/dim 皆深色。 */
+export function isLightTerminalTheme(): boolean {
+  try {
+    return document.documentElement.getAttribute("data-theme") === "light";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 主题感知 xterm 配色（纯函数，可测）：底/字/光标跟随主题卡片，
+ * ANSI 语义色在浅色下压暗保对比（尤其 black/white 必须对调，否则白底看不见）。
+ */
+export function buildXtermTheme(vars: TerminalCssVars, light: boolean): ITheme {
+  return {
+    background: vars.card,
+    foreground: vars.cardForeground,
+    cursor: vars.primary,
+    cursorAccent: vars.card,
+    selectionBackground: light ? "rgba(37, 99, 235, 0.25)" : "rgba(56, 189, 248, 0.3)",
+    black: light ? "#64748b" : "#1e293b",
+    red: light ? "#dc2626" : "#f87171",
+    green: light ? "#16a34a" : "#4ade80",
+    yellow: light ? "#a16207" : "#facc15",
+    blue: light ? "#2563eb" : "#60a5fa",
+    magenta: light ? "#9333ea" : "#c084fc",
+    cyan: light ? "#0891b2" : "#38bdf8",
+    white: light ? "#1e293b" : "#f8fafc",
+  };
 }
 
 export interface TerminalDrawerProps {
@@ -176,33 +240,22 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     const short = hasCwd
       ? activeCwd.split(/[/\\]/).filter(Boolean).pop() || activeCwd
       : "（未选择目录）";
-    t.write(`\r\n\x1b[36mPS ${short}\x1b[0m\x1b[90m>\x1b[0m `);
+    // 浅色下青色对比不足，改用蓝色；深色保持青色。
+    const accent = isLightTerminalTheme() ? "\x1b[34m" : "\x1b[36m";
+    t.write(`\r\n${accent}PS ${short}\x1b[0m\x1b[90m>\x1b[0m `);
   };
 
   useEffect(() => {
     if (!isOpen || !containerRef.current) return;
 
     if (!termRef.current) {
+      const vars = readTerminalCssVars();
       const term = new Terminal({
         cursorBlink: true,
         fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
         fontSize: 12,
         lineHeight: 1.25,
-        theme: {
-          background: "#0b0e14",
-          foreground: "#e2e8f0",
-          cursor: "#38bdf8",
-          cursorAccent: "#0b0e14",
-          selectionBackground: "rgba(56, 189, 248, 0.3)",
-          black: "#1e293b",
-          red: "#f87171",
-          green: "#4ade80",
-          yellow: "#facc15",
-          blue: "#60a5fa",
-          magenta: "#c084fc",
-          cyan: "#38bdf8",
-          white: "#f8fafc",
-        },
+        theme: buildXtermTheme(vars, isLightTerminalTheme()),
       });
 
       const fit = new FitAddon();
@@ -315,6 +368,17 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     return () => clearTimeout(timer);
   }, [isOpen, activeCwd]);
 
+  // 主题切换时热更新 xterm 配色（不重建终端，输入行/历史保留）。
+  useEffect(() => {
+    if (!isOpen) return;
+    const apply = () => {
+      const term = termRef.current;
+      if (term) term.options.theme = buildXtermTheme(readTerminalCssVars(), isLightTerminalTheme());
+    };
+    const mo = new MutationObserver(apply);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class", "style"] });
+    return () => mo.disconnect();
+  }, [isOpen]);
   // 首次打开时初始化几何：localStorage 优先，校验后按视口钳制。
   useEffect(() => {
     if (!isOpen) return;
@@ -599,8 +663,8 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         </div>
       </div>
 
-      {/* Terminal Body */}
-      <div className="flex-1 p-2 bg-[#0b0e14] overflow-hidden" ref={containerRef} />
+      {/* Terminal Body（底色跟主题卡片走，xterm 画布同色无接缝） */}
+      <div className="flex-1 p-2 bg-card overflow-hidden" ref={containerRef} />
 
       {/* 八向缩放手柄（最大化时隐藏；拖拽中保持命中） */}
       {!maximized && (

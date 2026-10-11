@@ -3,7 +3,7 @@ import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { TerminalCard } from "@/components/assistant/AcpToolWidgets";
-import { applyTerminalCap, TERMINAL_OUTPUT_CAP, defaultTerminalGeom, clampTerminalGeom, moveTerminalGeom, resizeTerminalGeom } from "@/components/universal/TerminalDrawer";
+import { applyTerminalCap, TERMINAL_OUTPUT_CAP, defaultTerminalGeom, clampTerminalGeom, moveTerminalGeom, resizeTerminalGeom, buildXtermTheme, readTerminalCssVars, isLightTerminalTheme } from "@/components/universal/TerminalDrawer";
 import { useStudioStore } from "@/stores/useStudioStore";
 
 describe("terminal integration (P0/P1)", () => {
@@ -100,5 +100,25 @@ describe("terminal integration (P0/P1)", () => {
     expect(squeezed.x).toBe(100 + 500 - 380);
     // 北边下拉：y 前进、高收缩
     expect(resizeTerminalGeom(g, "n", 0, 40, 1600, 900)).toMatchObject({ y: 140, h: 260 });
+  });
+
+  it("builds a theme-aware xterm palette (no more hardcoded black)", () => {
+    const vars = { background: "#fff", card: "#ffffff", cardForeground: "#111", primary: "#257" };
+    const dark = buildXtermTheme(vars, false);
+    expect(dark.background).toBe("#ffffff");
+    expect(dark.foreground).toBe("#111");
+    expect(dark.cursor).toBe("#257");
+    expect(dark.white).toBe("#f8fafc");
+    const light = buildXtermTheme(vars, true);
+    // 浅色下 black/white 对调，否则白底看不见字
+    expect(light.black).toBe("#64748b");
+    expect(light.white).toBe("#1e293b");
+    expect(light.red).toBe("#dc2626");
+  });
+
+  it("falls back to dark defaults when CSS vars are unavailable", () => {
+    const vars = readTerminalCssVars();
+    expect(vars.card).toBeTruthy();
+    expect(isLightTerminalTheme()).toBe(false);
   });
 });
