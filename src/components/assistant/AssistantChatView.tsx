@@ -595,7 +595,7 @@ const AssistantMessageView: React.FC<{ agentName: string }> = ({ agentName }) =>
       </div>
       <div className="relative overflow-hidden max-w-[85%] rounded-2xl rounded-tl-xs p-4 sm:p-5 space-y-3 shadow-md bg-card/90 border border-border text-foreground backdrop-blur-md">
         {running && (
-          <span className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-primary/80 to-transparent animate-pulse" />
+          <span className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-linear-to-r from-transparent via-primary/80 to-transparent animate-pulse" />
         )}
         <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">
           <div className="flex items-center gap-2">
