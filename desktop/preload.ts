@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld("acpStudio", {
   },
   openDirectory: (): Promise<string | null> => ipcRenderer.invoke("dialog:openDirectory"),
   openPath: (p: string): Promise<void> => ipcRenderer.invoke("shell:openPath", p),
+  setTitleBarOverlay: (opts: { color?: string; symbolColor?: string; height?: number }): Promise<void> =>
+    ipcRenderer.invoke("window:setTitleBarOverlay", opts),
+  minimize: (): Promise<void> => ipcRenderer.invoke("window:minimize"),
+  maximize: (): Promise<void> => ipcRenderer.invoke("window:maximize"),
+  close: (): Promise<void> => ipcRenderer.invoke("window:close"),
+  isMaximized: (): Promise<boolean> => ipcRenderer.invoke("window:isMaximized"),
 });
 
 declare global {
@@ -19,6 +25,11 @@ declare global {
       versions: Record<string, string | undefined>;
       openDirectory?: () => Promise<string | null>;
       openPath?: (p: string) => Promise<void>;
+      setTitleBarOverlay?: (opts: { color?: string; symbolColor?: string; height?: number }) => Promise<void>;
+      minimize?: () => Promise<void>;
+      maximize?: () => Promise<void>;
+      close?: () => Promise<void>;
+      isMaximized?: () => Promise<boolean>;
     };
   }
 }

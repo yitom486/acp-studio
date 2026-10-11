@@ -14,6 +14,9 @@ import * as acp from "@agentclientprotocol/sdk";
 
 let sessSeq = 0;
 const cancelledSessions = new Set<string>();
+const sessionCwds = new Map<string, string>();
+const sessionMcpServers = new Map<string, unknown[]>();
+
 
 const app = acp
   .agent({ name: "mock-acp-agent", version: "1.0.0" })
@@ -35,6 +38,8 @@ const app = acp
   })
   .onRequest(acp.methods.agent.session.new, async (ctx) => {
     const sessionId = `mock-session-${++sessSeq}`;
+    sessionCwds.set(sessionId, ctx.params.cwd);
+    sessionMcpServers.set(sessionId, ctx.params.mcpServers || []);
     return {
       sessionId,
       models: {
@@ -92,6 +97,24 @@ const app = acp
     const imageBlocks = (prompt || []).filter((b: any) => b.type === "image");
 
     cancelledSessions.delete(sessionId);
+
+    // Scenario: Inspect Session CWD and McpServers
+    if (promptText.includes("trigger_inspect_session")) {
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: JSON.stringify({
+              cwd: sessionCwds.get(sessionId),
+              mcpServers: sessionMcpServers.get(sessionId),
+            }),
+          },
+        },
+      });
+      return { stopReason: "end_turn" };
+    }
 
     // Scenario: Interactive Permission Request
     if (promptText.includes("trigger_permission")) {

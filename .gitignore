@@ -3,6 +3,8 @@ dist/
 .tmp-node/
 electron-dist/
 release/
+release-local/
+release-node/
 .acp-tmp/
 *.local
 .env

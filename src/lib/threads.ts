@@ -15,6 +15,8 @@ export interface ChatThread {
   sessionId: string | null;
   /** cwd the session was created/opened with (needed for session/resume). */
   cwd?: string | null;
+  /** MCP servers bound to this thread (carried into auto new/resume). */
+  mcpServers?: unknown[];
   title?: string | null;
   messages: Message[];
   updatedAt: number;

@@ -10,6 +10,8 @@ import { PermissionDialog } from "@/components/universal/PermissionDialog";
 import { ElicitationCard } from "@/components/universal/ElicitationCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SessionSettings } from "@/components/universal/SessionSettingsModal";
+import { TitleBar } from "@/components/universal/TitleBar";
+import { useThemeStore } from "@/stores/useThemeStore";
 
 /**
  * Heavy modals/drawers are code-split so the first paint only ships the
@@ -191,9 +193,9 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents]);
 
-  // Boot: instant-render the agent's last thread from local cache (layer 1:
-  // zero network; Inkdown-style zustand/persist equivalent).
+  // Boot: instant-render the agent's last thread from local cache and init theme.
   useEffect(() => {
+    useThemeStore.getState().initTheme();
     const st = useStudioStore.getState();
     if (!restoreThread(st.activeAgentId)) newThread(st.activeAgentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -315,15 +317,17 @@ export default function App() {
   const ensureSession = async (agentId: string = s.activeAgentId, force = false): Promise<string | null> => {
     const st = useStudioStore.getState();
     if (!force && st.sessionId && agentId === st.activeAgentId) return st.sessionId;
-    if (st.isStreaming || st.busy) return null;
+    if (!force && (st.isStreaming || st.busy)) return null;
     st.setSessionLoading(true);
     try {
       const known = agents.find((a) => a.id === agentId)?.status?.connected;
       if (!known) await connectAgent(agentId);
       const reqCwd = st.currentWorkspace || undefined;
-      const res: any = await sessionNew(agentId, { ...(reqCwd ? { cwd: reqCwd } : {}) });
+      // Auto-created sessions inherit the agent thread's MCP servers.
+      const autoServers = st.threadMcpServers(agentId);
+      const res: any = await sessionNew(agentId, { ...(reqCwd ? { cwd: reqCwd } : {}), ...(autoServers?.length ? { mcpServers: autoServers } : {}) });
       st.applySessionResult(res);
-      bindThreadSession(useStudioStore.getState().sessionId, reqCwd);
+      bindThreadSession(useStudioStore.getState().sessionId, reqCwd, autoServers);
       st.setAuthOk(agentId, true);
       st.setSessionError(null);
       invalidateSessions(qc, agentId);
@@ -383,7 +387,8 @@ export default function App() {
       const result: any = await sessionRpc(agentId, "resume", {
         sessionId: sid,
         ...(thread.cwd || st.currentWorkspace ? { cwd: thread.cwd || st.currentWorkspace } : {}),
-        mcpServers: [],
+        // Carry the thread's MCP servers so auto-resume keeps working tools.
+        mcpServers: thread.mcpServers ?? [],
       });
       return { resumed: true, result };
     } catch {
@@ -463,7 +468,7 @@ export default function App() {
       // 先开新线程，再应用新会话的 modes/models/config
       newThread(agentId);
       st.applySessionResult(res);
-      bindThreadSession(useStudioStore.getState().sessionId, reqCwd);
+      bindThreadSession(useStudioStore.getState().sessionId, reqCwd, settings.mcpServers);
       st.setAuthOk(agentId, true);
       st.setSettingsOpen(false);
       invalidateAgents(qc);
@@ -648,12 +653,12 @@ export default function App() {
         const { result, replayed } = await loadSession(agentId, {
           sessionId: item.sessionId,
           cwd: effectiveCwd,
-          mcpServers: [],
+          mcpServers: useStudioStore.getState().threadMcpServers(agentId) ?? [],
         });
         const t = buildTranscriptFromReplay(replayed || []);
         const cur = useStudioStore.getState();
         cur.setSessionId(item.sessionId);
-        cur.bindThreadSession(item.sessionId, effectiveCwd || null);
+        cur.bindThreadSession(item.sessionId, effectiveCwd || null, cur.threadMcpServers(agentId));
         if (t.sessionTitle || t.sessionGoal !== undefined) {
           cur.setSessionInfo({
             ...(cur.sessionInfo || {}),
@@ -734,10 +739,10 @@ export default function App() {
         const workspaceCwd = useStudioStore.getState().currentWorkspace || "";
         const effectiveCwd = item.cwd || workspaceCwd;
         try {
-          const resumeRes: any = await sessionRpc(agentId, "resume", { sessionId: item.sessionId, cwd: effectiveCwd, mcpServers: [] });
+          const resumeRes: any = await sessionRpc(agentId, "resume", { sessionId: item.sessionId, cwd: effectiveCwd, mcpServers: useStudioStore.getState().threadMcpServers(agentId) ?? [] });
           const cur = useStudioStore.getState();
           cur.setSessionId(item.sessionId);
-          cur.bindThreadSession(item.sessionId, effectiveCwd || null);
+          cur.bindThreadSession(item.sessionId, effectiveCwd || null, cur.threadMcpServers(agentId));
           if (resumeRes?.modes) cur.setModes(resumeRes.modes);
           if (resumeRes?.models) cur.setModels(resumeRes.models);
           if (resumeRes?.configOptions) cur.setConfigOptions(resumeRes.configOptions);
@@ -747,7 +752,7 @@ export default function App() {
           // id still works — attach bare instead of hitting a dead end.
           const cur = useStudioStore.getState();
           cur.setSessionId(item.sessionId);
-          cur.bindThreadSession(item.sessionId, effectiveCwd || null);
+          cur.bindThreadSession(item.sessionId, effectiveCwd || null, cur.threadMcpServers(agentId));
           cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已切换到会话（该 Agent 未提供历史回放，直接继续对话即可）。`, timestamp: now() }]);
         }
       }
@@ -775,7 +780,7 @@ export default function App() {
       const cur = useStudioStore.getState();
       cur.newThread(agentId);
       cur.applySessionResult(res);
-      cur.bindThreadSession(useStudioStore.getState().sessionId, info?.cwd || null);
+      cur.bindThreadSession(useStudioStore.getState().sessionId, info?.cwd || null, cur.threadMcpServers(agentId));
       cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已从 ${source.slice(0, 8)}… fork 出新会话。`, timestamp: now() }]);
       invalidateSessions(qc, agentId);
     } catch (e: any) {
@@ -933,6 +938,7 @@ export default function App() {
         sid = await resolveSession(agentId);
         if (!sid) throw new Error("无法创建会话");
       }
+      st.setStreaming(true);
       const cur = useStudioStore.getState();
       await consumeUniversalChat(
         { agentId, sessionId: sid, prompt: blocks },
@@ -1107,83 +1113,88 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden select-text">
-      <Sidebar
-        agents={agents}
-        activeAgentId={s.activeAgentId}
-        onSelectAgent={handleSelectAgent}
-        onConnectAgent={handleConnect}
-        connectingId={s.connectingId}
-        cleaningEmpty={cleaningEmpty}
-        onCleanupEmpty={handleCleanupEmpty}
-        authOk={s.authOk}
-        sessions={sessions}
-        sessionsLoading={sessionsQuery.isFetching}
-        activeSessionId={s.sessionId}
-        onRefreshSessions={() => invalidateSessions(qc, s.activeAgentId)}
-        onNewSession={() => s.setSettingsOpen(true)}
-        onOpenSession={handleOpenSession}
-        onForkSession={(item) => handleForkSession(item.sessionId)}
-        onDeleteSession={handleDeleteSession}
-        supportsFork={supportsFork}
-        supportsList={supportsList}
-        onOpenProviders={() => s.setProvidersOpen(true)}
-        supportsProviders={supportsProviders}
-        onManageCustom={() => setCustomOpen(true)}
-      />
+    <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-text">
+      {/* Layer 1: Clean Window TitleBar (Replaces white system title bar with matched theme chrome) */}
+      <TitleBar />
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <StudioHeader
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        <Sidebar
           agents={agents}
           activeAgentId={s.activeAgentId}
           onSelectAgent={handleSelectAgent}
-          onConnect={() => handleConnect()}
-          connecting={s.connectingId === s.activeAgentId}
-          onOpenAuth={() => s.setAuthOpen(true)}
-          onLogout={async () => {
-            try {
-              await logoutAgent(s.activeAgentId);
-              invalidateAgents(qc);
-            } catch (e: any) {
-              alert(`logout 失败: ${e.message}`);
-            }
-          }}
-          authOk={s.authOk[s.activeAgentId] ?? null}
-          sessionId={s.sessionId}
-          sessionTitle={s.sessionInfo?.title}
-          usage={s.usage}
-          currentWorkspace={s.currentWorkspace}
-          recentWorkspaces={s.recentWorkspaces}
-          onSelectWorkspace={(p, name) => s.setWorkspace(p, name)}
-          terminalOpen={s.terminalOpen}
-          onToggleTerminal={() => s.setTerminalOpen(!s.terminalOpen)}
-          hasChangesCwd={!!effectiveCwd}
-          supportsFork={supportsFork}
-          supportsProviders={supportsProviders}
-          busy={s.busy || s.isStreaming}
-          isStreaming={s.isStreaming}
+          onConnectAgent={handleConnect}
+          connectingId={s.connectingId}
+          cleaningEmpty={cleaningEmpty}
+          onCleanupEmpty={handleCleanupEmpty}
+          authOk={s.authOk}
+          sessions={sessions}
+          sessionsLoading={sessionsQuery.isFetching}
+          activeSessionId={s.sessionId}
+          onRefreshSessions={() => invalidateSessions(qc, s.activeAgentId)}
           onNewSession={() => s.setSettingsOpen(true)}
-          onForkSession={() => handleForkSession()}
+          onOpenSession={handleOpenSession}
+          onForkSession={(item) => handleForkSession(item.sessionId)}
+          onDeleteSession={handleDeleteSession}
+          supportsFork={supportsFork}
+          supportsList={supportsList}
           onOpenProviders={() => s.setProvidersOpen(true)}
-          onOpenChanges={() => s.setGitChangesOpen(true)}
-          onCloseSession={async () => {
-            const cur = useStudioStore.getState();
-            if (!cur.sessionId) return;
-            await sessionRpc(cur.activeAgentId, "close", { sessionId: cur.sessionId }).catch((e: any) => alert(e.message));
-            cur.setSessionId(null);
-            invalidateSessions(qc, cur.activeAgentId);
-          }}
-          onDeleteSession={async () => {
-            const cur = useStudioStore.getState();
-            if (!cur.sessionId) return;
-            if (!confirm(`删除会话 ${cur.sessionId}？`)) return;
-            await sessionRpc(cur.activeAgentId, "delete", { sessionId: cur.sessionId }).catch((e: any) => alert(e.message));
-            cur.setSessionId(null);
-            cur.resetThread();
-            invalidateSessions(qc, cur.activeAgentId);
-          }}
-          onClearMessages={() => !s.isStreaming && s.setMessages([])}
+          supportsProviders={supportsProviders}
+          onManageCustom={() => setCustomOpen(true)}
         />
+
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Layer 2: Retained Lower Workbench Header (Agent, Workspace, Session, Changes, Terminal, New Session, More...) */}
+          <StudioHeader
+            agents={agents}
+            activeAgentId={s.activeAgentId}
+            onSelectAgent={handleSelectAgent}
+            onConnect={() => handleConnect()}
+            connecting={s.connectingId === s.activeAgentId}
+            onOpenAuth={() => s.setAuthOpen(true)}
+            onLogout={async () => {
+              try {
+                await logoutAgent(s.activeAgentId);
+                invalidateAgents(qc);
+              } catch (e: any) {
+                alert(`logout 失败: ${e.message}`);
+              }
+            }}
+            authOk={s.authOk[s.activeAgentId] ?? null}
+            sessionId={s.sessionId}
+            sessionTitle={s.sessionInfo?.title}
+            usage={s.usage}
+            currentWorkspace={s.currentWorkspace}
+            recentWorkspaces={s.recentWorkspaces}
+            onSelectWorkspace={(p, name) => s.setWorkspace(p, name)}
+            terminalOpen={s.terminalOpen}
+            onToggleTerminal={() => s.setTerminalOpen(!s.terminalOpen)}
+            hasChangesCwd={!!effectiveCwd}
+            supportsFork={supportsFork}
+            supportsProviders={supportsProviders}
+            busy={s.busy || s.isStreaming}
+            isStreaming={s.isStreaming}
+            onNewSession={() => s.setSettingsOpen(true)}
+            onForkSession={() => handleForkSession()}
+            onOpenProviders={() => s.setProvidersOpen(true)}
+            onOpenChanges={() => s.setGitChangesOpen(true)}
+            onCloseSession={async () => {
+              const cur = useStudioStore.getState();
+              if (!cur.sessionId) return;
+              await sessionRpc(cur.activeAgentId, "close", { sessionId: cur.sessionId }).catch((e: any) => alert(e.message));
+              cur.setSessionId(null);
+              invalidateSessions(qc, cur.activeAgentId);
+            }}
+            onDeleteSession={async () => {
+              const cur = useStudioStore.getState();
+              if (!cur.sessionId) return;
+              if (!confirm(`删除会话 ${cur.sessionId}？`)) return;
+              await sessionRpc(cur.activeAgentId, "delete", { sessionId: cur.sessionId }).catch((e: any) => alert(e.message));
+              cur.setSessionId(null);
+              cur.resetThread();
+              invalidateSessions(qc, cur.activeAgentId);
+            }}
+            onClearMessages={() => !s.isStreaming && s.setMessages([])}
+          />
 
         <PermissionDialog pending={s.pendingPerms.filter((p) => {
           if (s.sessionId && p.sessionId !== s.sessionId) return false;
@@ -1235,6 +1246,7 @@ export default function App() {
           />
         </AcpAssistantProvider>
       </div>
+    </div>
 
       <Suspense fallback={<LazyModalFallback />}>
         <UniversalAuthModal

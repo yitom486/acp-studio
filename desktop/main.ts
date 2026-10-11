@@ -3,14 +3,30 @@
  * Starts the Node gateway in-process, then opens the Studio window on it.
  * Dev: ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:5188 (external vite+gateway).
  */
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "../server/gateway";
 import { ensureGatewayToken, gatewayTokenPreview } from "../server/universal/security";
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const START_URL = process.env.ELECTRON_START_URL || `http://localhost:${PORT}`;
+
+// 设置 Windows 任务栏应用标识与独立分组，确保任务栏图标显示 ACP Studio 猫咪图标而非 Electron 默认原子图标
+if (process.platform === "win32") {
+  app.setAppUserModelId("studio.acp.app");
+}
+
+// 隔离应用名称与 userData 路径，避免开发模式下与本地其他未打包的 Electron 应用（如 inkdown）
+// 共享 %APPDATA%\Electron 导致 Chromium ProcessSingleton 单例锁冲突（0x20 锁文件被占用错误）
+app.name = "acp-studio";
+try {
+  const customUserData = path.join(app.getPath("appData"), isDev ? "acp-studio-dev" : "acp-studio");
+  app.setPath("userData", customUserData);
+} catch (err) {
+  console.warn("[Electron] 无法设置独立 userData 路径:", err);
+}
 
 let win: BrowserWindow | null = null;
 let gateway: { close: (cb?: () => void) => void } | null = null;
@@ -44,7 +60,55 @@ async function startGateway() {
   gateway = srv;
 }
 
+async function loadURLWithRetry(targetWin: BrowserWindow, url: string, maxRetries = 30, intervalMs = 500) {
+  for (let i = 0; i < maxRetries; i++) {
+    if (targetWin.isDestroyed()) return;
+    try {
+      await targetWin.loadURL(url);
+      return;
+    } catch (err: any) {
+      if (targetWin.isDestroyed()) return;
+      if (i === maxRetries - 1) {
+        console.error(`[Electron] 尝试连接开发服务器 ${url} 超时:`, err?.message || err);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+}
+
+function getAppIcon(): Electron.NativeImage | undefined {
+  const candidateDirs = [
+    isDev ? path.join(app.getAppPath(), "public") : path.join(app.getAppPath(), "dist"),
+    path.join(app.getAppPath(), "public"),
+    path.join(app.getAppPath(), "dist"),
+    path.join(process.cwd(), "public"),
+  ];
+
+  const candidateNames = process.platform === "win32"
+    ? ["icon.ico", "icon.png", "acp-studio-cat.png"]
+    : ["icon.png", "acp-studio-cat.png", "icon.ico"];
+
+  for (const dir of candidateDirs) {
+    for (const name of candidateNames) {
+      const p = path.join(dir, name);
+      if (fs.existsSync(p)) {
+        try {
+          const img = nativeImage.createFromPath(p);
+          if (!img.isEmpty()) return img;
+        } catch {
+          // ignore and continue
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
 async function createWindow() {
+  const isMac = process.platform === "darwin";
+  const appIcon = getAppIcon();
   win = new BrowserWindow({
     width: 1360,
     height: 900,
@@ -53,6 +117,19 @@ async function createWindow() {
     autoHideMenuBar: true,
     backgroundColor: "#0b0e14",
     title: "ACP Studio",
+    icon: appIcon,
+    titleBarStyle: "hidden",
+    ...(isMac
+      ? {
+          trafficLightPosition: { x: 12, y: 10 },
+        }
+      : {
+          titleBarOverlay: {
+            color: "#0b0e14",
+            symbolColor: "#94a3b8",
+            height: 32,
+          },
+        }),
     webPreferences: {
       // NOTE: no __dirname here — bun inlines it at bundle time.
       // getAppPath() works both in dev (project root) and packaged app.
@@ -61,7 +138,32 @@ async function createWindow() {
       sandbox: false,
     },
   });
-  await win.loadURL(START_URL);
+
+  if (appIcon && !win.isDestroyed()) {
+    try {
+      win.setIcon(appIcon);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (isDev) {
+    // 开发模式快捷键：F12 开启开发者工具，F5 刷新
+    win.webContents.on("before-input-event", (event, input) => {
+      if (input.key === "F12" || (input.control && input.shift && input.key.toLowerCase() === "i")) {
+        win?.webContents.toggleDevTools();
+        event.preventDefault();
+      }
+      if (input.key === "F5" || (input.control && input.key.toLowerCase() === "r")) {
+        win?.webContents.reload();
+        event.preventDefault();
+      }
+    });
+    await loadURLWithRetry(win, START_URL);
+  } else {
+    await win.loadURL(START_URL);
+  }
+
   win.on("closed", () => {
     win = null;
   });
@@ -81,6 +183,40 @@ ipcMain.handle("dialog:openDirectory", async () => {
 ipcMain.handle("shell:openPath", async (_event, targetPath: string) => {
   if (!targetPath) return;
   await shell.openPath(targetPath);
+});
+
+// Window controls & title bar overlay styling
+ipcMain.handle("window:setTitleBarOverlay", (_event, options: { color?: string; symbolColor?: string; height?: number }) => {
+  if (win && !win.isDestroyed() && process.platform !== "darwin") {
+    try {
+      win.setTitleBarOverlay({
+        color: options.color || "#0b0e14",
+        symbolColor: options.symbolColor || "#94a3b8",
+        height: options.height || 32,
+      });
+    } catch (err) {
+      console.warn("[Electron] setTitleBarOverlay failed:", err);
+    }
+  }
+});
+
+ipcMain.handle("window:minimize", () => {
+  if (win && !win.isDestroyed()) win.minimize();
+});
+
+ipcMain.handle("window:maximize", () => {
+  if (win && !win.isDestroyed()) {
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  }
+});
+
+ipcMain.handle("window:close", () => {
+  if (win && !win.isDestroyed()) win.close();
+});
+
+ipcMain.handle("window:isMaximized", () => {
+  return win && !win.isDestroyed() ? win.isMaximized() : false;
 });
 
 // 预留给前端接线：renderer（经 preload 透出后）用该 IPC 拿 token，

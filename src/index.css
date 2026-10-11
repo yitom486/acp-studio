@@ -3,10 +3,9 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    /* Blue-gray minimal tech theme. All UI colors MUST come from these
-       variables via tailwind tokens (bg-background, text-primary, ...).
-       Literal palette classes (slate-*, indigo-*, purple-*, ...) are banned. */
+  :root,
+  [data-theme="dark"] {
+    /* 默认：经典蓝灰暗黑 (VS Code Modern Dark) */
     --background: 222 26% 7%;
     --foreground: 214 22% 92%;
     --card: 222 22% 10%;
@@ -31,6 +30,102 @@
     --input: 222 14% 17%;
     --ring: 213 76% 62%;
     --radius: 0.75rem;
+
+    --titlebar-bg: 222 28% 6%;
+    --titlebar-border: 222 14% 14%;
+  }
+
+  [data-theme="oled"] {
+    /* 极黑深邃 OLED Pitch Black (纯黑高对比) */
+    --background: 222 30% 3%;
+    --foreground: 214 22% 94%;
+    --card: 222 25% 6%;
+    --card-foreground: 214 22% 94%;
+    --popover: 222 25% 6%;
+    --popover-foreground: 214 22% 94%;
+    --primary: 213 85% 64%;
+    --primary-foreground: 222 30% 4%;
+    --secondary: 222 20% 10%;
+    --secondary-foreground: 214 18% 88%;
+    --muted: 222 20% 9%;
+    --muted-foreground: 218 13% 60%;
+    --accent: 222 20% 11%;
+    --accent-foreground: 214 18% 88%;
+    --success: 160 50% 45%;
+    --success-foreground: 222 30% 4%;
+    --warning: 38 85% 58%;
+    --warning-foreground: 222 30% 4%;
+    --destructive: 0 65% 58%;
+    --destructive-foreground: 214 22% 94%;
+    --border: 222 18% 13%;
+    --input: 222 18% 13%;
+    --ring: 213 85% 64%;
+    --radius: 0.75rem;
+
+    --titlebar-bg: 222 35% 2%;
+    --titlebar-border: 222 18% 10%;
+  }
+
+  [data-theme="dim"] {
+    /* 柔和暗色 Charcoal Dim (低对比舒适护眼) */
+    --background: 222 18% 13%;
+    --foreground: 214 20% 90%;
+    --card: 222 16% 17%;
+    --card-foreground: 214 20% 90%;
+    --popover: 222 16% 18%;
+    --popover-foreground: 214 20% 90%;
+    --primary: 213 70% 64%;
+    --primary-foreground: 222 18% 12%;
+    --secondary: 222 14% 22%;
+    --secondary-foreground: 214 16% 84%;
+    --muted: 222 14% 20%;
+    --muted-foreground: 218 12% 64%;
+    --accent: 222 14% 22%;
+    --accent-foreground: 214 16% 84%;
+    --success: 160 40% 46%;
+    --success-foreground: 222 18% 12%;
+    --warning: 38 72% 58%;
+    --warning-foreground: 222 18% 12%;
+    --destructive: 0 55% 58%;
+    --destructive-foreground: 214 20% 92%;
+    --border: 222 12% 24%;
+    --input: 222 12% 24%;
+    --ring: 213 70% 64%;
+    --radius: 0.75rem;
+
+    --titlebar-bg: 222 18% 11%;
+    --titlebar-border: 222 12% 20%;
+  }
+
+  [data-theme="light"] {
+    /* 清爽明亮 Light Daylight (透亮白日模式) */
+    --background: 214 32% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 213 82% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 20% 93%;
+    --secondary-foreground: 222 47% 15%;
+    --muted: 210 20% 92%;
+    --muted-foreground: 215 16% 45%;
+    --accent: 210 20% 92%;
+    --accent-foreground: 222 47% 15%;
+    --success: 160 55% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 85% 48%;
+    --warning-foreground: 0 0% 100%;
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 20% 86%;
+    --input: 214 20% 86%;
+    --ring: 213 82% 50%;
+    --radius: 0.75rem;
+
+    --titlebar-bg: 214 30% 95%;
+    --titlebar-border: 214 20% 88%;
   }
 }
 

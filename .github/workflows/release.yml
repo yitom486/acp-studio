@@ -1,9 +1,9 @@
-name: Release (Windows)
+name: Release (Windows, macOS, Linux)
 
 # 打 tag 即发版，例如：git tag v1.0.0 && git push origin v1.0.0
-# 产物：NSIS 安装包 + 绿色 dir 包，自动挂到 GitHub Release。
-# 未签名（没有代码签名证书）：用户安装时 SmartScreen 会提示，
-# 如需消除请配置 CSC_LINK / CSC_KEY_PASSWORD 后重跑。
+# 产物：Windows NSIS、macOS DMG/ZIP、Linux AppImage/DEB，自动挂到同一个 GitHub Release。
+# 当前默认未签名：Windows 可能提示 SmartScreen，macOS 可能提示无法验证开发者。
+# 如需正式分发，请分别配置 Windows 代码签名与 macOS Developer ID/notarization secrets。
 on:
   push:
     tags:
@@ -13,8 +13,25 @@ permissions:
   contents: write
 
 jobs:
-  release-win:
-    runs-on: windows-latest
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            platform: win
+            package_script: package:win
+          - name: macOS
+            os: macos-latest
+            platform: mac
+            package_script: package:mac
+          - name: Linux
+            os: ubuntu-latest
+            platform: linux
+            package_script: package:linux
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,15 +56,32 @@ jobs:
       - name: Electron bundle
         run: bun run build:electron
 
-      - name: Package (nsis + dir)
-        run: bunx electron-builder --win nsis dir --publish never
+      - name: Package ${{ matrix.platform }}
+        run: bun run ${{ matrix.package_script }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload ${{ matrix.platform }} artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
 
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release/*.exe
-            release/*.blockmap
-            release/latest*.yml
+          files: release/*
+          generate_release_notes: true

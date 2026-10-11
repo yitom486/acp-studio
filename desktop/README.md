@@ -18,9 +18,12 @@ Electron main (Node, electron-dist/main.cjs)
 ## 开发
 
 ```bash
-bun run build            # 前端 dist
-bun run build:electron   # 打包 main+preload 到 electron-dist/
-bun run dev:electron     # 外接 vite(5188)+网关，只启动 Electron 窗口调试
+bun run dev:desktop      # 【推荐】一键启动桌面开发环境（自动编译主进程 + 启动网关与 Vite + 开启热更新桌面窗口）
+
+# 亦可分步调试：
+bun run build:electron   # 仅打包 main+preload 到 electron-dist/
+bun run dev              # 启动网关 (3004) + Vite (5188)
+bun run dev:electron     # 外接已启动的 vite(5188)+网关，只启动 Electron 窗口调试
 ```
 
 ## 生产运行（免安装验证）

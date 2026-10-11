@@ -154,8 +154,10 @@ interface StudioState {
   restoreThread: (agentId: string) => ChatThread | null;
   /** Start a fresh empty thread for an agent. */
   newThread: (agentId: string) => ChatThread;
+  /** MCP servers carried by an agent's live/latest thread (auto new/resume). */
+  threadMcpServers: (agentId: string) => unknown[] | undefined;
   /** Bind an ACP sessionId to the live thread (same agent only). */
-  bindThreadSession: (sessionId: string | null, cwd?: string | null) => void;
+  bindThreadSession: (sessionId: string | null, cwd?: string | null, mcpServers?: unknown[]) => void;
   /** Mark the live thread stale after a failed resume (visible degrade). */
   markThreadStale: () => void;
   /** Full reset (tests / logout flows). */
@@ -247,7 +249,7 @@ function persistAutoUpdate(map: Record<string, boolean>): void {
   }
 }
 
-export const useStudioStore = create<StudioState>()((set) => ({
+export const useStudioStore = create<StudioState>()((set, get) => ({
   activeAgentId: "codex",
   connectingId: null,
   authOk: {},
@@ -393,11 +395,14 @@ export const useStudioStore = create<StudioState>()((set) => ({
   snapshotThread: () =>
     set((s) => {
       const id = s.activeThreadId ?? newThreadId();
+      const prev = s.activeThreadId ? s.threads[s.activeThreadId] : undefined;
       const thread: ChatThread = {
         id,
         agentId: s.activeAgentId,
         sessionId: s.sessionId,
         messages: s.messages,
+        // Preserve the thread's MCP servers across snapshots (auto new/resume).
+        mcpServers: prev?.mcpServers,
         updatedAt: Date.now(),
       };
       const next = pruneThreads({ ...s.threads, [id]: thread }, [id]);
@@ -417,20 +422,34 @@ export const useStudioStore = create<StudioState>()((set) => ({
     return t;
   },
   newThread: (agentId) => {
+    // (same NOTE as threadMcpServers: use creator `get()`, not self-reference)
+    const s0 = get();
+    // Continuity: a fresh thread inherits the agent's latest MCP servers so
+    // auto-created sessions keep working tools until the user changes them.
+    const inherited = threadForAgent(s0.threads, agentId)?.mcpServers;
     const t: ChatThread = {
       id: newThreadId(),
       agentId,
       sessionId: null,
       messages: [],
+      mcpServers: inherited,
       updatedAt: Date.now(),
     };
-    const s = useStudioStore.getState();
-    const next = pruneThreads({ ...s.threads, [t.id]: t }, [t.id]);
+    const next = pruneThreads({ ...s0.threads, [t.id]: t }, [t.id]);
     saveThreads(next);
     set({ ...initialThread, sessionId: null, threads: next, activeThreadId: t.id });
     return t;
   },
-  bindThreadSession: (sessionId, cwd) =>
+  threadMcpServers: (agentId) => {
+    // NOTE: use the creator `get()` here, never useStudioStore.getState() —
+    // self-referencing the store under construction degrades downstream type
+    // inference (st.threads collapses to unknown in consumers).
+    const s = get();
+    const live = s.activeThreadId ? s.threads[s.activeThreadId] : undefined;
+    const mine = live && live.agentId === agentId ? live : threadForAgent(s.threads, agentId);
+    return mine?.mcpServers;
+  },
+  bindThreadSession: (sessionId, cwd, mcpServers) =>
     set((s) => {
       if (!s.activeThreadId) return { sessionId };
       const cur = s.threads[s.activeThreadId];
@@ -440,6 +459,7 @@ export const useStudioStore = create<StudioState>()((set) => ({
         ...cur,
         sessionId,
         cwd: cwd !== undefined ? cwd : cur.cwd,
+        mcpServers: mcpServers !== undefined ? mcpServers : cur.mcpServers,
         stale: false,
         updatedAt: Date.now(),
       };

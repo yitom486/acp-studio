@@ -17,7 +17,6 @@ import {
   Gauge,
   Info,
   ChevronDown,
-  Sparkles,
   Terminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -118,14 +117,10 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
   }, [menuOpen]);
 
   return (
-    <header className="h-16 pt-3 pb-2 border-b border-border/80 bg-background/85 backdrop-blur-md px-5 flex items-center justify-between gap-3 shrink-0 z-20 select-none app-drag">
-      {/* LEFT: Brand + Agent Selector + Connection Status */}
-      <div className="flex items-center gap-2.5 min-w-0 app-no-drag">
-        <div className="flex items-center gap-1.5 shrink-0 text-foreground font-semibold text-xs tracking-tight mr-1 hidden sm:flex">
-          <Sparkles className="w-4 h-4 text-primary" />
-          <span>ACP Studio</span>
-        </div>
-
+    <header className="h-14 border-b border-border/80 bg-background/85 backdrop-blur-md px-4 flex items-center justify-between gap-3 shrink-0 z-20 select-none">
+      {/* LEFT: Agent Selector + Connection Status + Workspace */}
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className="sr-only">ACP Studio</span>
         {/* Agent Dropdown */}
         <div className="relative flex items-center">
           <select
@@ -171,7 +166,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           </div>
         )}
 
-        {/* Capability Info Tooltip (replaces ugly raw capability strings) */}
+        {/* Capability Info Tooltip */}
         {connected && (
           <div className="relative group hidden lg:flex items-center">
             <button
@@ -224,6 +219,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
             <span>需认证</span>
           </Button>
         )}
+
         {/* Workspace Dropdown */}
         <WorkspaceDropdown
           currentWorkspace={currentWorkspace}
@@ -233,7 +229,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
       </div>
 
       {/* CENTER: Current Session Title & Token Usage */}
-      <div className="flex items-center gap-2 min-w-0 flex-1 justify-center max-w-lg app-no-drag">
+      <div className="flex items-center gap-2 min-w-0 flex-1 justify-center max-w-lg">
         {sessionId ? (
           <div className="flex items-center gap-2 min-w-0 bg-muted/40 border border-border/60 rounded-full px-3 py-1">
             <span className="text-xs font-semibold text-foreground truncate max-w-[140px] sm:max-w-[220px]">
@@ -256,7 +252,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
       </div>
 
       {/* RIGHT: Actions (Changes, Terminal, Providers, + New Session, More Menu) */}
-      <div className="flex items-center gap-1.5 shrink-0 app-no-drag">
+      <div className="flex items-center gap-1.5 shrink-0">
         {/* Code Changes / Diff */}
         <Button
           size="sm"

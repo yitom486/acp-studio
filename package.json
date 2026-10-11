@@ -16,6 +16,7 @@
         "nsis",
         "dir"
       ],
+      "icon": "public/icon.ico",
       "signAndEditExecutable": false
     },
     "mac": {
@@ -38,6 +39,7 @@
   },
   "scripts": {
     "dev": "concurrently -k -n \"server,client\" -c \"cyan,green\" \"bun run dev:server\" \"bun run dev:client\"",
+    "dev:desktop": "bun run build:electron && concurrently -k -n \"server,client,electron\" -c \"cyan,green,magenta\" \"bun run dev:server\" \"bun run dev:client\" \"bun run dev:electron\"",
     "dev:server": "bun --watch server/index.ts",
     "dev:server:node": "bun build server/node.ts --target=node --outdir=.tmp-node && node .tmp-node/node.js",
     "dev:client": "vite",
@@ -60,7 +62,6 @@
     "@agentclientprotocol/sdk": "^1.0.0",
     "@assistant-ui/react": "^0.15.27",
     "@assistant-ui/react-markdown": "^0.14.20",
-    "mermaid": "^12.1.0",
     "@bufbuild/protobuf": "^2.12.1",
     "@hono/node-server": "^2.1.1",
     "@radix-ui/react-slot": "^1.3.3",
@@ -68,12 +69,13 @@
     "@tanstack/react-query": "^5.103.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "@yitom/agy-acp-map": "^0.1.16",
+    "@yitom/acp-client": "latest",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^13.4.0",
     "hono": "^4.13.8",
     "lucide-react": "^0.475.0",
+    "mermaid": "^12.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
@@ -84,7 +86,6 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@agentclientprotocol/codex-acp": "^1.12.0",
     "@types/bun": "latest",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

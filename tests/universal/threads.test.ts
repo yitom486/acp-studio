@@ -66,8 +66,23 @@ describe("threads (per-agent persisted records)", () => {
     expect(f.thought).toBe("reasoning here");
   });
 
-  test("pruneThreads caps thread and message counts", () => {
-    const many: Record<string, ChatThread> = {};
+  test("pruneThreads preserves mcpServers on threads", () => {
+    const servers = [{ name: "inkdown", command: "node", args: [], env: [] }];
+    const t = thread({
+      id: "m",
+      agentId: "antigravity-stdio",
+      messages: [msg("user", "hi")],
+      mcpServers: servers,
+    });
+    const out = pruneThreads({ m: t });
+    expect(out.m.messages).toHaveLength(1);
+    expect(out.m.mcpServers).toEqual(servers);
+    // Isolation still holds: lookup never crosses agents.
+    expect(threadForAgent(out, "codex")).toBeNull();
+    expect(threadForAgent(out, "antigravity-stdio")?.mcpServers).toEqual(servers);
+  });
+
+  test("pruneThreads caps thread and message counts", () => {    const many: Record<string, ChatThread> = {};
     for (let i = 0; i < 50; i++) {
       many[`t${i}`] = thread({
         id: `t${i}`,
