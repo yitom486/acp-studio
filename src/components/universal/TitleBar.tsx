@@ -32,6 +32,17 @@ export const TitleBar: React.FC = () => {
   }, [isElectron]);
 
   useEffect(() => {
+    if (isElectron && window.acpStudio?.setTitleBarOverlay) {
+      const meta = THEMES[theme] || THEMES.dark;
+      window.acpStudio.setTitleBarOverlay({
+        color: meta.overlayColor,
+        symbolColor: meta.overlaySymbolColor,
+        height: 32,
+      }).catch(() => {});
+    }
+  }, [theme, isElectron]);
+
+  useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (themeMenuRef.current && !themeMenuRef.current.contains(e.target as Node)) {
         setThemeMenuOpen(false);

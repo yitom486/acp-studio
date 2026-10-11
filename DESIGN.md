@@ -95,10 +95,12 @@ checklist), `web-design-guidelines` (audit).
 5. **首屏渲染零闪烁（Pre-paint Theme Bootstrap）**：
    在 `index.html` 的 `<head>` 中注入同步脚本，在首帧 DOM 渲染前直接将用户保存的主题打在 `documentElement` 上，从根本上防止冷启动时的颜色过渡拉扯。
 
-### 4. 桌面端原生控制栏（Window Controls Overlay）对齐规范
-* **色值 100% 咬合**：标题栏 CSS 变量 `--titlebar-bg`（纯白 `#ffffff` 或 暗黑 `#0b0e14`）必须与原生系统遮罩 `overlayColor` 完全一致；
-* **实体无透底**：TitleBar 严禁使用半透明修饰符（如 `bg-card/90`），必须使用纯色实体 `bg-[hsl(var(--titlebar-bg))]`，避免 Electron 窗口底色漏底；
-* **主进程持久化**：主进程通过 `theme-overlay.json` 记忆最后一次主题色，冷启动开窗直接以此颜色创建原生遮罩，消除开窗黑块。
+### 4. 桌面端原生控制栏（Window Controls Overlay - 三大金刚按钮）对齐规范
+* **Preload 路径多候选自动定位**：在 Windows 调试模式下，Electron 以 `electron electron-dist/main.cjs` 启动时，`app.getAppPath()` 解析为 `electron-dist` 目录。主进程通过 `getPreloadPath()` 自动匹配候选列表（`preload.cjs`、`electron-dist/preload.cjs` 及 cwd），确保 `window.acpStudio` 桥接对象 100% 正确注入渲染进程。
+* **色值 100% 咬合**：标题栏 CSS 变量 `--titlebar-bg`（浅色 `#ffffff` 或 暗黑 `#0b0e14`）与原生系统遮罩 `overlayColor` 完全一致，图标色 `overlaySymbolColor` 与 `--foreground`（浅色 `#334155`、暗黑 `#94a3b8`）同步咬合。
+* **TitleBar 挂载与切换双重响应**：`TitleBar` 组件挂载时及主题变更时通过 `useEffect` 自动执行 `window.acpStudio.setTitleBarOverlay`，彻底杜绝窗口右上角“三大金刚”（最小化、最大化、关闭）与主界面明暗状态脱节。
+* **实体无透底**：TitleBar 严禁使用半透明修饰符（如 `bg-card/90`），必须使用纯色实体 `bg-[hsl(var(--titlebar-bg))]`，避免 Electron 窗口底色漏底。
+* **主进程持久化**：主进程通过 `userData/theme-overlay.json` 记忆最后一次主题色，冷启动开窗直接以此颜色创建原生遮罩，消除冷启动黑块。
 
 ### 5. 无障碍减弱动效 (Accessibility)
 严格遵循系统辅助功能规范：

@@ -123,11 +123,29 @@ function getSavedOverlayConfig(): { color: string; symbolColor: string } {
 
 function saveOverlayConfig(cfg: { color: string; symbolColor: string }) {
   try {
-    const configPath = path.join(app.getPath("userData"), "theme-overlay.json");
+    const dir = app.getPath("userData");
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const configPath = path.join(dir, "theme-overlay.json");
     fs.writeFileSync(configPath, JSON.stringify(cfg), "utf-8");
   } catch {
     // ignore
   }
+}
+
+function getPreloadPath(): string {
+  const candidates = [
+    path.join(app.getAppPath(), "preload.cjs"),
+    path.join(app.getAppPath(), "electron-dist", "preload.cjs"),
+    path.join(process.cwd(), "electron-dist", "preload.cjs"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return path.join(app.getAppPath(), "electron-dist", "preload.cjs");
 }
 
 async function createWindow() {
@@ -157,9 +175,7 @@ async function createWindow() {
           },
         }),
     webPreferences: {
-      // NOTE: no __dirname here — bun inlines it at bundle time.
-      // getAppPath() works both in dev (project root) and packaged app.
-      preload: path.join(app.getAppPath(), "electron-dist", "preload.cjs"),
+      preload: getPreloadPath(),
       contextIsolation: true,
       sandbox: false,
     },
