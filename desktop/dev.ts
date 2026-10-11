@@ -1,0 +1,235 @@
+/**
+ * ACP Studio unified Desktop dev orchestrator.
+ * Handles:
+ * 1. Preflight stale process cleanup on Windows
+ * 2. Compiles desktop/main.ts and desktop/preload.ts
+ * 3. Starts dev server and Vite client with color-coded prefix logs
+ * 4. Waits for Vite dev server (port 5188) to be ready before launching Electron
+ * 5. Watches desktop/ directory for changes and rebuilds main bundle
+ * 6. Clean process-tree shutdown on Ctrl+C or when Electron exits
+ */
+import { spawn, type ChildProcess } from "node:child_process";
+import * as net from "node:net";
+import * as path from "node:path";
+import * as fs from "node:fs";
+
+const isWin = process.platform === "win32";
+const VITE_PORT = 5188;
+const GATEWAY_PORT = 3004;
+
+const children: ChildProcess[] = [];
+let isExiting = false;
+
+// ANSI Colors
+const c = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  cyan: "\x1b[36m",
+  green: "\x1b[32m",
+  magenta: "\x1b[35m",
+  yellow: "\x1b[33m",
+  red: "\x1b[31m",
+  dim: "\x1b[2m",
+};
+
+function log(prefix: string, color: string, msg: string) {
+  const lines = msg.toString().trimEnd().split("\n");
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    console.log(`${color}[${prefix}]${c.reset} ${line}`);
+  }
+}
+
+async function killProcessTree(proc: ChildProcess | undefined) {
+  if (!proc || !proc.pid) return;
+  try {
+    if (isWin) {
+      spawn("taskkill", ["/F", "/T", "/PID", String(proc.pid)], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } else {
+      proc.kill("SIGTERM");
+    }
+  } catch {
+    // Process might already be dead
+  }
+}
+
+async function cleanupAndExit(code = 0) {
+  if (isExiting) return;
+  isExiting = true;
+  console.log(`\n${c.yellow}[dev:desktop] 正在优雅关闭前后端与桌面进程...${c.reset}`);
+
+  // Kill tracked child processes
+  for (const child of children) {
+    await killProcessTree(child);
+  }
+
+  // Windows safety net: kill any remaining electron.exe from this workspace
+  if (isWin) {
+    try {
+      spawn("taskkill", ["/F", "/IM", "electron.exe"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    } catch {}
+  }
+
+  setTimeout(() => {
+    process.exit(code);
+  }, 300);
+}
+
+process.on("SIGINT", () => cleanupAndExit(0));
+process.on("SIGTERM", () => cleanupAndExit(0));
+
+async function waitForPort(port: number, host = "127.0.0.1", timeoutMs = 15000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const ready = await new Promise<boolean>((resolve) => {
+      const socket = new net.Socket();
+      socket.setTimeout(300);
+      socket.on("connect", () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.on("timeout", () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.on("error", () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.connect(port, host);
+    });
+    if (ready) return true;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return false;
+}
+
+async function buildElectron(): Promise<boolean> {
+  const mainBuild = await Bun.build({
+    entrypoints: ["desktop/main.ts"],
+    target: "node",
+    format: "cjs",
+    external: ["electron"],
+    outdir: "electron-dist",
+    naming: "main.cjs",
+  });
+
+  const preloadBuild = await Bun.build({
+    entrypoints: ["desktop/preload.ts"],
+    target: "node",
+    format: "cjs",
+    external: ["electron"],
+    outdir: "electron-dist",
+    naming: "preload.cjs",
+  });
+
+  return mainBuild.success && preloadBuild.success;
+}
+
+function startSubProcess(name: string, color: string, cmd: string, args: string[]): ChildProcess {
+  const child = spawn(cmd, args, {
+    shell: isWin,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, FORCE_COLOR: "1" },
+  });
+
+  child.stdout?.on("data", (data) => log(name, color, data));
+  child.stderr?.on("data", (data) => log(name, color, data));
+
+  child.on("exit", (code) => {
+    if (!isExiting && code !== 0 && code !== null) {
+      log(name, c.red, `进程异常退出 (code: ${code})`);
+      cleanupAndExit(code);
+    }
+  });
+
+  children.push(child);
+  return child;
+}
+
+async function main() {
+  console.log(`${c.bold}${c.magenta}=== ACP Studio 桌面端集成开发环境启动中 ===${c.reset}\n`);
+
+  // 1. Windows preflight: kill lingering electron.exe
+  if (isWin) {
+    try {
+      const cleanup = spawn("taskkill", ["/F", "/IM", "electron.exe"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+      await new Promise((r) => cleanup.on("close", r));
+    } catch {}
+  }
+
+  // 2. Build electron bundle
+  console.log(`${c.cyan}[build] 正在编译 Electron 主进程与 Preload 脚本...${c.reset}`);
+  const ok = await buildElectron();
+  if (!ok) {
+    console.error(`${c.red}[build] Electron 编译失败，请检查报错！${c.reset}`);
+    process.exit(1);
+  }
+  console.log(`${c.green}[build] 编译完成 (electron-dist/main.cjs + preload.cjs)${c.reset}\n`);
+
+  // 3. Start Gateway Server & Vite Client
+  const serverProc = startSubProcess("server", c.cyan, "bun", ["--watch", "server/index.ts"]);
+  const clientProc = startSubProcess("client", c.green, "bun", ["run", "dev:client"]);
+
+  // 4. Wait for Vite client ready
+  console.log(`${c.yellow}[launcher] 正在等待 Vite 开发服务器就绪 (http://localhost:${VITE_PORT})...${c.reset}`);
+  const viteReady = await waitForPort(VITE_PORT);
+  if (!viteReady) {
+    console.warn(`${c.yellow}[launcher] Vite 响应超时，尝试直接拉起 Electron...${c.reset}`);
+  } else {
+    console.log(`${c.green}[launcher] Vite 开发服务器已就绪！秒开桌面窗口...${c.reset}\n`);
+  }
+
+  // 5. Start Electron
+  const electronProc = spawn(
+    isWin ? "npx.cmd" : "npx",
+    ["electron", "electron-dist/main.cjs"],
+    {
+      shell: isWin,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        ELECTRON_DEV: "1",
+        ELECTRON_START_URL: `http://localhost:${VITE_PORT}`,
+      },
+    }
+  );
+
+  children.push(electronProc);
+
+  // When Electron GUI window closes, cleanly shut down server and client
+  electronProc.on("exit", (code) => {
+    console.log(`\n${c.cyan}[electron] 桌面窗口已关闭${c.reset}`);
+    cleanupAndExit(code || 0);
+  });
+
+  // 6. Watch desktop directory for edits
+  let buildDebounce: Timer | null = null;
+  fs.watch("desktop", { recursive: false }, (_event, filename) => {
+    if (!filename || (!filename.endsWith(".ts") && !filename.endsWith(".tsx"))) return;
+    if (filename === "dev.ts") return;
+
+    if (buildDebounce) clearTimeout(buildDebounce);
+    buildDebounce = setTimeout(async () => {
+      console.log(`\n${c.yellow}[watch] 检测到 desktop/${filename} 变更，正在增量构建...${c.reset}`);
+      const success = await buildElectron();
+      if (success) {
+        console.log(`${c.green}[watch] Electron 主进程构建就绪！${c.reset}`);
+      }
+    }, 200);
+  });
+}
+
+main().catch((err) => {
+  console.error(err);
+  cleanupAndExit(1);
+});

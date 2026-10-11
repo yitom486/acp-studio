@@ -8,6 +8,8 @@ import {
   FileReadCard,
   SearchCard,
   TerminalCard,
+} from "@/components/assistant/AcpToolWidgets";
+import {
   firstLines,
   isDiffText,
   lastLines,
@@ -15,7 +17,7 @@ import {
   toolCommand,
   toolPath,
   toolText,
-} from "@/components/assistant/AcpToolWidgets";
+} from "@/components/assistant/tool-widget-utils";
 
 describe("tool widget registry (generative UI)", () => {
   it("resolves kinds first, then names, then titles", () => {

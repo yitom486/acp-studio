@@ -39,7 +39,9 @@
   },
   "scripts": {
     "dev": "concurrently -k -n \"server,client\" -c \"cyan,green\" \"bun run dev:server\" \"bun run dev:client\"",
-    "dev:desktop": "bun run build:electron && concurrently -k -n \"server,client,electron\" -c \"cyan,green,magenta\" \"bun run dev:server\" \"bun run dev:client\" \"bun run dev:electron\"",
+    "dev:desktop": "bun desktop/dev.ts",
+    "clean": "bun scripts/clean-desktop.ts",
+    "clean:desktop": "bun scripts/clean-desktop.ts",
     "dev:server": "bun --watch server/index.ts",
     "dev:server:node": "bun build server/node.ts --target=node --outdir=.tmp-node && node .tmp-node/node.js",
     "dev:client": "vite",

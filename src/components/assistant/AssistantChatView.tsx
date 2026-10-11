@@ -37,11 +37,13 @@ import {
   SearchCard,
   StatusDot,
   TerminalCard,
+} from "@/components/assistant/AcpToolWidgets";
+import {
   extractFileFromTool,
   fmtElapsed,
   resolveWidgetKey,
   type WidgetTool,
-} from "@/components/assistant/AcpToolWidgets";
+} from "@/components/assistant/tool-widget-utils";
 import type { Message } from "@/components/ChatArea";
 import type { UsageState } from "@/stores/useStudioStore";
 import { useStudioStore } from "@/stores/useStudioStore";
