@@ -1,11 +1,11 @@
-import React, { Suspense, lazy, useRef, useState } from "react";
+import React, { Suspense, lazy, useRef, useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AcpAssistantProvider } from "@/components/assistant/AcpAssistantProvider";
 import { AcpComposer } from "@/components/assistant/AcpComposer";
 import { AssistantChatView } from "@/components/assistant/AssistantChatView";
 import { matchPermToToolCalls } from "@/lib/acp-assistant";
 import { StudioHeader } from "@/components/universal/StudioHeader";
-import { Sidebar } from "@/components/universal/Sidebar";
+import { Sidebar, type SessionItem } from "@/components/universal/Sidebar";
 import { PermissionDialog } from "@/components/universal/PermissionDialog";
 import { ElicitationCard } from "@/components/universal/ElicitationCard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -186,6 +186,36 @@ export default function App() {
   });
   abortRefProxy.current = abortRef.current;
 
+  // Stable Sidebar callbacks & silent background loading decoupling
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const handleRefreshSessions = useCallback(async () => {
+    setManualRefreshing(true);
+    try {
+      await invalidateSessions(qc, s.activeAgentId);
+    } finally {
+      setManualRefreshing(false);
+    }
+  }, [qc, s.activeAgentId]);
+
+  const handleNewSession = useCallback(() => {
+    useStudioStore.getState().setSettingsOpen(true);
+  }, []);
+
+  const handleForkSessionItem = useCallback(
+    (item: SessionItem) => {
+      handleForkSession(item.sessionId);
+    },
+    [handleForkSession]
+  );
+
+  const handleOpenProviders = useCallback(() => {
+    useStudioStore.getState().setProvidersOpen(true);
+  }, []);
+
+  const handleManageCustom = useCallback(() => {
+    setCustomOpen(true);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-text">
       {/* Layer 1: Clean Window TitleBar */}
@@ -202,18 +232,18 @@ export default function App() {
           onCleanupEmpty={handleCleanupEmpty}
           authOk={s.authOk}
           sessions={sessions}
-          sessionsLoading={sessionsQuery.isFetching}
+          sessionsLoading={(sessionsQuery.isLoading && sessions.length === 0) || manualRefreshing}
           activeSessionId={s.sessionId}
-          onRefreshSessions={() => invalidateSessions(qc, s.activeAgentId)}
-          onNewSession={() => s.setSettingsOpen(true)}
+          onRefreshSessions={handleRefreshSessions}
+          onNewSession={handleNewSession}
           onOpenSession={handleOpenSession}
-          onForkSession={(item) => handleForkSession(item.sessionId)}
+          onForkSession={handleForkSessionItem}
           onDeleteSession={handleDeleteSession}
           supportsFork={supportsFork}
           supportsList={supportsList}
-          onOpenProviders={() => s.setProvidersOpen(true)}
+          onOpenProviders={handleOpenProviders}
           supportsProviders={supportsProviders}
-          onManageCustom={() => setCustomOpen(true)}
+          onManageCustom={handleManageCustom}
         />
 
         <div className="flex-1 flex flex-col min-w-0">

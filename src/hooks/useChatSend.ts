@@ -1,7 +1,8 @@
 import { useCallback, useRef } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { useStudioStore } from "@/stores/useStudioStore";
-import { invalidateAgents, invalidateSessions } from "@/lib/acp-queries";
+import { invalidateSessions, acpKeys } from "@/lib/acp-queries";
+import type { SessionItem } from "@/components/universal/Sidebar";
 import {
   connectAgent,
   sessionRpc,
@@ -225,8 +226,36 @@ export function useChatSend({
         );
         const done = useStudioStore.getState();
         done.setAuthOk(agentId, true);
-        invalidateAgents(qc);
-        invalidateSessions(qc, agentId);
+
+        // Fine-grained session list update:
+        // 1. Do NOT invalidateAgents(qc) — agent process/capabilities do not mutate on turn-end.
+        // 2. For sessions: if the active session already has a defined title (not a generic placeholder),
+        //    update its updatedAt and glide it to top via in-place setQueryData (0 HTTP requests, 0 whole-tree flicker).
+        // 3. For new / untitled sessions: trigger background invalidateSessions so the agent-generated title is loaded silently.
+        const cachedSessions = qc.getQueryData<SessionItem[]>(acpKeys.sessions(agentId));
+        const currentItem = cachedSessions?.find((s) => s.sessionId === sid);
+        const hasCustomTitle =
+          currentItem?.title &&
+          !currentItem.title.toLowerCase().startsWith("new session") &&
+          !currentItem.title.toLowerCase().startsWith("新会话");
+
+        if (cachedSessions && hasCustomTitle) {
+          const nowIso = new Date().toISOString();
+          qc.setQueryData<SessionItem[]>(acpKeys.sessions(agentId), (old) => {
+            if (!old) return old;
+            const updated = old.map((s) =>
+              s.sessionId === sid ? { ...s, updatedAt: nowIso } : s
+            );
+            const idx = updated.findIndex((s) => s.sessionId === sid);
+            if (idx > 0) {
+              const [activeItem] = updated.splice(idx, 1);
+              updated.unshift(activeItem);
+            }
+            return updated;
+          });
+        } else {
+          invalidateSessions(qc, agentId);
+        }
       } catch (e: any) {
         if (e?.name !== "AbortError") {
           const c2 = useStudioStore.getState();

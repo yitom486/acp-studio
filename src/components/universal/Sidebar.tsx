@@ -1,4 +1,5 @@
 import React from "react";
+import { motion } from "framer-motion";
 import { Bot, PlusCircle, RefreshCw, GitFork, Trash2, XCircle, Cpu, Plug } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { AgentSummary } from "@/lib/universal-api";
@@ -55,55 +56,158 @@ function timeAgo(iso?: string | null): string {
   return new Date(t).toLocaleDateString();
 }
 
-export const Sidebar: React.FC<SidebarProps> = (p) => {
+/** Memoized single agent row */
+export interface AgentRowProps {
+  agent: AgentSummary;
+  active: boolean;
+  authOk: boolean | null | undefined;
+  connecting: boolean;
+  onSelect: (id: string) => void;
+  onConnect: (id: string) => void;
+}
+
+export const AgentRow = React.memo<AgentRowProps>(
+  ({ agent, active, authOk, connecting, onSelect, onConnect }) => {
+    const connected = agent.status?.connected;
+    return (
+      <div
+        onClick={() => onSelect(agent.id)}
+        title={agent.authHint ? `认证复用：${agent.authHint}` : agent.description}
+        className={`rounded-xl px-2.5 py-2 cursor-pointer border transition-colors ${
+          active ? "bg-muted/50 border-primary/40" : "border-transparent hover:bg-card"
+        }`}
+      >
+        <div className="flex items-center gap-1.5">
+          <Bot className="w-3.5 h-3.5 text-primary shrink-0" />
+          <span className="font-semibold text-foreground truncate flex-1">{agent.title}</span>
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+              connected ? "bg-success" : "bg-muted-foreground"
+            }`}
+          />
+        </div>
+        <div className="flex items-center gap-1.5 mt-1 pl-5">
+          <span className="font-mono text-[10px] text-muted-foreground truncate flex-1">{agent.id}</span>
+          {authOk === true && (
+            <Badge variant="success" className="h-4 text-[9px] px-1">
+              已登录
+            </Badge>
+          )}
+          {authOk === false && (
+            <Badge variant="warning" className="h-4 text-[9px] px-1">
+              需认证
+            </Badge>
+          )}
+          {!connected && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onConnect(agent.id);
+              }}
+              disabled={connecting}
+              className="flex items-center gap-1 text-[10px] text-primary hover:text-foreground disabled:opacity-50"
+            >
+              {connecting ? (
+                <RefreshCw className="w-3 h-3 animate-spin" />
+              ) : (
+                <Plug className="w-3 h-3" />
+              )}
+              连接
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+);
+AgentRow.displayName = "AgentRow";
+
+/** Memoized single session row with smooth framer-motion FLIP glide */
+export interface SessionRowProps {
+  session: SessionItem;
+  active: boolean;
+  supportsFork: boolean;
+  onOpen: (s: SessionItem) => void;
+  onFork: (s: SessionItem) => void;
+  onDelete: (s: SessionItem) => void;
+}
+
+export const SessionRow = React.memo<SessionRowProps>(
+  ({ session, active, supportsFork, onOpen, onFork, onDelete }) => {
+    return (
+      <motion.div
+        layout
+        transition={{ type: "spring", stiffness: 420, damping: 32 }}
+        onClick={() => onOpen(session)}
+        className={`rounded-xl px-2.5 py-2 cursor-pointer border group transition-colors ${
+          active ? "bg-muted/50 border-primary/40" : "border-transparent hover:bg-card"
+        }`}
+      >
+        <div className="text-foreground truncate font-medium" title={session.title || session.sessionId}>
+          {session.title || session.sessionId.slice(0, 12) + "…"}
+        </div>
+        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono text-muted-foreground">
+          <span className="truncate flex-1">
+            {shortCwd(session.cwd)}
+            {timeAgo(session.updatedAt) ? ` · ${timeAgo(session.updatedAt)}` : ""}
+          </span>
+          <span className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {supportsFork && (
+              <span
+                title="Fork 会话"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFork(session);
+                }}
+                className="hover:text-primary"
+              >
+                <GitFork className="w-3 h-3" />
+              </span>
+            )}
+            <span
+              title="删除会话"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(session);
+              }}
+              className="hover:text-destructive"
+            >
+              <Trash2 className="w-3 h-3" />
+            </span>
+          </span>
+        </div>
+      </motion.div>
+    );
+  }
+);
+SessionRow.displayName = "SessionRow";
+
+export const Sidebar = React.memo<SidebarProps>((p) => {
   return (
     <aside className="w-64 shrink-0 border-r border-border/80 bg-background/90 flex flex-col text-xs overflow-hidden select-none">
       {/* Agents */}
       <div className="px-3.5 pt-3 pb-2.5 flex items-center justify-between">
         <span className="font-bold text-muted-foreground tracking-wide">AGENTS</span>
-        <button onClick={p.onManageCustom} title="添加 / 管理自定义 agent" className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+        <button
+          onClick={p.onManageCustom}
+          title="添加 / 管理自定义 agent"
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
           <PlusCircle className="w-3.5 h-3.5" />自定
         </button>
       </div>
       <div className="px-2 space-y-1 overflow-y-auto max-h-[38%]">
-        {p.agents.map((a) => {
-          const active = a.id === p.activeAgentId;
-          const connected = a.status?.connected;
-          return (
-            <div
-              key={a.id}
-              onClick={() => p.onSelectAgent(a.id)}
-              title={a.authHint ? `认证复用：${a.authHint}` : a.description}
-              className={`rounded-xl px-2.5 py-2 cursor-pointer border transition-colors ${
-                active ? "bg-muted/50 border-primary/40" : "border-transparent hover:bg-card"
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <Bot className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span className="font-semibold text-foreground truncate flex-1">{a.title}</span>
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${connected ? "bg-success" : "bg-muted-foreground"}`} />
-              </div>
-              <div className="flex items-center gap-1.5 mt-1 pl-5">
-                <span className="font-mono text-[10px] text-muted-foreground truncate flex-1">{a.id}</span>
-                {p.authOk[a.id] === true && <Badge variant="success" className="h-4 text-[9px] px-1">已登录</Badge>}
-                {p.authOk[a.id] === false && <Badge variant="warning" className="h-4 text-[9px] px-1">需认证</Badge>}
-                {!connected && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      p.onConnectAgent(a.id);
-                    }}
-                    disabled={p.connectingId === a.id}
-                    className="flex items-center gap-1 text-[10px] text-primary hover:text-foreground disabled:opacity-50"
-                  >
-                    {p.connectingId === a.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Plug className="w-3 h-3" />}
-                    连接
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {p.agents.map((a) => (
+          <AgentRow
+            key={a.id}
+            agent={a}
+            active={a.id === p.activeAgentId}
+            authOk={p.authOk[a.id]}
+            connecting={p.connectingId === a.id}
+            onSelect={p.onSelectAgent}
+            onConnect={p.onConnectAgent}
+          />
+        ))}
         {p.agents.length === 0 && <div className="text-muted-foreground px-2 py-1">加载中…</div>}
       </div>
 
@@ -111,7 +215,11 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       <div className="px-3 pt-3 pb-2 flex items-center justify-between border-t border-border/60 mt-1">
         <span className="font-bold text-muted-foreground tracking-wide">SESSIONS</span>
         <div className="flex items-center gap-1">
-          <button onClick={p.onRefreshSessions} title="刷新会话列表" className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted">
+          <button
+            onClick={p.onRefreshSessions}
+            title="刷新会话列表"
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+          >
             <RefreshCw className={`w-3.5 h-3.5 ${p.sessionsLoading ? "animate-spin" : ""}`} />
           </button>
           <button
@@ -122,7 +230,11 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
           >
             <Trash2 className={`w-3.5 h-3.5 ${p.cleaningEmpty ? "animate-spin" : ""}`} />
           </button>
-          <button onClick={p.onNewSession} title="新会话" className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted">
+          <button
+            onClick={p.onNewSession}
+            title="新会话"
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+          >
             <PlusCircle className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -131,49 +243,17 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
         {!p.supportsList && (
           <div className="text-[11px] text-muted-foreground px-2 py-1">该 Agent 不支持 session/list。</div>
         )}
-        {p.sessions.map((s) => {
-          const active = s.sessionId === p.activeSessionId;
-          return (
-            <div
-              key={s.sessionId}
-              onClick={() => p.onOpenSession(s)}
-              className={`rounded-xl px-2.5 py-2 cursor-pointer border group transition-colors ${
-                active ? "bg-muted/50 border-primary/40" : "border-transparent hover:bg-card"
-              }`}
-            >
-              <div className="text-foreground truncate font-medium" title={s.title || s.sessionId}>
-                {s.title || s.sessionId.slice(0, 12) + "…"}
-              </div>
-              <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono text-muted-foreground">
-                <span className="truncate flex-1">{shortCwd(s.cwd)}{timeAgo(s.updatedAt) ? ` · ${timeAgo(s.updatedAt)}` : ""}</span>
-                <span className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {p.supportsFork && (
-                    <span
-                      title="Fork 会话"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        p.onForkSession(s);
-                      }}
-                      className="hover:text-primary"
-                    >
-                      <GitFork className="w-3 h-3" />
-                    </span>
-                  )}
-                  <span
-                    title="删除会话"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      p.onDeleteSession(s);
-                    }}
-                    className="hover:text-destructive"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </span>
-                </span>
-              </div>
-            </div>
-          );
-        })}
+        {p.sessions.map((s) => (
+          <SessionRow
+            key={s.sessionId}
+            session={s}
+            active={s.sessionId === p.activeSessionId}
+            supportsFork={p.supportsFork}
+            onOpen={p.onOpenSession}
+            onFork={p.onForkSession}
+            onDelete={p.onDeleteSession}
+          />
+        ))}
         {p.supportsList && p.sessions.length === 0 && !p.sessionsLoading && (
           <div className="text-[11px] text-muted-foreground px-2 py-1">暂无会话，点击 + 新建。</div>
         )}
@@ -197,4 +277,5 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       </div>
     </aside>
   );
-};
+});
+Sidebar.displayName = "Sidebar";

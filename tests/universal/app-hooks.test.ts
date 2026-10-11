@@ -7,6 +7,8 @@ import { appendActivityMessage } from "../../src/hooks/useChatSend";
 import { useAgentConfig } from "../../src/hooks/useAgentConfig";
 import { useSessionLifecycle } from "../../src/hooks/useSessionLifecycle";
 import { useAppBootAndShortcuts } from "../../src/hooks/useAppBootAndShortcuts";
+import { Sidebar, SessionRow, type SessionItem } from "../../src/components/universal/Sidebar";
+import { acpKeys } from "../../src/lib/acp-queries";
 
 beforeEach(() => {
   useStudioStore.getState().resetStudio();
@@ -186,6 +188,82 @@ describe("Controller hooks & App invariants", () => {
       expect(useStudioStore.getState().gitChangesOpen).toBe(false);
 
       unmount();
+    });
+  });
+
+  describe("Sidebar & smooth session list invariants", () => {
+    it("renders memoized SessionRow items with active selection", () => {
+      const sessions: SessionItem[] = [
+        { sessionId: "s1", title: "First Session", cwd: "/test", updatedAt: "2026-10-11T12:00:00Z" },
+        { sessionId: "s2", title: "Second Session", cwd: "/test", updatedAt: "2026-10-11T11:00:00Z" },
+      ];
+      const onOpen = vi.fn();
+      const onFork = vi.fn();
+      const onDelete = vi.fn();
+
+      const el = document.createElement("div");
+      document.body.appendChild(el);
+      const root = createRoot(el);
+
+      act(() => {
+        root.render(
+          React.createElement(
+            "div",
+            null,
+            sessions.map((s) =>
+              React.createElement(SessionRow, {
+                key: s.sessionId,
+                session: s,
+                active: s.sessionId === "s2",
+                supportsFork: true,
+                onOpen,
+                onFork,
+                onDelete,
+              })
+            )
+          )
+        );
+      });
+
+      expect(el.textContent).toContain("First Session");
+      expect(el.textContent).toContain("Second Session");
+      const items = el.querySelectorAll("div[title]");
+      expect(items.length).toBe(2);
+
+      act(() => root.unmount());
+      el.remove();
+    });
+
+    it("elevates updated active session to index 0 smoothly without losing items", () => {
+      const qc = new QueryClient();
+      const initial: SessionItem[] = [
+        { sessionId: "s1", title: "First Topic", cwd: "/test", updatedAt: "2026-10-11T10:00:00Z" },
+        { sessionId: "s2", title: "Second Topic", cwd: "/test", updatedAt: "2026-10-11T11:00:00Z" },
+        { sessionId: "s3", title: "Third Topic", cwd: "/test", updatedAt: "2026-10-11T09:00:00Z" },
+      ];
+      qc.setQueryData(acpKeys.sessions("opencode"), initial);
+
+      // Simulate turn-end fine-grained update for s2
+      const sid = "s2";
+      const nowIso = "2026-10-11T12:00:00Z";
+      qc.setQueryData<SessionItem[]>(acpKeys.sessions("opencode"), (old) => {
+        if (!old) return old;
+        const updated = old.map((s) => (s.sessionId === sid ? { ...s, updatedAt: nowIso } : s));
+        const idx = updated.findIndex((s) => s.sessionId === sid);
+        if (idx > 0) {
+          const [activeItem] = updated.splice(idx, 1);
+          updated.unshift(activeItem);
+        }
+        return updated;
+      });
+
+      const updated = qc.getQueryData<SessionItem[]>(acpKeys.sessions("opencode"));
+      expect(updated).toBeDefined();
+      expect(updated![0].sessionId).toBe("s2");
+      expect(updated![0].updatedAt).toBe(nowIso);
+      expect(updated![1].sessionId).toBe("s1");
+      expect(updated![2].sessionId).toBe("s3");
+      expect(updated!.length).toBe(3);
     });
   });
 });
