@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, RefreshCw, FileDiff, Columns2, AlignLeft, Plus, Undo2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BlurFade } from "@/components/magicui/blur-fade";
 import { CodeComparison } from "@/components/magicui/code-comparison";
 import {
-  gitStatus,
-  gitFile,
   gitStage,
   gitRestore,
   parseUnifiedDiff,
@@ -14,6 +13,7 @@ import {
   type GitFileChange,
   type GitFileResult,
 } from "@/lib/universal-api";
+import { useGitStatusQuery, useGitFileQuery, invalidateGit } from "@/lib/acp-queries";
 
 export interface GitChangesModalProps {
   isOpen: boolean;
@@ -37,67 +37,47 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({
   cwd,
   initialFilePath,
 }) => {
-  const [files, setFiles] = useState<GitFileChange[]>([]);
-  const [branch, setBranch] = useState("");
+  const qc = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
-  const [detail, setDetail] = useState<GitFileResult | null>(null);
   const [view, setView] = useState<"split" | "unified">("split");
-  const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const refresh = async () => {
-    if (!cwd) return;
-    setLoading(true);
+  // Server state via TanStack Query (keyed by cwd/file, auto-fetches on open).
+  const statusQuery = useGitStatusQuery(cwd, isOpen);
+  const files: GitFileChange[] = statusQuery.data?.files || [];
+  const branch: string = statusQuery.data?.branch || "";
+  const loading = statusQuery.isFetching;
+
+  const fileQuery = useGitFileQuery(cwd, selected, isOpen);
+  const detail: GitFileResult | null = (fileQuery.data as GitFileResult) ?? null;
+
+  const refresh = () => {
     setMsg(null);
-    try {
-      const st = await gitStatus(cwd);
-      setFiles(st.files);
-      setBranch(st.branch);
-
-      // Prioritize initialFilePath if provided
-      if (initialFilePath && st.files.some((f) => f.path === initialFilePath)) {
-        setSelected(initialFilePath);
-      } else if (st.files.length > 0 && (!selected || !st.files.some((f) => f.path === selected))) {
-        setSelected(st.files[0].path);
-      } else if (st.files.length === 0) {
-        setSelected(null);
-        setDetail(null);
-      }
-    } catch (e: any) {
-      setMsg(e.message);
-    } finally {
-      setLoading(false);
-    }
+    invalidateGit(qc);
   };
 
-  const handleStage = async (file: string, e: React.MouseEvent) => {
+  const gitMutation = useMutation({
+    mutationFn: (v: { action: "stage" | "restore"; file: string }) =>
+      v.action === "stage" ? gitStage(cwd as string, v.file) : gitRestore(cwd as string, v.file),
+    onSuccess: () => {
+      setMsg(null);
+      invalidateGit(qc);
+    },
+    onError: (err: any) => setMsg(err.message),
+  });
+  const actionLoading = gitMutation.isPending ? (gitMutation.variables?.file ?? null) : null;
+
+  const handleStage = (file: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!cwd) return;
-    setActionLoading(file);
-    try {
-      await gitStage(cwd, file);
-      await refresh();
-    } catch (err: any) {
-      setMsg(err.message);
-    } finally {
-      setActionLoading(null);
-    }
+    if (!cwd || gitMutation.isPending) return;
+    gitMutation.mutate({ action: "stage", file });
   };
 
-  const handleRestore = async (file: string, e: React.MouseEvent) => {
+  const handleRestore = (file: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!cwd) return;
+    if (!cwd || gitMutation.isPending) return;
     if (!confirm(`确定放弃对 ${file} 的修改吗？未保存的内容将丢失。`)) return;
-    setActionLoading(file);
-    try {
-      await gitRestore(cwd, file);
-      await refresh();
-    } catch (err: any) {
-      setMsg(err.message);
-    } finally {
-      setActionLoading(null);
-    }
+    gitMutation.mutate({ action: "restore", file });
   };
 
   // Close on Escape key
@@ -111,34 +91,34 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Reset selection when the modal (re)opens or cwd changes.
   useEffect(() => {
-    if (isOpen) {
-      setDetail(null);
-      setSelected(null);
-      refresh();
-    }
+    if (isOpen) setSelected(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, cwd]);
 
+  // Follow the file list: prefer initialFilePath, else first file; drop selection when clean.
   useEffect(() => {
-    if (!isOpen || !cwd || !selected) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const d = await gitFile(cwd, selected);
-        if (!cancelled) setDetail(d);
-      } catch (e: any) {
-        if (!cancelled) setMsg(e.message);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    if (!isOpen || !statusQuery.data) return;
+    const list = statusQuery.data.files || [];
+    if (list.length === 0) {
+      setSelected(null);
+      return;
+    }
+    if (!selected || !list.some((f) => f.path === selected)) {
+      setSelected(
+        initialFilePath && list.some((f) => f.path === initialFilePath)
+          ? initialFilePath
+          : list[0].path
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
+  }, [isOpen, statusQuery.data]);
 
   if (!isOpen) return null;
 
+  const queryError =
+    (statusQuery.error as Error | null)?.message ?? (fileQuery.error as Error | null)?.message ?? null;
   const lines = parseUnifiedDiff(detail?.unified || null);
 
   return (
@@ -174,7 +154,7 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({
           </button>
         </div>
 
-        {msg && <div className="p-2 mt-2 rounded-lg bg-background border border-border text-muted-foreground shrink-0">{msg}</div>}
+        {(msg || queryError) && <div className="p-2 mt-2 rounded-lg bg-background border border-border text-muted-foreground shrink-0">{msg || queryError}</div>}
         {!cwd && <div className="p-4 text-muted-foreground">无会话工作目录：先打开或新建一个会话。</div>}
 
         <div className="flex flex-1 min-h-0 gap-3 pt-2">

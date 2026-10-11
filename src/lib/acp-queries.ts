@@ -1,10 +1,14 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { fetchAgents, sessionRpc, type AgentSummary } from "@/lib/universal-api";
+import { fetchAgents, sessionRpc, getWorkspaceDefault, providersRpc, gitStatus, gitFile, type AgentSummary } from "@/lib/universal-api";
 import type { SessionItem } from "@/components/universal/Sidebar";
 
 export const acpKeys = {
   agents: ["universal", "agents"] as const,
   sessions: (agentId: string) => ["universal", "sessions", agentId] as const,
+  workspaceDefault: ["universal", "workspace", "default"] as const,
+  providers: (agentId: string) => ["universal", "providers", agentId] as const,
+  gitStatus: (cwd: string) => ["universal", "git", "status", cwd] as const,
+  gitFile: (cwd: string, file: string) => ["universal", "git", "file", cwd, file] as const,
 };
 
 function normalizeSessions(res: any): SessionItem[] {
@@ -37,8 +41,57 @@ export function useSessionsQuery(agentId: string, enabled: boolean) {
   });
 }
 
+/** Gateway default workspace (rarely changes; shared by App + TerminalDrawer). */
+export function useWorkspaceDefaultQuery(enabled = true) {
+  return useQuery({
+    queryKey: acpKeys.workspaceDefault,
+    queryFn: getWorkspaceDefault,
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+/** Provider rows of one agent. Disabled until the modal opens. */
+export function useProvidersQuery(agentId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: acpKeys.providers(agentId),
+    queryFn: () => providersRpc(agentId, "list", {}),
+    enabled: enabled && !!agentId,
+    staleTime: 5000,
+  });
+}
+
+/** Git working-tree status of one cwd. Disabled until the modal opens. */
+export function useGitStatusQuery(cwd: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: acpKeys.gitStatus(cwd ?? ""),
+    queryFn: () => gitStatus(cwd as string),
+    enabled: enabled && !!cwd,
+    staleTime: 5000,
+  });
+}
+
+/** Diff detail of one file. Disabled until a file is selected. */
+export function useGitFileQuery(cwd: string | null, file: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: acpKeys.gitFile(cwd ?? "", file ?? ""),
+    queryFn: () => gitFile(cwd as string, file as string),
+    enabled: enabled && !!cwd && !!file,
+    staleTime: 5000,
+  });
+}
+
 export function invalidateAgents(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: acpKeys.agents });
+}
+
+export function invalidateProviders(qc: QueryClient, agentId: string) {
+  void qc.invalidateQueries({ queryKey: acpKeys.providers(agentId) });
+}
+
+export function invalidateGit(qc: QueryClient) {
+  void qc.invalidateQueries({ queryKey: ["universal", "git"], exact: false });
 }
 
 export function invalidateSessions(qc: QueryClient, agentId: string) {

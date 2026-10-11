@@ -22,8 +22,16 @@ export interface Message {
     title: string;
     kind?: string;
     status: "pending" | "running" | "completed" | "failed" | "cancelled";
+    /** Client-observed wall clock (epoch ms): first sighting / terminal update. */
+    startedAt?: number;
+    completedAt?: number;
   }>;
   isStreaming?: boolean;
+  /** Client-observed turn timing (epoch ms): placeholder append -> turn end. */
+  startedAt?: number;
+  completedAt?: number;
+  /** Client-observed reasoning timing: first thought chunk -> turn end. */
+  thoughtTiming?: { startedAt?: number; completedAt?: number };
 }
 
 export interface ChatAreaProps {

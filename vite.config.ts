@@ -80,6 +80,15 @@ export default defineConfig({
           ) {
             return "vendor-react";
           }
+          // assistant-ui chat runtime renders on every thread view: isolate it
+          // for long-term caching (vendor-ui stays lean for the app shell).
+          if (
+            norm.includes("@assistant-ui") ||
+            norm.includes("assistant-stream") ||
+            norm.includes("assistant-cloud")
+          ) {
+            return "vendor-assistant";
+          }
           // Remaining UI/data libs (query, state, markdown, motion, icons).
           if (
             norm.includes("@tanstack") ||
@@ -87,6 +96,7 @@ export default defineConfig({
             norm.includes("framer-motion") ||
             norm.includes("lucide-react") ||
             norm.includes("@radix-ui") ||
+            norm.includes("radix-ui") ||
             norm.includes("class-variance-authority") ||
             norm.includes("/clsx/") ||
             norm.includes("tailwind-merge") ||

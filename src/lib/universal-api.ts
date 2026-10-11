@@ -3,6 +3,27 @@
  * Talks to server/universal gateway (/api/universal/*).
  */
 
+/** usage_update payload: used/size/cost 必有；缓存计数由 agent 透传、有则收。 */
+export interface UsageUpdate {
+  used: number;
+  size: number;
+  cost?: { amount: number; currency: string };
+  cachedTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+/** Pick numeric extras off a raw usage_update (unknown fields never pass). */
+function pickUsageExtras(u: any): Partial<UsageUpdate> {
+  const out: Partial<UsageUpdate> = {};
+  for (const k of ["cachedTokens", "inputTokens", "outputTokens", "totalTokens"] as const) {
+    const v = u?.[k];
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
 export interface AgentSummary {
   id: string;
   name: string;
@@ -346,7 +367,7 @@ export interface UniversalHandlers {
   onModeUpdate?: (modeId: string) => void;
   onConfigUpdate?: (option: any) => void;
   onSessionInfo?: (info: any) => void;
-  onUsage?: (usage: { used: number; size: number; cost?: { amount: number; currency: string } }) => void;
+  onUsage?: (usage: UsageUpdate) => void;
   /** fs/terminal/compaction and any unrecognized update kinds land here. */
   onActivity?: (a: ActivityEvent) => void;
   onPermissionRequest?: (p: PendingPermission) => void;
@@ -623,7 +644,7 @@ export async function consumeUniversalChat(
           } else if (kind === "session_info_update") {
             handlers.onSessionInfo?.(u.sessionInfo || u);
           } else if (kind === "usage_update") {
-            handlers.onUsage?.({ used: u.used, size: u.size, cost: u.cost });
+            handlers.onUsage?.({ used: u.used, size: u.size, cost: u.cost, ...pickUsageExtras(u) });
           } else if (kind === "plan_update") {
             // UNSTABLE: plan content patch — entries array when present.
             if (Array.isArray(u.plan?.entries)) handlers.onPlan?.(u.plan.entries as PlanEntry[]);
@@ -703,7 +724,7 @@ export interface RebuiltTranscript {
     messageId?: string;
   }>;
   plan: PlanEntry[];
-  usage: { used: number; size: number; cost?: { amount: number; currency: string } } | null;
+  usage: UsageUpdate | null;
   availableCommands: Array<{ name: string; description?: string }>;
   currentModeId: string | null;
   sessionTitle?: string;
@@ -831,7 +852,7 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
     } else if (kind === "current_mode_update" && u.currentModeId) {
       out.currentModeId = u.currentModeId;
     } else if (kind === "usage_update") {
-      out.usage = { used: u.used, size: u.size, cost: u.cost };
+      out.usage = { used: u.used, size: u.size, cost: u.cost, ...pickUsageExtras(u) };
     } else if (kind) {
       // Only generic unhandled activities
       out.activities.push({ kind, detail: u });

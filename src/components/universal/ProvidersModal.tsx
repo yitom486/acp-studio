@@ -1,8 +1,10 @@
 import React, { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, Cpu, RefreshCw, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { providersRpc } from "@/lib/universal-api";
+import { useProvidersQuery, invalidateProviders } from "@/lib/acp-queries";
 
 export interface ProvidersModalProps {
   isOpen: boolean;
@@ -18,66 +20,76 @@ interface ProviderRow {
 }
 
 export const ProvidersModal: React.FC<ProvidersModalProps> = ({ isOpen, onClose, agentId }) => {
-  const [providers, setProviders] = useState<ProviderRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const qc = useQueryClient();
   const [msg, setMsg] = useState<string | null>(null);
   const [editing, setEditing] = useState<Record<string, { apiType: string; baseUrl: string; headers: string }>>({});
 
-  const refresh = async () => {
-    setLoading(true);
-    setMsg(null);
-    try {
-      const res: any = await providersRpc(agentId, "list", {});
-      const list: ProviderRow[] = res?.providers || [];
-      setProviders(list);
-      const init: typeof editing = {};
-      for (const pr of list) {
-        init[pr.providerId] = {
-          apiType: String((pr.current as any)?.apiType || pr.supported?.[0] || "openai"),
-          baseUrl: String((pr.current as any)?.baseUrl || ""),
-          headers: JSON.stringify((pr.current as any)?.headers || {}, null, 1),
-        };
-      }
-      setEditing(init);
-    } catch (e: any) {
-      setMsg("providers/list 失败: " + e.message);
-    } finally {
-      setLoading(false);
+  // Server state via TanStack Query (cached per agent, auto-fetches on open).
+  const providersQuery = useProvidersQuery(agentId, isOpen);
+  const providers: ProviderRow[] = (providersQuery.data as any)?.providers || [];
+  const loading = providersQuery.isFetching;
+
+  // Editing draft follows the server rows (form state stays local).
+  React.useEffect(() => {
+    if (!providersQuery.data) return;
+    const init: typeof editing = {};
+    for (const pr of providers) {
+      init[pr.providerId] = {
+        apiType: String((pr.current as any)?.apiType || pr.supported?.[0] || "openai"),
+        baseUrl: String((pr.current as any)?.baseUrl || ""),
+        headers: JSON.stringify((pr.current as any)?.headers || {}, null, 1),
+      };
     }
+    setEditing(init);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providersQuery.data]);
+
+  const refresh = () => {
+    setMsg(null);
+    void providersQuery.refetch();
   };
 
-  React.useEffect(() => {
-    if (isOpen) refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, agentId]);
+  const setMutation = useMutation({
+    mutationFn: (v: { providerId: string; apiType: string; baseUrl: string; headers: Record<string, string> }) =>
+      providersRpc(agentId, "set", v),
+    onSuccess: (_r, v) => {
+      setMsg(`已更新 provider ${v.providerId}`);
+      invalidateProviders(qc, agentId);
+    },
+    onError: (e: any) => setMsg("providers/set 失败: " + e.message),
+  });
+
+  const disableMutation = useMutation({
+    mutationFn: (providerId: string) => providersRpc(agentId, "disable", { providerId }),
+    onSuccess: (_r, providerId) => {
+      setMsg(`已禁用 provider ${providerId}`);
+      invalidateProviders(qc, agentId);
+    },
+    onError: (e: any) => setMsg("providers/disable 失败: " + e.message),
+  });
 
   if (!isOpen) return null;
 
-  const handleSet = async (providerId: string) => {
+  const handleSet = (providerId: string) => {
     const ed = editing[providerId];
-    if (!ed) return;
+    if (!ed || setMutation.isPending) return;
     setMsg(null);
     try {
       let headers: Record<string, string> = {};
       if (ed.headers.trim()) headers = JSON.parse(ed.headers);
-      await providersRpc(agentId, "set", { providerId, apiType: ed.apiType, baseUrl: ed.baseUrl, headers });
-      setMsg(`已更新 provider ${providerId}`);
-      await refresh();
+      setMutation.mutate({ providerId, apiType: ed.apiType, baseUrl: ed.baseUrl, headers });
     } catch (e: any) {
-      setMsg("providers/set 失败: " + e.message);
+      setMsg("headers JSON 解析失败: " + e.message);
     }
   };
 
-  const handleDisable = async (providerId: string) => {
+  const handleDisable = (providerId: string) => {
+    if (disableMutation.isPending) return;
     setMsg(null);
-    try {
-      await providersRpc(agentId, "disable", { providerId });
-      setMsg(`已禁用 provider ${providerId}`);
-      await refresh();
-    } catch (e: any) {
-      setMsg("providers/disable 失败: " + e.message);
-    }
+    disableMutation.mutate(providerId);
   };
+
+  const listError = providersQuery.error ? "providers/list 失败: " + (providersQuery.error as Error).message : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md" onClick={onClose}>
@@ -142,9 +154,9 @@ export const ProvidersModal: React.FC<ProvidersModalProps> = ({ isOpen, onClose,
                 </div>
               )}
               <div className="flex gap-2">
-                <Button size="sm" variant="default" onClick={() => handleSet(pr.providerId)} className="h-7 text-[11px]">应用配置</Button>
+                <Button size="sm" variant="default" onClick={() => handleSet(pr.providerId)} disabled={setMutation.isPending} className="h-7 text-[11px]">应用配置</Button>
                 {!pr.required && (
-                  <Button size="sm" variant="outline" onClick={() => handleDisable(pr.providerId)} className="h-7 text-[11px] gap-1">
+                  <Button size="sm" variant="outline" onClick={() => handleDisable(pr.providerId)} disabled={disableMutation.isPending} className="h-7 text-[11px] gap-1">
                     <Ban className="w-3 h-3" /> 禁用
                   </Button>
                 )}
@@ -152,7 +164,8 @@ export const ProvidersModal: React.FC<ProvidersModalProps> = ({ isOpen, onClose,
             </div>
           );
         })}
-        {providers.length === 0 && !loading && <div className="text-muted-foreground">无 providers 数据。</div>}
+        {providers.length === 0 && !loading && !listError && <div className="text-muted-foreground">无 providers 数据。</div>}
+        {listError && <div className="p-2 rounded-lg bg-background border border-border text-muted-foreground">{listError}</div>}
         {msg && <div className="p-2 rounded-lg bg-background border border-border text-muted-foreground">{msg}</div>}
       </div>
     </div>

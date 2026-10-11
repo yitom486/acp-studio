@@ -60,6 +60,10 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.5" },
         },
+        "fade-slide-in": {
+          from: { opacity: "0", transform: "translateY(8px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
         "shiny-text": {
           "0%, 90%, 100%": {
             "background-position": "calc(-100% - var(--shiny-width)) 0",
@@ -76,6 +80,7 @@ export default {
       },
       animation: {
         "pulse-slow": "pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        "fade-slide-in": "fade-slide-in 0.25s ease-out",
         "shiny-text": "shiny-text 8s infinite",
       },
     },

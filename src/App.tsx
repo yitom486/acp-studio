@@ -1,11 +1,13 @@
 import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChatArea } from "@/components/ChatArea";
+import { AcpAssistantProvider } from "@/components/assistant/AcpAssistantProvider";
+import { AcpComposer } from "@/components/assistant/AcpComposer";
+import { AssistantChatView } from "@/components/assistant/AssistantChatView";
+import { matchPermToToolCalls } from "@/lib/acp-assistant";
 import { StudioHeader } from "@/components/universal/StudioHeader";
 import { Sidebar, type SessionItem } from "@/components/universal/Sidebar";
 import { PermissionDialog } from "@/components/universal/PermissionDialog";
 import { ElicitationCard } from "@/components/universal/ElicitationCard";
-import { UniversalComposer } from "@/components/universal/UniversalComposer";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { SessionSettings } from "@/components/universal/SessionSettingsModal";
 
@@ -72,8 +74,8 @@ function LazyModalFallback() {
     </div>
   );
 }
-import { useStudioStore, useStudioShallow, useStudioMessages } from "@/stores/useStudioStore";
-import { useAgentsQuery, useSessionsQuery, invalidateAgents, invalidateSessions } from "@/lib/acp-queries";
+import { useStudioStore, useStudioShallow } from "@/stores/useStudioStore";
+import { useAgentsQuery, useSessionsQuery, useWorkspaceDefaultQuery, invalidateAgents, invalidateSessions } from "@/lib/acp-queries";
 import {
   connectAgent,
   logoutAgent,
@@ -89,7 +91,6 @@ import {
   flattenConfigOptions,
   parseModelId,
   isAuthRequiredError,
-  getWorkspaceDefault,
   validateWorkspace,
   cleanupEmptySessions,
   type PendingPermission,
@@ -136,7 +137,6 @@ export default function App() {
   const agentsRef = useRef<AgentSummary[]>([]);
   const [customOpen, setCustomOpen] = useState(false);
   const s = useStudioShallow();
-  const messages = useStudioMessages();
 
   const [cleaningEmpty, setCleaningEmpty] = useState(false);
 
@@ -212,19 +212,22 @@ export default function App() {
 
   // One-time: probe local-auth reuse for connected agents + ensure a session
   // for the active one (StrictMode-safe via ensuredRef).
+  // Probes run in parallel and never block the session build.
   useEffect(() => {
     if (agentsQuery.isLoading || agents.length === 0) return;
     void (async () => {
-      for (const a of agents) {
-        if (a.status?.connected && s.authOk[a.id] === undefined) {
-          await probeAuth(a.id);
-        }
-      }
+      const probes = Promise.all(
+        agents
+          .filter((a) => a.status?.connected && s.authOk[a.id] === undefined)
+          .map((a) => probeAuth(a.id))
+      );
       const active = agents.find((a) => a.id === useStudioStore.getState().activeAgentId);
       if (active?.status?.connected && ensuredRef.current !== active.id) {
         ensuredRef.current = active.id;
-        await ensureSession(active.id, true);
+        // Resume-first: never abandon the restored thread's session on boot.
+        await resolveSession(active.id);
       }
+      await probes;
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentsQuery.isLoading, agents]);
@@ -233,19 +236,19 @@ export default function App() {
 
   const effectiveCwd = s.currentWorkspace || sessionCwd;
 
-  // Initialize default workspace from server if empty
-  // 最小 loud 化 (不改结构): 工作区默认值失败不阻断启动，但必须留痕 (error_handling.md)。
+  // Gateway default workspace (TanStack Query: cached 5min, retried once).
+  // Applied into the store only when the user has no workspace yet.
+  const workspaceDefaultQuery = useWorkspaceDefaultQuery(!s.currentWorkspace);
   useEffect(() => {
-    if (!s.currentWorkspace) {
-      getWorkspaceDefault()
-        .then((res) => {
-          if (res?.path && !useStudioStore.getState().currentWorkspace) {
-            useStudioStore.getState().setWorkspace(res.path, res.name);
-          }
-        })
-        .catch((err) => console.warn("[App] 获取默认工作区失败 (已忽略，将保持空工作区):", err));
+    const res = workspaceDefaultQuery.data;
+    if (res?.path && !useStudioStore.getState().currentWorkspace) {
+      useStudioStore.getState().setWorkspace(res.path, res.name);
     }
-  }, []);
+    if (workspaceDefaultQuery.isError) {
+      console.warn("[App] 获取默认工作区失败 (已忽略，将保持空工作区):", workspaceDefaultQuery.error);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceDefaultQuery.data, workspaceDefaultQuery.isError]);
 
   // Global shortcuts (Ctrl+`, Ctrl+Shift+D, Ctrl+O)
   useEffect(() => {
@@ -313,6 +316,7 @@ export default function App() {
     const st = useStudioStore.getState();
     if (!force && st.sessionId && agentId === st.activeAgentId) return st.sessionId;
     if (st.isStreaming || st.busy) return null;
+    st.setSessionLoading(true);
     try {
       const known = agents.find((a) => a.id === agentId)?.status?.connected;
       if (!known) await connectAgent(agentId);
@@ -321,6 +325,7 @@ export default function App() {
       st.applySessionResult(res);
       bindThreadSession(useStudioStore.getState().sessionId, reqCwd);
       st.setAuthOk(agentId, true);
+      st.setSessionError(null);
       invalidateSessions(qc, agentId);
       invalidateAgents(qc);
       if (res?.sessionId) {
@@ -331,11 +336,14 @@ export default function App() {
       if (isAuthRequiredError(e)) {
         st.setAuthOk(agentId, false);
         st.setAuthOpen(true);
+        st.setSessionError(null);
       } else {
         const msg = e?.message && e.message !== "null" ? e.message : "无法创建会话（Agent进程未连接或异常）";
-        alert(`创建会话失败: ${msg}`);
+        st.setSessionError(msg);
       }
       return null;
+    } finally {
+      useStudioStore.getState().setSessionLoading(false);
     }
   };
 
@@ -352,8 +360,8 @@ export default function App() {
     const target = agents.find((a) => a.id === id);
     if (target?.status?.connected) {
       invalidateSessions(qc, id);
-      ensuredRef.current = id;
-      void ensureSession(id, true);
+      // Resume this agent's remembered session; only news when none/fails.
+      void resolveSession(id);
     }
   };
 
@@ -393,6 +401,34 @@ export default function App() {
     }
   };
 
+  /**
+   * Single session-resolution policy (stability invariant):
+   * UI history ⟺ session binding. Whenever a live thread binds a sessionId,
+   * resume it first so model-side context continues; only create a new
+   * session when nothing is bound or resume fails. This stops the sidebar
+   * filling with abandoned sessions on every boot / agent switch / prompt.
+   */
+  const resolveSession = async (agentId: string): Promise<string | null> => {
+    const cur0 = useStudioStore.getState();
+    if (cur0.isStreaming) return cur0.sessionId;
+    // 1. resume the bound session (restores modes/models/config for selectors)
+    const { resumed, result } = await restoreAgentSession(agentId);
+    const cur = useStudioStore.getState();
+    if (resumed) {
+      if (result?.modes) cur.setModes(result.modes);
+      if (result?.models) cur.setModels(result.models);
+      if (result?.configOptions) cur.setConfigOptions(result.configOptions);
+      const sid = cur.sessionId;
+      if (sid) void applyDefaultConfigOptions(agentId, sid);
+      ensuredRef.current = agentId;
+      return sid;
+    }
+    // 2. no binding (or resume failed and binding was dropped) -> create
+    const sid = await ensureSession(agentId, true);
+    if (sid) ensuredRef.current = agentId;
+    return sid;
+  };
+
   const handleConnect = async (id: string = s.activeAgentId) => {
     const st = useStudioStore.getState();
     st.setConnectingId(id);
@@ -401,24 +437,8 @@ export default function App() {
       invalidateAgents(qc);
       await probeAuth(id);
       invalidateSessions(qc, id);
-      // Reattach the remembered session first; only news one when needed.
-      // Resume result carries modes/models/config — apply them now so the
-      // model/thinking/permission selectors work before the first prompt.
-      const { resumed, result } = await restoreAgentSession(id);
-      const sid = useStudioStore.getState().sessionId;
-      if (resumed) {
-        const cur = useStudioStore.getState();
-        if (result?.modes) cur.setModes(result.modes);
-        if (result?.models) cur.setModels(result.models);
-        if (result?.configOptions) cur.setConfigOptions(result.configOptions);
-        if (sid) void applyDefaultConfigOptions(id, sid);
-        ensuredRef.current = id;
-      } else {
-        // Auto-create or ensure an active session so model/thinking/permission selectors
-        // (which come from session configOptions) show up immediately.
-        ensuredRef.current = id;
-        await ensureSession(id, true);
-      }
+      // Remembered session first (resume), new one only when needed.
+      await resolveSession(id);
     } catch (e: any) {
       const msg = e?.message && e.message !== "null" ? e.message : "连接超时或进程异常退出";
       alert(`连接 ${id} 失败: ${msg}`);
@@ -881,9 +901,24 @@ export default function App() {
 
     const assistantId = "asst-" + Date.now();
     st.appendMessage({ id: "user-" + Date.now(), role: "user", content: display, timestamp: now() });
-    st.appendMessage({ id: assistantId, role: "assistant", content: "", thought: "", plan: [], toolCalls: [], timestamp: now(), isStreaming: true });
-    st.setStreaming(true);
+    st.appendMessage({ id: assistantId, role: "assistant", content: "", thought: "", plan: [], toolCalls: [], timestamp: now(), isStreaming: true, startedAt: Date.now() });
     abortRef.current = new AbortController();
+
+    // Real wall-clock timing (client-observed): tool start = first sighting,
+    // tool end = first terminal status; turn end = done/error/abort.
+    const TERMINAL_TOOL = new Set(["completed", "failed", "cancelled"]);
+    const stampTurnEnd = (id: string) => {
+      const t = Date.now();
+      useStudioStore.getState().patchMessage(id, (m) => ({
+        ...m,
+        isStreaming: false,
+        completedAt: m.completedAt ?? t,
+        thoughtTiming:
+          m.thoughtTiming?.startedAt && !m.thoughtTiming.completedAt
+            ? { ...m.thoughtTiming, completedAt: t }
+            : m.thoughtTiming,
+      }));
+    };
 
     try {
       const known = agents.find((a) => a.id === agentId)?.status?.connected;
@@ -892,7 +927,9 @@ export default function App() {
       // stays in sync (backend auto-create would leave config unknown).
       let sid = useStudioStore.getState().sessionId;
       if (!sid) {
-        sid = await ensureSession(agentId);
+        // No binding: resume-first (usually news here), never blind force-new
+        // over a session the UI is already showing.
+        sid = await resolveSession(agentId);
         if (!sid) throw new Error("无法创建会话");
       }
       const cur = useStudioStore.getState();
@@ -903,15 +940,30 @@ export default function App() {
           onTextChunk: (chunk) =>
             cur.patchMessage(assistantId, (m) => ({ ...m, content: m.content + chunk })),
           onThoughtChunk: (chunk) =>
-            cur.patchMessage(assistantId, (m) => ({ ...m, thought: (m.thought || "") + chunk })),
+            cur.patchMessage(assistantId, (m) => ({
+              ...m,
+              thought: (m.thought || "") + chunk,
+              thoughtTiming: m.thoughtTiming ?? { startedAt: Date.now() },
+            })),
           onToolCall: (c) =>
-            cur.patchMessage(assistantId, (m) => ({ ...m, toolCalls: [...(m.toolCalls || []), c] })),
+            cur.patchMessage(assistantId, (m) => ({
+              ...m,
+              toolCalls: [...(m.toolCalls || []), { ...c, startedAt: Date.now() }],
+            })),
           onToolCallUpdate: (c) =>
             cur.patchMessage(assistantId, (m) => {
               const calls = [...(m.toolCalls || [])];
               const i = calls.findIndex((x) => x.id === c.id);
-              if (i >= 0) calls[i] = { ...calls[i], ...c, title: c.title || calls[i].title };
-              else calls.push(c);
+              const terminal = TERMINAL_TOOL.has(c.status);
+              if (i >= 0)
+                calls[i] = {
+                  ...calls[i],
+                  ...c,
+                  title: c.title || calls[i].title,
+                  startedAt: calls[i].startedAt ?? Date.now(),
+                  completedAt: terminal ? (calls[i].completedAt ?? Date.now()) : calls[i].completedAt,
+                };
+              else calls.push({ ...c, startedAt: Date.now(), completedAt: terminal ? Date.now() : undefined });
               return { ...m, toolCalls: calls };
             }),
           onPlan: (entries) => cur.patchMessage(assistantId, { plan: entries }),
@@ -937,17 +989,18 @@ export default function App() {
           onActivity: (a) => appendActivity(a),
           onPermissionRequest: (p) => useStudioStore.getState().addPermission(p),
           onElicitationRequest: (e) => useStudioStore.getState().addElicitation(e),
-          onDone: () => useStudioStore.getState().patchMessage(assistantId, { isStreaming: false }),
+          onDone: () => stampTurnEnd(assistantId),
           onError: (err) => {
             const c2 = useStudioStore.getState();
             if (isAuthRequiredError(err)) {
               c2.setAuthOk(agentId, false);
               c2.setAuthOpen(true);
             }
-            c2.patchMessage(assistantId, {
-              content: c2.messages.find((m) => m.id === assistantId)?.content + `\n\n> ❌ [${agentId}] ${err.message}`,
-              isStreaming: false,
-            });
+            c2.patchMessage(assistantId, (m) => ({
+              ...m,
+              content: m.content + `\n\n> ❌ [${agentId}] ${err.message}`,
+            }));
+            stampTurnEnd(assistantId);
           },
         },
         abortRef.current.signal
@@ -965,12 +1018,13 @@ export default function App() {
         }
         const prev = c2.messages.find((m) => m.id === assistantId)?.content || "";
         const msg = e?.message && e.message !== "null" ? e.message : "连接异常或请求超时";
-        c2.patchMessage(assistantId, { content: prev + `\n\n> ❌ [连接异常] ${msg}`, isStreaming: false });
+        c2.patchMessage(assistantId, (m) => ({ ...m, content: prev + `\n\n> ❌ [连接异常] ${msg}` }));
+        stampTurnEnd(assistantId);
       }
     } finally {
       const c2 = useStudioStore.getState();
       c2.setStreaming(false);
-      c2.patchMessage(assistantId, { isStreaming: false });
+      stampTurnEnd(assistantId);
       // Turn-end marker (done / error / abort): splice this turn's final
       // text and persist ASYNC — fire-and-forget microtask so storage I/O
       // never blocks the UI thread. Persisted record is text-only (user
@@ -998,7 +1052,22 @@ export default function App() {
     }
     const cur = useStudioStore.getState();
     cur.setStreaming(false);
-    cur.setMessages(cur.messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)));
+    const t = Date.now();
+    cur.setMessages(
+      cur.messages.map((m) =>
+        m.isStreaming
+          ? {
+              ...m,
+              isStreaming: false,
+              completedAt: m.completedAt ?? t,
+              thoughtTiming:
+                m.thoughtTiming?.startedAt && !m.thoughtTiming.completedAt
+                  ? { ...m.thoughtTiming, completedAt: t }
+                  : m.thoughtTiming,
+            }
+          : m
+      )
+    );
   };
 
   const handlePermRespond = async (p: PendingPermission, optionId: string | null) => {
@@ -1107,7 +1176,13 @@ export default function App() {
           onClearMessages={() => !s.isStreaming && s.setMessages([])}
         />
 
-        <PermissionDialog pending={s.pendingPerms.filter((p) => !s.sessionId || p.sessionId === s.sessionId)} onRespond={handlePermRespond} respondingId={s.respondingId} />
+        <PermissionDialog pending={s.pendingPerms.filter((p) => {
+          if (s.sessionId && p.sessionId !== s.sessionId) return false;
+          // 已在工具卡内联展示的不再进全局弹窗 (匹配器见 acp-assistant.ts)。
+          // 用 getState  imperative 读取 messages，避免 shell 订阅流式热路径。
+          if (matchPermToToolCalls(p, useStudioStore.getState().messages, s.sessionId)) return false;
+          return true;
+        })} onRespond={handlePermRespond} respondingId={s.respondingId} />
 
         {s.pendingElic.length > 0 && (
           <div className="px-4 pt-2 space-y-2 max-h-64 overflow-y-auto shrink-0">
@@ -1117,38 +1192,39 @@ export default function App() {
           </div>
         )}
 
-        <ChatArea
-          messages={messages}
-          isStreaming={s.isStreaming}
-          selectedModel={activeAgent?.title || s.activeAgentId}
-          selectedMode={s.modes?.currentModeId || ""}
-          onSelectSuggestion={(p) => handleSend(p)}
-          agentName={activeAgent?.title || activeAgent?.name || "Agent"}
-          onOpenDiff={(file) => s.setGitChangesOpen(true, file)}
-        />
+        <AcpAssistantProvider onSend={(t) => handleSend(t)} onStop={handleStop}>
+          <AssistantChatView
+            onSelectSuggestion={(p) => handleSend(p)}
+            agentName={activeAgent?.title || activeAgent?.name || "Agent"}
+            onOpenDiff={(file) => s.setGitChangesOpen(true, file)}
+            connected={connected}
+            sessionId={s.sessionId}
+            sessionError={s.sessionError}
+            sessionLoading={s.sessionLoading}
+            onEnsureSession={() => ensureSession()}
+          />
 
-        <UniversalComposer
-          input={s.input}
-          setInput={(v) => s.setInput(v)}
-          onSend={(t) => handleSend(t)}
-          onStop={handleStop}
-          onClear={() => !s.isStreaming && s.setMessages([])}
-          isStreaming={s.isStreaming}
-          commands={s.availableCommands}
-          supportImage={supportImage}
-          attachments={s.attachments}
-          setAttachments={(a) => s.setAttachments(a)}
-          agentTitle={activeAgent?.title || s.activeAgentId}
-          configOptions={s.configOptions}
-          onSetConfig={(configId, value) => setSessionConfig(configId, value)}
-          onBrowseModels={() => s.setModelsOpen(true)}
-          hasModelCatalog={!!s.models}
-          connected={connected}
-          fallbackModels={s.models?.availableModels || null}
-          fallbackCurrentModel={s.models?.currentModelId || ""}
-          onFallbackModel={handleFallbackModel}
-          onEnsureSession={() => ensureSession()}
-        />
+          <AcpComposer
+            onSendAttachmentOnly={() => handleSend("")}
+            onClear={() => !s.isStreaming && s.setMessages([])}
+            isStreaming={s.isStreaming}
+            commands={s.availableCommands}
+            supportImage={supportImage}
+            attachments={s.attachments}
+            setAttachments={(a) => s.setAttachments(a)}
+            agentTitle={activeAgent?.title || s.activeAgentId}
+            configOptions={s.configOptions}
+            onSetConfig={(configId, value) => setSessionConfig(configId, value)}
+            onBrowseModels={() => s.setModelsOpen(true)}
+            hasModelCatalog={!!s.models}
+            connected={connected}
+            fallbackModels={s.models?.availableModels || null}
+            fallbackCurrentModel={s.models?.currentModelId || ""}
+            onFallbackModel={handleFallbackModel}
+            onEnsureSession={() => ensureSession()}
+            sessionLoading={s.sessionLoading}
+          />
+        </AcpAssistantProvider>
       </div>
 
       <Suspense fallback={<LazyModalFallback />}>

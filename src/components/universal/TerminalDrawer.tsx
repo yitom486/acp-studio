@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 
 export interface TerminalDrawerProps {
   isOpen: boolean;
@@ -46,22 +47,16 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   useEffect(() => {
     if (cwd) {
       setResolvedCwd(cwd);
-      return;
     }
-    let cancelled = false;
-    // No prop and nothing in storage: ask the gateway for its default.
-    fetch("/api/universal/workspace/default")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled && data?.ok && data.path) setResolvedCwd(data.path);
-      })
-      .catch((err) => {
-        console.error("[TerminalDrawer] workspace default fetch failed, waiting for user to pick a directory:", err);
-      });
-    return () => {
-      cancelled = true;
-    };
   }, [cwd]);
+
+  // Shared cached default (same query key as App): no duplicate fetch.
+  const workspaceDefaultQuery = useWorkspaceDefaultQuery(!cwd && !resolvedCwd);
+  useEffect(() => {
+    const path = workspaceDefaultQuery.data?.path;
+    if (path && !cwd && !resolvedCwd) setResolvedCwd(path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceDefaultQuery.data]);
 
   const activeCwd = resolvedCwd;
   const hasCwd = activeCwd.trim().length > 0;

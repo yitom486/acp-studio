@@ -25,6 +25,15 @@ export interface UsageState {
   used: number;
   size: number;
   cost?: { amount: number; currency: string };
+  /**
+   * Prompt-cache counters (agent 透传、有则显示，绝不编造）。
+   * 当前链路 usage_update 仅含 used/size/cost，这些字段全是 undefined；
+   * 一旦 agent 开始下发 cachedTokens，UI 自动出现缓存命中率行。
+   */
+  cachedTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
 }
 
 export interface RecentWorkspace {
@@ -50,6 +59,10 @@ interface StudioState {
   authOk: Record<string, boolean | null>;
   // session (client view of server state)
   sessionId: string | null;
+  /** Last ensureSession failure (non-auth), surfaced in the welcome banner. */
+  sessionError: string | null;
+  /** session/new in flight (drives the composer's loading shimmer). */
+  sessionLoading: boolean;
   modes: ModeState | null;
   models: ModelCatalog | null;
   configOptions: any[] | null;
@@ -99,6 +112,8 @@ interface StudioState {
   setConnectingId: (id: string | null) => void;
   setAuthOk: (agentId: string, ok: boolean | null) => void;
   setSessionId: (id: string | null) => void;
+  setSessionError: (e: string | null) => void;
+  setSessionLoading: (v: boolean) => void;
   applySessionResult: (res: any) => void;
   setModes: (m: ModeState | null) => void;
   setModels: (m: ModelCatalog | null) => void;
@@ -149,6 +164,8 @@ interface StudioState {
 
 const initialThread = {
   messages: [] as Message[],
+  sessionError: null as string | null,
+  sessionLoading: false as boolean,
   modes: null as ModeState | null,
   models: null as ModelCatalog | null,
   configOptions: null as any[] | null,
@@ -281,6 +298,8 @@ export const useStudioStore = create<StudioState>()((set) => ({
   setConnectingId: (id) => set({ connectingId: id }),
   setAuthOk: (agentId, ok) => set((s) => ({ authOk: { ...s.authOk, [agentId]: ok } })),
   setSessionId: (id) => set({ sessionId: id }),
+  setSessionError: (e) => set({ sessionError: e }),
+  setSessionLoading: (v) => set({ sessionLoading: v }),
   applySessionResult: (res: any) =>
     set((s) => ({
       sessionId: res?.sessionId ?? s.sessionId,
@@ -485,6 +504,8 @@ const STUDIO_SHALLOW_SELECTOR = (s: StudioState) => ({
   authOk: s.authOk,
   // session view
   sessionId: s.sessionId,
+  sessionError: s.sessionError,
+  sessionLoading: s.sessionLoading,
   modes: s.modes,
   models: s.models,
   configOptions: s.configOptions,
