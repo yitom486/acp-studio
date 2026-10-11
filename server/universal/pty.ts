@@ -92,6 +92,14 @@ function defaultSpawner(): PtySpawner | null {
 }
 
 let ptyImpl: { spawn: PtySpawner } | null | undefined;
+let ptyLoadError = "";
+/** 最近一次加载失败原因（status 路由诚实透出，不编造）。 */
+export function ptyUnavailableReason(): string {
+  if ((process.versions as Record<string, string | undefined>)?.bun) {
+    return "Bun 网关无 native node-pty，请切 dev:server:node 或用 Electron 内置网关";
+  }
+  return ptyLoadError || "node-pty 加载失败（原因未知）";
+}
 function loadPtyImpl(): { spawn: PtySpawner } | null {
   if (ptyImpl !== undefined) return ptyImpl;
   // Bun 无 native node-pty：直接不可用，不抛错（调用方回 501）。
@@ -99,19 +107,42 @@ function loadPtyImpl(): { spawn: PtySpawner } | null {
     ptyImpl = null;
     return ptyImpl;
   }
+  const attempts: Array<() => unknown> = [];
   try {
-    // 双运行时解析：Electron main 是 Bun 打出的 CJS 包，模块级 require
-    // 可用且相对 main.cjs 定位（包内 app/node_modules），优先走它；
-    // Node ESM（server/node.ts、vitest）无模块 require，走 createRequire。
+    // 双运行时解析：Electron main 是 Bun 打出的 CJS 包，裸 require 可用
+    // （external 原样保留，相对 main.cjs 定位），优先走它；Node ESM
+    //（server/node.ts、vitest）无 require，走 createRequire。
     // 注意：Bun 打包会把下行 import.meta.url 内联成编译期绝对路径，但该
     // 分支在包内永不可达（cjsRequire 恒真），仅 Node ESM 下是活代码。
-    const cjsRequire = (module as unknown as { require?: (id: string) => unknown })?.require;
+    // 另注意：此处不可用 `module.require`——Bun 会把它改写成不存在的
+    // `module_pty` 导致包内加载失败（已踩坑）。
+    const cjsRequire =
+      typeof require !== "undefined" ? (require as (id: string) => unknown) : undefined;
     const req = cjsRequire ?? createRequire(import.meta.url);
-    ptyImpl = req("node-pty") as { spawn: PtySpawner };
+    attempts.push(() => req("node-pty"));
+    // 正式包：native 在 app.asar.unpacked，asar 内代码的 require 解析
+    // 不到它，必须按绝对路径直引（process.resourcesPath 只在 Electron 有）。
+    const resourcesPath = (process as unknown as { resourcesPath?: string }).resourcesPath;
+    if (resourcesPath) {
+      const unpacked = path.join(resourcesPath, "app.asar.unpacked", "node_modules", "node-pty");
+      attempts.push(() => req(unpacked));
+    }
   } catch (err) {
-    console.warn(`[PTY] node-pty 不可用（回落 one-shot）：${(err as Error).message}`);
+    ptyLoadError = (err as Error).message;
+    console.warn(`[PTY] node-pty 不可用（回落 one-shot）：${ptyLoadError}`);
     ptyImpl = null;
+    return ptyImpl;
   }
+  for (const run of attempts) {
+    try {
+      ptyImpl = run() as { spawn: PtySpawner };
+      return ptyImpl;
+    } catch (err) {
+      ptyLoadError = (err as Error).message;
+    }
+  }
+  console.warn(`[PTY] node-pty 不可用（回落 one-shot）：${ptyLoadError}`);
+  ptyImpl = null;
   return ptyImpl;
 }
 
