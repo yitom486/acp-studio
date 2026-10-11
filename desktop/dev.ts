@@ -84,28 +84,20 @@ async function cleanupAndExit(code = 0) {
 process.on("SIGINT", () => cleanupAndExit(0));
 process.on("SIGTERM", () => cleanupAndExit(0));
 
-async function waitForPort(port: number, host = "127.0.0.1", timeoutMs = 15000): Promise<boolean> {
+async function waitForVite(port: number, timeoutMs = 15000): Promise<boolean> {
   const start = Date.now();
+  const urls = [`http://localhost:${port}/`, `http://127.0.0.1:${port}/`];
+
   while (Date.now() - start < timeoutMs) {
-    const ready = await new Promise<boolean>((resolve) => {
-      const socket = new net.Socket();
-      socket.setTimeout(300);
-      socket.on("connect", () => {
-        socket.destroy();
-        resolve(true);
-      });
-      socket.on("timeout", () => {
-        socket.destroy();
-        resolve(false);
-      });
-      socket.on("error", () => {
-        socket.destroy();
-        resolve(false);
-      });
-      socket.connect(port, host);
-    });
-    if (ready) return true;
-    await new Promise((r) => setTimeout(r, 150));
+    for (const url of urls) {
+      try {
+        const res = await fetch(url);
+        if (res.status < 500) return true;
+      } catch {
+        // still starting up
+      }
+    }
+    await new Promise((r) => setTimeout(r, 100));
   }
   return false;
 }
@@ -182,7 +174,7 @@ async function main() {
 
   // 4. Wait for Vite client ready
   console.log(`${c.yellow}[launcher] 正在等待 Vite 开发服务器就绪 (http://localhost:${VITE_PORT})...${c.reset}`);
-  const viteReady = await waitForPort(VITE_PORT);
+  const viteReady = await waitForVite(VITE_PORT);
   if (!viteReady) {
     console.warn(`${c.yellow}[launcher] Vite 响应超时，尝试直接拉起 Electron...${c.reset}`);
   } else {
