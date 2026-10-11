@@ -5,6 +5,22 @@
     <link rel="icon" type="image/png" href="/acp-studio-cat.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ACP Studio</title>
+    <script>
+      (function() {
+        try {
+          var t = localStorage.getItem('acp_studio_theme_v1') || 'dark';
+          var doc = document.documentElement;
+          doc.setAttribute('data-theme', t);
+          if (t === 'light') {
+            doc.classList.remove('dark');
+            doc.classList.add('light');
+          } else {
+            doc.classList.add('dark');
+            doc.classList.remove('light');
+          }
+        } catch(e) {}
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">

@@ -63,15 +63,39 @@ checklist), `web-design-guidelines` (audit).
 }
 ```
 
-### 3. 全局锁步执行机制 (Synchronized Transition Lock)
-由 `useThemeStore.ts` 统一调度，绝不在各个组件写分散的 transition 逻辑：
-1. **用户触发切换时**：
-   - `applyThemeToDOM(themeId, true)` 动态读取 CSS 变量 `--theme-transition-duration`；
-   - 为根节点添加 `html.theme-transitioning` 类；
-   - 全站所有组件（背景、边框、文字、图标、阴影）在 CSS 规则强约束下以完全一致的 **200ms / cubic-bezier(0.4, 0, 0.2, 1)** 节拍完成过渡，彻底消灭色彩断层；
-   - 过渡结束后（`durationMs + 30ms`）精准移除该类，恢复各个按钮与卡片原生的 hover/focus 快速响应微交互，性能与体验零开销。
-2. **冷启动首屏渲染时**：
-   - `applyThemeToDOM(themeId, false)` 不挂载过渡类，瞬时呈现保存的主题，杜绝黑/白屏拉扯闪烁。
+### 3. 全局锁步执行机制与文字/小组件全量覆盖 (Universal Baseline & Lockstep Execution)
+此前大组件修复后小组件与文字仍旧割裂的**核心根因**：
+* 容器类大组件（Card、Sidebar、TitleBar）往往自带 `transition-colors`，而内嵌的细粒度文本（`h1-h6`, `p`, `span`, `label`, `code`）以及图标（`svg`, `path`）默认 `transition: none`；
+* 切换瞬间，背景以 200ms 渐变，而文字在 **0ms 瞬间反色**，在中间时刻（如 80ms 处）极易产生“暗底黑字”或“白底亮字”的严重反色致盲与撕裂闪烁！
+
+为此采取双重防御体系：
+1. **全局文字与组件基线注入**（`src/index.css`）：
+   ```css
+   /* 全局文字字体、图标与各级小组件色彩过渡基线 */
+   body,
+   h1, h2, h3, h4, h5, h6,
+   p, span, label, a,
+   code, pre, kbd, mark,
+   svg, path,
+   table, th, td, tr,
+   button, input, textarea, select,
+   aside, header, footer, nav, section, article, main,
+   div {
+     transition-property: var(--theme-transition-properties);
+     transition-duration: var(--theme-transition-duration);
+     transition-timing-function: var(--theme-transition-timing);
+   }
+   ```
+2. **Tailwind `@theme` 默认值对齐**：
+   ```css
+   @theme {
+     --default-transition-duration: var(--theme-transition-duration);
+     --default-transition-timing-function: var(--theme-transition-timing);
+   }
+   ```
+   所有使用 Tailwind 原生 `transition-colors`、`transition` 的小组件（Button、Badge、Input）自动遵循 200ms 设计令牌，杜绝 150ms 与 200ms 的节拍差。
+3. **首屏渲染零闪烁（Pre-paint Theme Bootstrap）**：
+   在 `index.html` 的 `<head>` 中注入同步脚本，在首帧 DOM 渲染前直接将用户保存的主题打在 `documentElement` 上，从根本上防止冷启动时的颜色过渡拉扯。
 
 ### 4. 桌面端原生控制栏（Window Controls Overlay）对齐规范
 * **色值 100% 咬合**：标题栏 CSS 变量 `--titlebar-bg`（纯白 `#ffffff` 或 暗黑 `#0b0e14`）必须与原生系统遮罩 `overlayColor` 完全一致；
@@ -85,8 +109,9 @@ checklist), `web-design-guidelines` (audit).
   :root {
     --theme-transition-duration: 0ms;
   }
-  html.theme-transitioning,
-  html.theme-transitioning * {
+  *,
+  *::before,
+  *::after {
     transition: none !important;
   }
 }

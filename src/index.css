@@ -44,9 +44,13 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   --animate-shiny-text: shiny-text 8s infinite;
   --animate-fade-slide-in: fade-slide-in 0.25s ease-out;
+
+  /* Tailwind 默认 transition 工具类统一绑定设计令牌 */
+  --default-transition-duration: var(--theme-transition-duration);
+  --default-transition-timing-function: var(--theme-transition-timing);
 }
 
 @keyframes pulse-slow {
@@ -82,22 +86,31 @@
   :root {
     /* =========================================================================
      * Unified Theme Transition Design Tokens
-     * 统一明暗主题切换动效设计令牌（杜绝组件间时间与缓动硬编码引起的视觉割裂）
+     * 统一明暗主题切换动效设计令牌（全局单一真实数据源）
      * ========================================================================= */
     --theme-transition-duration: 200ms;
     --theme-transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
     --theme-transition-properties: color, background-color, border-color, text-decoration-color, fill, stroke, box-shadow;
   }
 
-  /* 全局同步主题切换过渡态：由 useThemeStore 触发，全站组件以统一节拍平滑联动 */
-  html.theme-transitioning,
-  html.theme-transitioning *,
-  html.theme-transitioning *::before,
-  html.theme-transitioning *::after {
-    transition-property: var(--theme-transition-properties) !important;
-    transition-duration: var(--theme-transition-duration) !important;
-    transition-timing-function: var(--theme-transition-timing) !important;
-    transition-delay: 0s !important;
+  /* =========================================================================
+   * Universal Typography & Component Theme Transition Baseline
+   * 全局文字字体、图标与各级小组件色彩过渡基线
+   * 确保所有文本（h1-h6, p, span, label, code）、小组件（button, badge, input）与
+   * 容器背景在明暗切换时 100% 锁步渐变，彻底解决文字瞬间反色、小组件脱节的割裂感
+   * ========================================================================= */
+  body,
+  h1, h2, h3, h4, h5, h6,
+  p, span, label, a,
+  code, pre, kbd, mark,
+  svg, path,
+  table, th, td, tr,
+  button, input, textarea, select,
+  aside, header, footer, nav, section, article, main,
+  div {
+    transition-property: var(--theme-transition-properties);
+    transition-duration: var(--theme-transition-duration);
+    transition-timing-function: var(--theme-transition-timing);
   }
 
   /* 尊重系统动效减弱偏好 (Accessibility) */
@@ -105,10 +118,9 @@
     :root {
       --theme-transition-duration: 0ms;
     }
-    html.theme-transitioning,
-    html.theme-transitioning *,
-    html.theme-transitioning *::before,
-    html.theme-transitioning *::after {
+    *,
+    *::before,
+    *::after {
       transition: none !important;
     }
   }
