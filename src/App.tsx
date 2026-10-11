@@ -339,6 +339,7 @@ export default function App() {
               sessionError={s.sessionError}
               sessionLoading={s.sessionLoading}
               onEnsureSession={() => ensureSession()}
+              cwd={effectiveCwd}
             />
 
             <AcpComposer

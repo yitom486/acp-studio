@@ -374,6 +374,45 @@ export async function validateWorkspace(path: string): Promise<WorkspaceValidate
   return res.json();
 }
 
+export interface WorkspaceFileEntry {
+  path: string;
+  size: number;
+  mtimeMs: number;
+}
+
+/** List workspace files for @-mentions (substring filter, capped server-side). */
+export async function searchWorkspaceFiles(
+  cwd: string,
+  q: string,
+  limit = 50
+): Promise<{ repo: string; files: WorkspaceFileEntry[]; truncated: boolean }> {
+  const res = await fetch(
+    `/api/universal/workspace/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(q)}&limit=${limit}`
+  );
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "列出工作区文件失败");
+  return data;
+}
+
+export interface WorkspaceFileContent {
+  repo: string;
+  file: string;
+  mimeType: string;
+  size: number;
+  text: string;
+  truncated: boolean;
+}
+
+/** Read a workspace text file for @-mention attachments (capped, no binaries). */
+export async function readWorkspaceFile(cwd: string, file: string): Promise<WorkspaceFileContent> {
+  const res = await fetch(
+    `/api/universal/workspace/read?cwd=${encodeURIComponent(cwd)}&file=${encodeURIComponent(file)}`
+  );
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "读取文件失败");
+  return data;
+}
+
 export type UnifiedDiffLine =
   | { kind: "hunk"; text: string }
   | { kind: "add"; text: string }

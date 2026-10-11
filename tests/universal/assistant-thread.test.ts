@@ -341,6 +341,53 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     useStudioStore.setState({ messages: [], isStreaming: false } as any);
   });
 
+  it("shows a turn-changes entry only for edit-kind tool calls", async () => {
+    useStudioStore.setState({
+      messages: [
+        {
+          id: "a7", role: "assistant", content: "改完了", timestamp: "03:21",
+          toolCalls: [{ id: "t1", title: "edit a.ts", kind: "edit", status: "completed" }],
+        } as any,
+      ],
+      isStreaming: false,
+    } as any);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+    });
+    expect(el.innerHTML).toContain("改动 1");
+    root.unmount();
+    el.remove();
+
+    useStudioStore.setState({
+      messages: [
+        {
+          id: "a8", role: "assistant", content: "读完了", timestamp: "03:22",
+          toolCalls: [{ id: "t2", title: "read a.ts", kind: "read", status: "completed" }],
+        } as any,
+      ],
+      isStreaming: false,
+    } as any);
+    const el2 = document.createElement("div");
+    document.body.appendChild(el2);
+    const root2 = createRoot(el2);
+    await act(async () => {
+      root2.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+    });
+    expect(el2.innerHTML).not.toContain("改动");
+    root2.unmount();
+    el2.remove();
+    useStudioStore.setState({ messages: [], isStreaming: false } as any);
+  });
+
   it("paginates long histories with a load-earlier button", async () => {
     const many = Array.from({ length: 35 }, (_, i) => ({
       id: `m-${i}`,

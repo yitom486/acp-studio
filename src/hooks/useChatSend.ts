@@ -21,6 +21,66 @@ export interface UseChatSendOptions {
   agentsRef: React.MutableRefObject<AgentSummary[]>;
   resolveSession: (agentId: string) => Promise<string | null>;
   now?: () => string;
+  /**
+   * Stream retry policy. Auto-retries TRANSIENT failures only (network/
+   * timeout/5xx class) — never aborts (user stop), auth errors, or
+   * semantic failures. Manual retry remains the ↻ regenerate button.
+   */
+  retry?: {
+    max?: number;
+    delayMs?: (attempt: number) => number;
+  };
+}
+
+const DEFAULT_RETRY = {
+  max: 2,
+  delayMs: (attempt: number) => 1000 * 2 ** (attempt - 1),
+};
+
+/** True for failures worth an automatic resend (transport-level, likely fleeting). */
+export function isTransientSendError(err: unknown): boolean {
+  if (!err) return false;
+  if ((err as { name?: unknown } | null)?.name === "AbortError") return false;
+  if (isAuthRequiredError(err)) return false;
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /fetch failed|failed to fetch|networkerror|network request failed|load failed|timeout|timed out|econnreset|econnrefused|epipe|socket hang up|temporarily|try again|rate limit|too many requests|429|50[0234]|service unavailable|bad gateway|gateway timeout|not ready/i.test(
+    msg
+  );
+}
+
+const RETRY_NOTE_RE = /\n\n> 🔁 连接中断，正在重试[^\n]*\n?/g;
+
+/** Strip auto-retry status notes after a successful resend. */
+export function stripRetryNotes(content: string): string {
+  return content.replace(RETRY_NOTE_RE, "");
+}
+
+function sleepAbortable(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const cleanup = () => {
+      clearTimeout(t);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    };
+    const t = setTimeout(() => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve();
+    }, ms);
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 const defaultNow = () =>
@@ -74,8 +134,11 @@ export function useChatSend({
   agentsRef,
   resolveSession,
   now = defaultNow,
+  retry,
 }: UseChatSendOptions) {
   const abortRef = useRef<AbortController | null>(null);
+  const retryMax = retry?.max ?? DEFAULT_RETRY.max;
+  const retryDelayMs = retry?.delayMs ?? DEFAULT_RETRY.delayMs;
 
   const handleSend = useCallback(
     async (textToSend?: string) => {
@@ -140,9 +203,37 @@ export function useChatSend({
         }
         st.setStreaming(true);
         const cur = useStudioStore.getState();
-        await consumeUniversalChat(
-          { agentId, sessionId: sid, prompt: blocks },
-          {
+        // Transient transport failures (dropped SSE, gateway hiccup) resend
+        // automatically with backoff; the retry note is stripped on success.
+        // Anything else (abort/auth/semantic) falls through to the handlers below.
+        let attempt = 0;
+        // Terminal error reporting (auth modal, ❌ note, turn stamp).
+        // Stale retry notes are stripped first so a dead "retrying…" line
+        // never survives next to the final error.
+        const reportError = (err: any) => {
+          const c2 = useStudioStore.getState();
+          if (isAuthRequiredError(err)) {
+            c2.setAuthOk(agentId, false);
+            c2.setAuthOpen(true);
+          }
+          c2.patchMessage(assistantId, (m) => ({
+            ...m,
+            content: stripRetryNotes(m.content) + `\n\n> ❌ [${agentId}] ${err.message}`,
+          }));
+          stampTurnEnd(assistantId);
+        };
+        // Retryable when: budget left, not user-aborted, transport-level failure.
+        // Auth/semantic errors and aborts are never retried.
+        const shouldRetry = (err: any) =>
+          attempt < retryMax &&
+          !abortRef.current?.signal.aborted &&
+          isTransientSendError(err);
+        for (;;) {
+          let failedErr: any = null;
+          try {
+            await consumeUniversalChat(
+              { agentId, sessionId: sid, prompt: blocks },
+              {
             onSessionId: (id) => cur.setSessionId(id),
             onTextChunk: (chunk) =>
               cur.patchMessage(assistantId, (m) => ({ ...m, content: m.content + chunk })),
@@ -210,20 +301,40 @@ export function useChatSend({
             onElicitationRequest: (e) => useStudioStore.getState().addElicitation(e),
             onDone: () => stampTurnEnd(assistantId),
             onError: (err) => {
-              const c2 = useStudioStore.getState();
-              if (isAuthRequiredError(err)) {
-                c2.setAuthOk(agentId, false);
-                c2.setAuthOpen(true);
+              // Mid-stream error frame: consumeUniversalChat reports but does
+              // NOT throw, so transient ones defer to the resend below.
+              if (shouldRetry(err)) {
+                failedErr = err;
+                return;
               }
-              c2.patchMessage(assistantId, (m) => ({
-                ...m,
-                content: m.content + `\n\n> ❌ [${agentId}] ${err.message}`,
-              }));
-              stampTurnEnd(assistantId);
+              reportError(err);
             },
           },
           abortRef.current.signal
-        );
+          );
+        } catch (e: any) {
+          // Pre-stream throw (connect/session/chat-POST failure).
+          if (e?.name === "AbortError") throw e;
+          if (isAuthRequiredError(e)) throw e;
+          if (shouldRetry(e)) failedErr = e;
+          else throw e;
+        }
+        if (!failedErr) {
+          if (attempt > 0) {
+            cur.patchMessage(assistantId, (m) => ({ ...m, content: stripRetryNotes(m.content) }));
+          }
+          break;
+        }
+        attempt += 1;
+        cur.patchMessage(assistantId, (m) => ({
+          // Trailing newline keeps the note self-delimiting: streamed text
+          // lands on the next line so stripRetryNotes can never eat content.
+          ...m,
+          content: m.content + `\n\n> 🔁 连接中断，正在重试 (${attempt}/${retryMax})…\n`,
+        }));
+        // Abort during backoff surfaces as AbortError -> outer catch swallows.
+        await sleepAbortable(retryDelayMs(attempt), abortRef.current?.signal);
+      }
         const done = useStudioStore.getState();
         done.setAuthOk(agentId, true);
 
@@ -263,7 +374,7 @@ export function useChatSend({
             c2.setAuthOk(agentId, false);
             c2.setAuthOpen(true);
           }
-          const prev = c2.messages.find((m) => m.id === assistantId)?.content || "";
+          const prev = stripRetryNotes(c2.messages.find((m) => m.id === assistantId)?.content || "");
           const msg = e?.message && e.message !== "null" ? e.message : "连接异常或请求超时";
           c2.patchMessage(assistantId, (m) => ({ ...m, content: prev + `\n\n> ❌ [连接异常] ${msg}` }));
           stampTurnEnd(assistantId);

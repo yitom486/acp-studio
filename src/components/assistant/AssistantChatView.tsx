@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  History,
   Pencil,
   RefreshCw,
   Bot,
@@ -28,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatedShinyText } from "@/components/magicui/animated-shiny-text";
 import { AcpMarkdownText } from "@/components/assistant/AcpMarkdown";
 import { AcpImagePart } from "@/components/assistant/AcpMedia";
+import { TurnChanges } from "@/components/assistant/TurnChanges";
 import {
   DiffButton,
   FileEditCard,
@@ -37,6 +39,7 @@ import {
   SearchCard,
   StatusDot,
   TerminalCard,
+  type WidgetTool,
 } from "@/components/assistant/AcpToolWidgets";
 import {
   extractFileFromTool,
@@ -44,7 +47,6 @@ import {
   resolveToolDisplayTitle,
   resolveWidgetKey,
   toolPath,
-  type WidgetTool,
 } from "@/components/assistant/tool-widget-utils";
 import type { Message } from "@/components/ChatArea";
 import type { UsageState } from "@/stores/useStudioStore";
@@ -61,6 +63,8 @@ export interface AssistantChatViewProps {
   sessionError?: string | null;
   sessionLoading?: boolean;
   onEnsureSession?: () => void;
+  /** 当前工作区（本轮改动面板定位文件状态用）。 */
+  cwd?: string | null;
 }
 
 // ---------- part renderers (Text 由 AcpMarkdownText 直供 primitive) ----------
@@ -554,12 +558,28 @@ const BranchPickerView: React.FC<{ className?: string }> = ({ className }) => {
   );
 };
 
-const AssistantMessageView: React.FC<{ agentName: string }> = ({ agentName }) => {
+const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }> = ({ agentName, cwd }) => {
   const messageId = useAuiState((s) => s.message.id);
   const running = useAuiState((s) => s.message.status?.type === "running");
   const isCopied = useAuiState((s) => s.message.isCopied);
   const acp = useStudioStore((s) => s.messages.find((m) => m.id === messageId));
   const isSystem = acp?.role === "system";
+  const [turnChangesOpen, setTurnChangesOpen] = React.useState(false);
+  // 本轮实际改动过的文件（edit/diff/delete 且能定位路径），去重保序。
+  const editedFiles = React.useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const tc of acp?.toolCalls || []) {
+      const kind = (tc.kind || "").toLowerCase();
+      if (kind !== "edit" && kind !== "diff" && kind !== "delete") continue;
+      const p = toolPath(tc);
+      if (p && !seen.has(p)) {
+        seen.add(p);
+        out.push(p);
+      }
+    }
+    return out;
+  }, [acp?.toolCalls]);
   // 首 token 到达前：无正文、无思考、无工具调用。
   // 不渲染整张卡（空卡会被骨架屏撑成又高又窄），只给一行紧凑状态胶囊。
   const awaitingFirstToken =
@@ -683,6 +703,17 @@ const AssistantMessageView: React.FC<{ agentName: string }> = ({ agentName }) =>
             hover 时官方 Floating 模式以 data-floating 浮层盖在卡内 */}
         <div className="flex items-center gap-1 h-7 text-muted-foreground select-none">
           <BranchPickerView />
+          {editedFiles.length > 0 && !running && (
+            <button
+              type="button"
+              onClick={() => setTurnChangesOpen(true)}
+              className="flex items-center gap-1 px-1.5 py-1 rounded-lg hover:text-foreground hover:bg-muted/80 transition-colors text-[11px]"
+              title={`本轮改动了 ${editedFiles.length} 个文件，点击查看/还原`}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span className="tabular-nums">改动 {editedFiles.length}</span>
+            </button>
+          )}
           <ActionBarPrimitive.Root
             hideWhenRunning
             autohide="not-last"
@@ -708,14 +739,20 @@ const AssistantMessageView: React.FC<{ agentName: string }> = ({ agentName }) =>
           </ActionBarPrimitive.Root>
         </div>
       </div>
+      <TurnChanges
+        open={turnChangesOpen}
+        onClose={() => setTurnChangesOpen(false)}
+        cwd={cwd ?? null}
+        files={editedFiles}
+      />
     </MessagePrimitive.Root>
   );
 };
 
-const ThreadMessageRouter: React.FC<{ agentName: string }> = ({ agentName }) => {
+const ThreadMessageRouter: React.FC<{ agentName: string; cwd?: string | null }> = ({ agentName, cwd }) => {
   const role = useAuiState((s) => s.message.role);
   if (role === "user") return <UserMessageView />;
-  return <AssistantMessageView agentName={agentName} />;
+  return <AssistantMessageView agentName={agentName} cwd={cwd} />;
 };
 
 const ThreadLoadEarlier: React.FC = () => {
@@ -748,6 +785,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
   sessionError,
   sessionLoading,
   onEnsureSession,
+  cwd,
 }) => {
   return (
     <ThreadPrimitive.Root className="flex-1 flex flex-col min-h-0 bg-background">
@@ -769,7 +807,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
         <div className="max-w-4xl mx-auto space-y-6">
           <ThreadLoadEarlier />
           <ThreadPrimitive.Messages>
-            {() => <ThreadMessageRouter agentName={agentName} />}
+            {() => <ThreadMessageRouter agentName={agentName} cwd={cwd} />}
           </ThreadPrimitive.Messages>
         </div>
         <ThreadPrimitive.ViewportFooter className="max-w-4xl mx-auto sticky bottom-0 z-10 flex justify-center pointer-events-none h-0 overflow-visible">

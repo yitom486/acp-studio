@@ -24,10 +24,12 @@ import {
   Folder,
   Clock,
   Check,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AnimatedShinyText } from "@/components/magicui/animated-shiny-text";
-import { configCurrentValue, findConfigOption, extractModelThinking, type Attachment, type ConfigOptionLike, type ModelCatalogEntry } from "@/lib/universal-api";
+import { configCurrentValue, findConfigOption, extractModelThinking, searchWorkspaceFiles, readWorkspaceFile, type Attachment, type ConfigOptionLike, type ModelCatalogEntry, type WorkspaceFileEntry } from "@/lib/universal-api";
+import { matchMentionToken, applyMentionInsert, buildMentionAttachment, formatFileSize } from "@/lib/mention";
 
 export interface AcpComposerProps {
   onSendAttachmentOnly: () => void;
@@ -120,6 +122,13 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIdx, setSlashIdx] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  // @-mention workspace files (gateway search, debounced)
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const [mentionItems, setMentionItems] = useState<WorkspaceFileEntry[]>([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const [mentionTruncated, setMentionTruncated] = useState(false);
+  const mentionReqRef = useRef(0);
   const [localMenuOpen, setLocalMenuOpen] = useState(false);
   const localMenuRef = useRef<HTMLDivElement>(null);
 
@@ -174,6 +183,58 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     setSlashOpen(false);
   };
 
+  const mentionToken = matchMentionToken(composerText);
+  const mentionQuery = mentionToken ? mentionToken.slice(1) : null;
+
+  // Debounced gateway file search for the trailing @-token.
+  useEffect(() => {
+    setMentionIdx(0);
+    if (!mentionToken || p.isStreaming) {
+      setMentionOpen(false);
+      setMentionItems([]);
+      return;
+    }
+    setMentionOpen(true);
+    const cwd = p.currentWorkspace;
+    if (!cwd) {
+      setMentionItems([]);
+      return;
+    }
+    setMentionLoading(true);
+    const myReq = ++mentionReqRef.current;
+    const t = setTimeout(() => {
+      searchWorkspaceFiles(cwd, mentionQuery || "", 8)
+        .then((res) => {
+          if (mentionReqRef.current !== myReq) return;
+          setMentionItems(res.files);
+          setMentionTruncated(res.truncated);
+        })
+        .catch((err) => {
+          if (mentionReqRef.current !== myReq) return;
+          console.debug("[AcpComposer] @ 文件搜索失败 (已忽略):", err);
+          setMentionItems([]);
+        })
+        .finally(() => {
+          if (mentionReqRef.current === myReq) setMentionLoading(false);
+        });
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mentionToken, p.currentWorkspace, p.isStreaming]);
+
+  const applyMention = async (filePath: string) => {
+    const cwd = p.currentWorkspace;
+    if (!cwd) return;
+    setMentionOpen(false);
+    try {
+      const f = await readWorkspaceFile(cwd, filePath);
+      p.setAttachments([...p.attachments, buildMentionAttachment(f)]);
+      aui.composer.setText(applyMentionInsert(composerText, filePath));
+    } catch (err: any) {
+      alert(`引用 ${filePath} 失败: ${err.message}`);
+    }
+  };
+
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (slashOpen && filtered.length > 0) {
       if (e.key === "ArrowDown") {
@@ -193,6 +254,28 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
       }
       if (e.key === "Escape") {
         setSlashOpen(false);
+        return;
+      }
+    }
+    if (mentionOpen && mentionItems.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIdx((i) => (i + 1) % mentionItems.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIdx((i) => (i - 1 + mentionItems.length) % mentionItems.length);
+        return;
+      }
+      // Tab 选中文件 (Enter 始终发送，与 primitive 发送不冲突)。
+      if (e.key === "Tab") {
+        e.preventDefault();
+        void applyMention(mentionItems[mentionIdx].path);
+        return;
+      }
+      if (e.key === "Escape") {
+        setMentionOpen(false);
         return;
       }
     }
@@ -366,6 +449,30 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                     <span className="truncate text-muted-foreground">{c.description || ""}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {mentionOpen && (
+              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-border bg-popover shadow-lg overflow-hidden z-20">
+                {!p.currentWorkspace ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">先选择工作区，才能引用其中的文件</div>
+                ) : mentionLoading && mentionItems.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground animate-pulse">正在搜索文件…</div>
+                ) : mentionItems.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">无匹配文件（Tab 无效，继续输入过滤）</div>
+                ) : (
+                  <>
+                    {mentionItems.slice(0, 8).map((f, i) => (
+                      <div key={f.path} onClick={() => applyMention(f.path)} className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs ${i === mentionIdx ? "bg-muted text-foreground font-medium" : "text-muted-foreground"}`}>
+                        <FileText className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <span className="font-mono truncate flex-1" title={f.path}>{f.path}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground/70 shrink-0 tabular-nums">{formatFileSize(f.size)}</span>
+                      </div>
+                    ))}
+                    {mentionTruncated && (
+                      <div className="px-3 py-1 text-[10px] font-mono text-muted-foreground/70 border-t border-border/60">仅显示前 8 个，继续输入过滤</div>
+                    )}
+                  </>
+                )}
               </div>
             )}
             <ComposerPrimitive.Input
