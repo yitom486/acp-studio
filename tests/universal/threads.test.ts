@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  findThreadBySessionId,
   freezeMessage,
   pruneThreads,
   threadForAgent,
@@ -101,4 +102,18 @@ describe("threads (per-agent persisted records)", () => {
     expect(Object.keys(out).length).toBeLessThanOrEqual(40);
     expect(out.big.messages).toHaveLength(200);
   });
+
+  test("findThreadBySessionId locates matching agent thread for optimistic switch", () => {
+    const t1 = thread({ id: "t1", agentId: "codex", sessionId: "sess-123" });
+    const t2 = thread({ id: "t2", agentId: "codex", sessionId: "sess-456" });
+    const tOther = thread({ id: "t3", agentId: "gemini", sessionId: "sess-123" });
+    const dict = { t1, t2, tOther };
+
+    expect(findThreadBySessionId(dict, "codex", "sess-123")?.id).toBe("t1");
+    expect(findThreadBySessionId(dict, "codex", "sess-456")?.id).toBe("t2");
+    expect(findThreadBySessionId(dict, "gemini", "sess-123")?.id).toBe("t3");
+    expect(findThreadBySessionId(dict, "codex", "sess-unknown")).toBeNull();
+    expect(findThreadBySessionId(dict, "codex", "")).toBeNull();
+  });
 });
+

@@ -440,10 +440,12 @@ export default function App() {
     try {
       await connectAgent(id);
       invalidateAgents(qc);
-      await probeAuth(id);
+      // Pipelined: run probeAuth and resolveSession concurrently
+      await Promise.all([
+        probeAuth(id),
+        resolveSession(id),
+      ]);
       invalidateSessions(qc, id);
-      // Remembered session first (resume), new one only when needed.
-      await resolveSession(id);
     } catch (e: any) {
       const msg = e?.message && e.message !== "null" ? e.message : "连接超时或进程异常退出";
       alert(`连接 ${id} 失败: ${msg}`);
@@ -638,12 +640,16 @@ export default function App() {
     useStudioStore.getState().appendMessage({ id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role: "system", content: line, timestamp: now() });
   };
 
-  /** Open a session from the sidebar: load (with replay), resume, else attach bare. */
+  /** Open a session from the sidebar: optimistic 0ms switch + background server sync. */
   const handleOpenSession = async (item: SessionItem) => {
     const st = useStudioStore.getState();
     if (st.isStreaming) return;
     const agentId = st.activeAgentId;
-    st.setBusy(true);
+
+    // 1. 乐观渲染：0ms 瞬间把会话切换到主视口（本地缓存历史立即可见，无全屏菊花阻塞）
+    st.optimisticOpenSession(agentId, item.sessionId, item.title, item.cwd);
+
+    // 2. 后台静默向 Agent 加载最新历史记录与模型配置
     try {
       const known = agents.find((a) => a.id === agentId)?.status?.connected;
       if (!known) await connectAgent(agentId);
@@ -657,82 +663,71 @@ export default function App() {
         });
         const t = buildTranscriptFromReplay(replayed || []);
         const cur = useStudioStore.getState();
-        cur.setSessionId(item.sessionId);
-        cur.bindThreadSession(item.sessionId, effectiveCwd || null, cur.threadMcpServers(agentId));
-        if (t.sessionTitle || t.sessionGoal !== undefined) {
-          cur.setSessionInfo({
-            ...(cur.sessionInfo || {}),
-            title: t.sessionTitle || item.title || cur.sessionInfo?.title,
-            goal: t.sessionGoal !== undefined ? t.sessionGoal : cur.sessionInfo?.goal,
-          });
-        }
-        cur.setMessages(
-          t.messages.map((m, i) => ({
-            id: `hist-${Date.now()}-${i}`,
-            role: m.role,
-            content: m.content,
-            thought: m.thought,
-            toolCalls: m.toolCalls,
-            images: m.images,
-            timestamp: now(),
-          }))
-        );
-        if (t.messages.length === 0) {
-          // Loud empty state (no silent blank): the session exists but the
-          // agent replayed nothing (empty turn history). Still bound below.
-          cur.appendMessage({
-            id: `sys-${Date.now()}-empty`,
-            role: "system",
-            content: `会话 ${item.sessionId.slice(0, 8)}… 无可回放的历史（空会话或记录已被清理），已绑定，可直接继续对话。`,
-            timestamp: now(),
-          });
-        }
-        if (t.plan.length > 0) {
-          const msgs = useStudioStore.getState().messages;
-          const lastAsst = [...msgs].reverse().find((m) => m.role === "assistant");
-          if (lastAsst) useStudioStore.getState().patchMessage(lastAsst.id, { plan: t.plan });
-        }
-        if (t.usage) useStudioStore.getState().setUsage(t.usage);
-        if (t.availableCommands.length > 0) useStudioStore.getState().setAvailableCommands(t.availableCommands);
-        if (t.currentModeId) {
-          const modes = useStudioStore.getState().modes;
-          if (modes) useStudioStore.getState().setModes({ ...modes, currentModeId: t.currentModeId! });
-        }
-        for (const a of t.activities) appendActivity(a);
-        const r: any = result || {};
-        const cur2 = useStudioStore.getState();
-        if (r.modes) cur2.setModes(r.modes);
-        if (r.models) cur2.setModels(r.models);
-        if (r.configOptions) cur2.setConfigOptions(r.configOptions);
-        cur2.setAuthOk(agentId, true);
-        // History is on screen; now reattach the session so the next prompt
-        // continues model-side context immediately (no lazy resume on first
-        // input). Load already bound the session, so a resume failure only
-        // warns loudly and keeps the bound view.
-        try {
-          await sessionRpc(agentId, "resume", {
-            sessionId: item.sessionId,
-            ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-            mcpServers: [],
-          });
-        } catch (err) {
-          console.warn(`[App] 打开会话后 resume 失败（已绑定历史，可继续对话）: ${(err as Error).message}`);
-        }
-        // 打开历史会话：把该会话的当前配置记为该 agent 的上次配置
-        try {
-          const sSnap = useStudioStore.getState();
-          const cfg: Record<string, unknown> = {};
-          for (const o of sSnap.configOptions || []) {
-            if (o?.id == null) continue;
-            cfg[o.id] = (o.currentValue as any)?.value ?? o.currentValue;
+
+        // 仅当用户仍停留在该会话时才合并（避免快速连续点击会话时的竞态冲突）
+        if (cur.sessionId === item.sessionId && cur.activeAgentId === agentId) {
+          cur.bindThreadSession(item.sessionId, effectiveCwd || null, cur.threadMcpServers(agentId));
+          if (t.sessionTitle || t.sessionGoal !== undefined) {
+            cur.setSessionInfo({
+              ...(cur.sessionInfo || {}),
+              title: t.sessionTitle || item.title || cur.sessionInfo?.title,
+              goal: t.sessionGoal !== undefined ? t.sessionGoal : cur.sessionInfo?.goal,
+            });
           }
-          sSnap.saveAgentPref(agentId, {
-            ...(Object.keys(cfg).length > 0 ? { configValues: cfg } : {}),
-            ...(sSnap.models?.currentModelId ? { fallbackModelId: sSnap.models.currentModelId } : {}),
-            ...(sSnap.modes?.currentModeId ? { modeId: sSnap.modes.currentModeId } : {}),
-          });
-        } catch {
-          // ignore
+          if (t.messages.length > 0) {
+            cur.setMessages(
+              t.messages.map((m, i) => ({
+                id: `hist-${Date.now()}-${i}`,
+                role: m.role,
+                content: m.content,
+                thought: m.thought,
+                toolCalls: m.toolCalls,
+                images: m.images,
+                timestamp: now(),
+              }))
+            );
+          } else if (cur.messages.length === 0) {
+            cur.appendMessage({
+              id: `sys-${Date.now()}-empty`,
+              role: "system",
+              content: `会话 ${item.sessionId.slice(0, 8)}… 无可回放的历史（空会话或记录已被清理），已绑定，可直接继续对话。`,
+              timestamp: now(),
+            });
+          }
+          if (t.plan.length > 0) {
+            const msgs = useStudioStore.getState().messages;
+            const lastAsst = [...msgs].reverse().find((m) => m.role === "assistant");
+            if (lastAsst) useStudioStore.getState().patchMessage(lastAsst.id, { plan: t.plan });
+          }
+          if (t.usage) useStudioStore.getState().setUsage(t.usage);
+          if (t.availableCommands.length > 0) useStudioStore.getState().setAvailableCommands(t.availableCommands);
+          if (t.currentModeId) {
+            const modes = useStudioStore.getState().modes;
+            if (modes) useStudioStore.getState().setModes({ ...modes, currentModeId: t.currentModeId! });
+          }
+          for (const a of t.activities) appendActivity(a);
+          const r: any = result || {};
+          if (r.modes) cur.setModes(r.modes);
+          if (r.models) cur.setModels(r.models);
+          if (r.configOptions) cur.setConfigOptions(r.configOptions);
+          cur.setAuthOk(agentId, true);
+
+          // 打开历史会话：把该会话的当前配置记为该 agent 的上次配置
+          try {
+            const sSnap = useStudioStore.getState();
+            const cfg: Record<string, unknown> = {};
+            for (const o of sSnap.configOptions || []) {
+              if (o?.id == null) continue;
+              cfg[o.id] = (o.currentValue as any)?.value ?? o.currentValue;
+            }
+            sSnap.saveAgentPref(agentId, {
+              ...(Object.keys(cfg).length > 0 ? { configValues: cfg } : {}),
+              ...(sSnap.models?.currentModelId ? { fallbackModelId: sSnap.models.currentModelId } : {}),
+              ...(sSnap.modes?.currentModeId ? { modeId: sSnap.modes.currentModeId } : {}),
+            });
+          } catch {
+            // ignore
+          }
         }
       } catch {
         // Fall back to resume (no replay) when load is unsupported/fails.
@@ -741,26 +736,32 @@ export default function App() {
         try {
           const resumeRes: any = await sessionRpc(agentId, "resume", { sessionId: item.sessionId, cwd: effectiveCwd, mcpServers: useStudioStore.getState().threadMcpServers(agentId) ?? [] });
           const cur = useStudioStore.getState();
-          cur.setSessionId(item.sessionId);
-          cur.bindThreadSession(item.sessionId, effectiveCwd || null, cur.threadMcpServers(agentId));
-          if (resumeRes?.modes) cur.setModes(resumeRes.modes);
-          if (resumeRes?.models) cur.setModels(resumeRes.models);
-          if (resumeRes?.configOptions) cur.setConfigOptions(resumeRes.configOptions);
-          cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已 resume 会话（无历史回放）。`, timestamp: now() }]);
+          if (cur.sessionId === item.sessionId && cur.activeAgentId === agentId) {
+            cur.bindThreadSession(item.sessionId, effectiveCwd || null, cur.threadMcpServers(agentId));
+            if (resumeRes?.modes) cur.setModes(resumeRes.modes);
+            if (resumeRes?.models) cur.setModels(resumeRes.models);
+            if (resumeRes?.configOptions) cur.setConfigOptions(resumeRes.configOptions);
+            if (cur.messages.length === 0) {
+              cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已 resume 会话（无历史回放）。`, timestamp: now() }]);
+            }
+          }
         } catch {
           // Some agents reject load/resume while session/prompt on the same
           // id still works — attach bare instead of hitting a dead end.
           const cur = useStudioStore.getState();
-          cur.setSessionId(item.sessionId);
-          cur.bindThreadSession(item.sessionId, effectiveCwd || null, cur.threadMcpServers(agentId));
-          cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已切换到会话（该 Agent 未提供历史回放，直接继续对话即可）。`, timestamp: now() }]);
+          if (cur.sessionId === item.sessionId && cur.activeAgentId === agentId) {
+            cur.bindThreadSession(item.sessionId, effectiveCwd || null, cur.threadMcpServers(agentId));
+            if (cur.messages.length === 0) {
+              cur.setMessages([{ id: `sys-${Date.now()}`, role: "system", content: `已切换到会话（该 Agent 未提供历史回放，直接继续对话即可）。`, timestamp: now() }]);
+            }
+          }
         }
       }
       invalidateSessions(qc, agentId);
     } catch (e: any) {
       alert(`打开会话失败: ${e.message}`);
     } finally {
-      useStudioStore.getState().setBusy(false);
+      useStudioStore.getState().setSessionLoading(false);
     }
   };
 

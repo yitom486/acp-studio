@@ -8,6 +8,7 @@ import type {
   PendingPermission,
 } from "@/lib/universal-api";
 import {
+  findThreadBySessionId,
   loadThreads,
   newThreadId,
   pruneThreads,
@@ -160,6 +161,13 @@ interface StudioState {
   bindThreadSession: (sessionId: string | null, cwd?: string | null, mcpServers?: unknown[]) => void;
   /** Mark the live thread stale after a failed resume (visible degrade). */
   markThreadStale: () => void;
+  /** Optimistic switch to a session: instant UI mount from local thread cache without blocking spinners. */
+  optimisticOpenSession: (
+    agentId: string,
+    sessionId: string,
+    title?: string | null,
+    cwd?: string | null
+  ) => ChatThread;
   /** Full reset (tests / logout flows). */
   resetStudio: () => void;
 }
@@ -477,6 +485,55 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       saveThreads(threads);
       return { threads };
     }),
+  optimisticOpenSession: (agentId, sessionId, title, cwd) => {
+    const s0 = get();
+    // 1. Snapshot current active thread first
+    s0.snapshotThread();
+    const st = get();
+
+    // 2. Lookup existing thread in local cache (0ms instant switch)
+    const existing = findThreadBySessionId(st.threads, agentId, sessionId);
+    if (existing) {
+      set({
+        sessionId,
+        activeThreadId: existing.id,
+        messages: existing.messages.map((m) => ({ ...m })),
+        sessionInfo: {
+          ...(st.sessionInfo || {}),
+          title: existing.title || title || st.sessionInfo?.title,
+        },
+        sessionError: null,
+        sessionLoading: true, // indicates background sync
+      });
+      return existing;
+    }
+
+    // 3. Not yet in local cache: create optimistic thread instantly (0ms)
+    const newId = newThreadId();
+    const inheritedMcp = threadForAgent(st.threads, agentId)?.mcpServers;
+    const optimisticThread: ChatThread = {
+      id: newId,
+      agentId,
+      sessionId,
+      cwd: cwd || st.currentWorkspace,
+      mcpServers: inheritedMcp,
+      title: title || null,
+      messages: [],
+      updatedAt: Date.now(),
+    };
+    const nextThreads = pruneThreads({ ...st.threads, [newId]: optimisticThread }, [newId]);
+    saveThreads(nextThreads);
+    set({
+      ...initialThread,
+      sessionId,
+      activeThreadId: newId,
+      threads: nextThreads,
+      sessionInfo: { ...(st.sessionInfo || {}), title: title || st.sessionInfo?.title },
+      sessionError: null,
+      sessionLoading: true,
+    });
+    return optimisticThread;
+  },
   resetStudio: () => {
     const s = useStudioStore.getState();
     set({

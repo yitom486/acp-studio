@@ -97,6 +97,19 @@ export function threadForAgent(
   return best;
 }
 
+/** Find a recorded thread by exact sessionId for an agent (optimistic instant switch). */
+export function findThreadBySessionId(
+  threads: Record<string, ChatThread>,
+  agentId: string,
+  sessionId: string,
+): ChatThread | null {
+  if (!sessionId) return null;
+  for (const t of Object.values(threads)) {
+    if (t.agentId === agentId && t.sessionId === sessionId) return t;
+  }
+  return null;
+}
+
 export function loadThreads(): Record<string, ChatThread> {
   try {
     if (typeof localStorage === "undefined") return {};
