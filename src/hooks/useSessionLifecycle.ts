@@ -1,0 +1,608 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { QueryClient } from "@tanstack/react-query";
+import { useStudioStore } from "@/stores/useStudioStore";
+import { invalidateAgents, invalidateSessions } from "@/lib/acp-queries";
+import {
+  connectAgent,
+  sessionNew,
+  sessionRpc,
+  loadSession,
+  forkSession,
+  buildTranscriptFromReplay,
+  isAuthRequiredError,
+  cleanupEmptySessions,
+  type ActivityEvent,
+  type AgentSummary,
+} from "@/lib/universal-api";
+import type { SessionItem } from "@/components/universal/Sidebar";
+import type { SessionSettings } from "@/components/universal/SessionSettingsModal";
+
+export interface UseSessionLifecycleOptions {
+  qc: QueryClient;
+  agents: AgentSummary[];
+  agentsRef: React.MutableRefObject<AgentSummary[]>;
+  applyDefaultConfigOptions: (agentId: string, sessionId: string) => Promise<void>;
+  abortRef?: React.MutableRefObject<AbortController | null>;
+  appendActivity?: (a: ActivityEvent) => void;
+  now?: () => string;
+}
+
+const defaultNow = () =>
+  new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+const {
+  setActiveAgentId,
+  restoreThread,
+  newThread,
+  snapshotThread,
+  bindThreadSession,
+  markThreadStale,
+} = useStudioStore.getState();
+
+/**
+ * Session Lifecycle & Agent Management Controller Hook.
+ *
+ * Implements the crucial stability invariants:
+ * 1. Single session-resolution policy: UI history ⟺ session binding.
+ *    Resume-first single strategy: restore remembered ACP session so model context continues.
+ *    Only creates a new session when none is bound or resume fails.
+ * 2. Race-condition guard in handleOpenSession: checks cur.sessionId === item.sessionId.
+ * 3. StrictMode-safe boot probe via ensuredRef.
+ * 4. Bound session protection in handleCleanupEmpty.
+ */
+export function useSessionLifecycle({
+  qc,
+  agents,
+  agentsRef,
+  applyDefaultConfigOptions,
+  abortRef,
+  appendActivity,
+  now = defaultNow,
+}: UseSessionLifecycleOptions) {
+  const ensuredRef = useRef<string | null>(null);
+  const [cleaningEmpty, setCleaningEmpty] = useState(false);
+
+  /**
+   * Non-mutating local-auth probe: session/list succeeds without any
+   * authenticate call iff the agent reuses local login state.
+   */
+  const probeAuth = useCallback(async (agentId: string) => {
+    try {
+      await sessionRpc(agentId, "list", {});
+      useStudioStore.getState().setAuthOk(agentId, true);
+    } catch (e: any) {
+      useStudioStore.getState().setAuthOk(agentId, isAuthRequiredError(e) ? false : null);
+    }
+  }, []);
+
+  /**
+   * Create a session on demand (e.g. user tweaks model/thinking before chatting).
+   */
+  const ensureSession = useCallback(
+    async (
+      agentId: string = useStudioStore.getState().activeAgentId,
+      force = false
+    ): Promise<string | null> => {
+      const st = useStudioStore.getState();
+      if (!force && st.sessionId && agentId === st.activeAgentId) return st.sessionId;
+      if (!force && (st.isStreaming || st.busy)) return null;
+      st.setSessionLoading(true);
+      try {
+        const known = agentsRef.current.find((a) => a.id === agentId)?.status?.connected;
+        if (!known) await connectAgent(agentId);
+        const reqCwd = st.currentWorkspace || undefined;
+        // Auto-created sessions inherit the agent thread's MCP servers.
+        const autoServers = st.threadMcpServers(agentId);
+        const res: any = await sessionNew(agentId, {
+          ...(reqCwd ? { cwd: reqCwd } : {}),
+          ...(autoServers?.length ? { mcpServers: autoServers } : {}),
+        });
+        st.applySessionResult(res);
+        bindThreadSession(useStudioStore.getState().sessionId, reqCwd, autoServers);
+        st.setAuthOk(agentId, true);
+        st.setSessionError(null);
+        invalidateSessions(qc, agentId);
+        invalidateAgents(qc);
+        if (res?.sessionId) {
+          void applyDefaultConfigOptions(agentId, res.sessionId);
+        }
+        return res?.sessionId || null;
+      } catch (e: any) {
+        if (isAuthRequiredError(e)) {
+          st.setAuthOk(agentId, false);
+          st.setAuthOpen(true);
+          st.setSessionError(null);
+        } else {
+          const msg =
+            e?.message && e.message !== "null"
+              ? e.message
+              : "无法创建会话（Agent进程未连接或异常）";
+          st.setSessionError(msg);
+        }
+        return null;
+      } finally {
+        useStudioStore.getState().setSessionLoading(false);
+      }
+    },
+    [qc, agentsRef, applyDefaultConfigOptions]
+  );
+
+  /**
+   * True resume (Inkdown-style layer 2): reattach the remembered ACP session
+   * so model-side context continues. Displayed messages already come from the
+   * persisted thread cache, so no history replay is requested here (avoids duplicate bubbles).
+   */
+  const restoreAgentSession = useCallback(
+    async (agentId: string): Promise<{ resumed: boolean; result?: any }> => {
+      const st = useStudioStore.getState();
+      const sid = st.sessionId;
+      if (!sid || st.isStreaming) return { resumed: false };
+      // Isolation: resume only ids bound to THIS agent's live thread.
+      const thread = st.activeThreadId ? st.threads[st.activeThreadId] : undefined;
+      if (!thread || thread.agentId !== agentId || thread.sessionId !== sid) {
+        return { resumed: false };
+      }
+      try {
+        const result: any = await sessionRpc(agentId, "resume", {
+          sessionId: sid,
+          ...(thread.cwd || st.currentWorkspace
+            ? { cwd: thread.cwd || st.currentWorkspace }
+            : {}),
+          // Carry the thread's MCP servers so auto-resume keeps working tools.
+          mcpServers: thread.mcpServers ?? [],
+        });
+        return { resumed: true, result };
+      } catch {
+        // Visible degrade (no silent fallback): keep cached messages on screen,
+        // mark stale, drop the dead binding so the next prompt news a session.
+        markThreadStale();
+        bindThreadSession(null);
+        st.appendMessage({
+          id: `sys-${Date.now()}-stale`,
+          role: "system",
+          content: `上次会话 (${sid.slice(0, 8)}…) 已失效（agent 重启或会话被清理），将自动新建会话续聊，历史消息保留在上方。`,
+          timestamp: now(),
+        });
+        return { resumed: false };
+      }
+    },
+    [now]
+  );
+
+  /**
+   * Single session-resolution policy (stability invariant):
+   * UI history ⟺ session binding. Whenever a live thread binds a sessionId,
+   * resume it first so model-side context continues; only create a new
+   * session when nothing is bound or resume fails.
+   */
+  const resolveSession = useCallback(
+    async (agentId: string): Promise<string | null> => {
+      const cur0 = useStudioStore.getState();
+      if (cur0.isStreaming) return cur0.sessionId;
+      // 1. resume the bound session (restores modes/models/config for selectors)
+      const { resumed, result } = await restoreAgentSession(agentId);
+      const cur = useStudioStore.getState();
+      if (resumed) {
+        if (result?.modes) cur.setModes(result.modes);
+        if (result?.models) cur.setModels(result.models);
+        if (result?.configOptions) cur.setConfigOptions(result.configOptions);
+        const sid = cur.sessionId;
+        if (sid) void applyDefaultConfigOptions(agentId, sid);
+        ensuredRef.current = agentId;
+        return sid;
+      }
+      // 2. no binding (or resume failed and binding was dropped) -> create
+      const sid = await ensureSession(agentId, true);
+      if (sid) ensuredRef.current = agentId;
+      return sid;
+    },
+    [restoreAgentSession, ensureSession, applyDefaultConfigOptions]
+  );
+
+  // One-time: probe local-auth reuse for connected agents + ensure a session
+  // for the active one (StrictMode-safe via ensuredRef).
+  useEffect(() => {
+    if (agents.length === 0) return;
+    void (async () => {
+      const probes = Promise.all(
+        agents
+          .filter(
+            (a) => a.status?.connected && useStudioStore.getState().authOk[a.id] === undefined
+          )
+          .map((a) => probeAuth(a.id))
+      );
+      const active = agents.find(
+        (a) => a.id === useStudioStore.getState().activeAgentId
+      );
+      if (active?.status?.connected && ensuredRef.current !== active.id) {
+        ensuredRef.current = active.id;
+        // Resume-first: never abandon the restored thread's session on boot.
+        await resolveSession(active.id);
+      }
+      await probes;
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents]);
+
+  // Switching agent resets session-scoped state (sessions live per-agent on gateway)
+  const handleSelectAgent = useCallback(
+    (id: string) => {
+      const st = useStudioStore.getState();
+      if (id === st.activeAgentId) return;
+      abortRef?.current?.abort();
+      snapshotThread();
+      setActiveAgentId(id);
+      // Per-agent isolation: only this agent's own thread (and its sessionId)
+      // ever enters the live view.
+      if (!restoreThread(id)) newThread(id);
+      const target = agentsRef.current.find((a) => a.id === id);
+      if (target?.status?.connected) {
+        invalidateSessions(qc, id);
+        // Resume this agent's remembered session; only news when none/fails.
+        void resolveSession(id);
+      }
+    },
+    [qc, agentsRef, abortRef, resolveSession]
+  );
+
+  const handleConnect = useCallback(
+    async (id: string = useStudioStore.getState().activeAgentId) => {
+      const st = useStudioStore.getState();
+      st.setConnectingId(id);
+      try {
+        await connectAgent(id);
+        invalidateAgents(qc);
+        // Pipelined: run probeAuth and resolveSession concurrently
+        await Promise.all([probeAuth(id), resolveSession(id)]);
+        invalidateSessions(qc, id);
+      } catch (e: any) {
+        const msg =
+          e?.message && e.message !== "null" ? e.message : "连接超时或进程异常退出";
+        alert(`连接 ${id} 失败: ${msg}`);
+      } finally {
+        useStudioStore.getState().setConnectingId(null);
+      }
+    },
+    [qc, probeAuth, resolveSession]
+  );
+
+  const handleCreateSession = useCallback(
+    async (settings: SessionSettings) => {
+      const st = useStudioStore.getState();
+      const agentId = st.activeAgentId;
+      st.setBusy(true);
+      try {
+        const known = agentsRef.current.find((a) => a.id === agentId)?.status?.connected;
+        if (!known) await connectAgent(agentId);
+        const reqCwd = settings.cwd || st.currentWorkspace || undefined;
+        const res: any = await sessionNew(agentId, {
+          ...(reqCwd ? { cwd: reqCwd } : {}),
+          ...(settings.additionalDirectories.length > 0
+            ? { additionalDirectories: settings.additionalDirectories }
+            : {}),
+          mcpServers: settings.mcpServers,
+        });
+        // 先开新线程，再应用新会话的 modes/models/config
+        newThread(agentId);
+        st.applySessionResult(res);
+        bindThreadSession(
+          useStudioStore.getState().sessionId,
+          reqCwd,
+          settings.mcpServers
+        );
+        st.setAuthOk(agentId, true);
+        st.setSettingsOpen(false);
+        invalidateAgents(qc);
+        invalidateSessions(qc, agentId);
+        if (res?.sessionId) {
+          void applyDefaultConfigOptions(agentId, res.sessionId);
+        }
+      } catch (e: any) {
+        if (isAuthRequiredError(e)) {
+          st.setAuthOk(agentId, false);
+          st.setSettingsOpen(false);
+          st.setAuthOpen(true);
+        } else {
+          alert(`session/new 失败: ${e.message}`);
+        }
+      } finally {
+        useStudioStore.getState().setBusy(false);
+      }
+    },
+    [qc, agentsRef, applyDefaultConfigOptions]
+  );
+
+  /** Open a session from the sidebar: optimistic 0ms switch + background server sync. */
+  const handleOpenSession = useCallback(
+    async (item: SessionItem) => {
+      const st = useStudioStore.getState();
+      if (st.isStreaming) return;
+      const agentId = st.activeAgentId;
+
+      // 1. 乐观渲染：0ms 瞬间把会话切换到主视口（本地缓存历史立即可见，无全屏菊花阻塞）
+      st.optimisticOpenSession(agentId, item.sessionId, item.title, item.cwd);
+
+      // 2. 后台静默向 Agent 加载最新历史记录与模型配置
+      try {
+        const known = agentsRef.current.find((a) => a.id === agentId)?.status?.connected;
+        if (!known) await connectAgent(agentId);
+        try {
+          const workspaceCwd = useStudioStore.getState().currentWorkspace || "";
+          const effectiveCwd = item.cwd || workspaceCwd;
+          const { result, replayed } = await loadSession(agentId, {
+            sessionId: item.sessionId,
+            cwd: effectiveCwd,
+            mcpServers: useStudioStore.getState().threadMcpServers(agentId) ?? [],
+          });
+          const t = buildTranscriptFromReplay(replayed || []);
+          const cur = useStudioStore.getState();
+
+          // 仅当用户仍停留在该会话时才合并（避免快速连续点击会话时的竞态冲突）
+          if (cur.sessionId === item.sessionId && cur.activeAgentId === agentId) {
+            cur.bindThreadSession(
+              item.sessionId,
+              effectiveCwd || null,
+              cur.threadMcpServers(agentId)
+            );
+            if (t.sessionTitle || t.sessionGoal !== undefined) {
+              cur.setSessionInfo({
+                ...(cur.sessionInfo || {}),
+                title: t.sessionTitle || item.title || cur.sessionInfo?.title,
+                goal: t.sessionGoal !== undefined ? t.sessionGoal : cur.sessionInfo?.goal,
+              });
+            }
+            if (t.messages.length > 0) {
+              cur.setMessages(
+                t.messages.map((m, i) => ({
+                  id: `hist-${Date.now()}-${i}`,
+                  role: m.role,
+                  content: m.content,
+                  thought: m.thought,
+                  toolCalls: m.toolCalls,
+                  images: m.images,
+                  timestamp: now(),
+                }))
+              );
+            } else if (cur.messages.length === 0) {
+              cur.appendMessage({
+                id: `sys-${Date.now()}-empty`,
+                role: "system",
+                content: `会话 ${item.sessionId.slice(0, 8)}… 无可回放的历史（空会话或记录已被清理），已绑定，可直接继续对话。`,
+                timestamp: now(),
+              });
+            }
+            if (t.plan.length > 0) {
+              const msgs = useStudioStore.getState().messages;
+              const lastAsst = [...msgs].reverse().find((m) => m.role === "assistant");
+              if (lastAsst) {
+                useStudioStore.getState().patchMessage(lastAsst.id, { plan: t.plan });
+              }
+            }
+            if (t.usage) useStudioStore.getState().setUsage(t.usage);
+            if (t.availableCommands.length > 0) {
+              useStudioStore.getState().setAvailableCommands(t.availableCommands);
+            }
+            if (t.currentModeId) {
+              const modes = useStudioStore.getState().modes;
+              if (modes) {
+                useStudioStore.getState().setModes({ ...modes, currentModeId: t.currentModeId! });
+              }
+            }
+            if (appendActivity) {
+              for (const a of t.activities) appendActivity(a);
+            }
+            const r: any = result || {};
+            if (r.modes) cur.setModes(r.modes);
+            if (r.models) cur.setModels(r.models);
+            if (r.configOptions) cur.setConfigOptions(r.configOptions);
+            cur.setAuthOk(agentId, true);
+
+            // 打开历史会话：把该会话的当前配置记为该 agent 的上次配置
+            try {
+              const sSnap = useStudioStore.getState();
+              const cfg: Record<string, unknown> = {};
+              for (const o of sSnap.configOptions || []) {
+                if (o?.id == null) continue;
+                cfg[o.id] = (o.currentValue as any)?.value ?? o.currentValue;
+              }
+              sSnap.saveAgentPref(agentId, {
+                ...(Object.keys(cfg).length > 0 ? { configValues: cfg } : {}),
+                ...(sSnap.models?.currentModelId
+                  ? { fallbackModelId: sSnap.models.currentModelId }
+                  : {}),
+                ...(sSnap.modes?.currentModeId ? { modeId: sSnap.modes.currentModeId } : {}),
+              });
+            } catch {
+              // ignore
+            }
+          }
+        } catch {
+          // Fall back to resume (no replay) when load is unsupported/fails.
+          const workspaceCwd = useStudioStore.getState().currentWorkspace || "";
+          const effectiveCwd = item.cwd || workspaceCwd;
+          try {
+            const resumeRes: any = await sessionRpc(agentId, "resume", {
+              sessionId: item.sessionId,
+              cwd: effectiveCwd,
+              mcpServers: useStudioStore.getState().threadMcpServers(agentId) ?? [],
+            });
+            const cur = useStudioStore.getState();
+            if (cur.sessionId === item.sessionId && cur.activeAgentId === agentId) {
+              cur.bindThreadSession(
+                item.sessionId,
+                effectiveCwd || null,
+                cur.threadMcpServers(agentId)
+              );
+              if (resumeRes?.modes) cur.setModes(resumeRes.modes);
+              if (resumeRes?.models) cur.setModels(resumeRes.models);
+              if (resumeRes?.configOptions) cur.setConfigOptions(resumeRes.configOptions);
+              if (cur.messages.length === 0) {
+                cur.setMessages([
+                  {
+                    id: `sys-${Date.now()}`,
+                    role: "system",
+                    content: `已 resume 会话（无历史回放）。`,
+                    timestamp: now(),
+                  },
+                ]);
+              }
+            }
+          } catch {
+            // Some agents reject load/resume while session/prompt on the same
+            // id still works — attach bare instead of hitting a dead end.
+            const cur = useStudioStore.getState();
+            if (cur.sessionId === item.sessionId && cur.activeAgentId === agentId) {
+              cur.bindThreadSession(
+                item.sessionId,
+                effectiveCwd || null,
+                cur.threadMcpServers(agentId)
+              );
+              if (cur.messages.length === 0) {
+                cur.setMessages([
+                  {
+                    id: `sys-${Date.now()}`,
+                    role: "system",
+                    content: `已切换到会话（该 Agent 未提供历史回放，直接继续对话即可）。`,
+                    timestamp: now(),
+                  },
+                ]);
+              }
+            }
+          }
+        }
+        invalidateSessions(qc, agentId);
+      } catch (e: any) {
+        alert(`打开会话失败: ${e.message}`);
+      } finally {
+        useStudioStore.getState().setSessionLoading(false);
+      }
+    },
+    [qc, agentsRef, appendActivity, now]
+  );
+
+  const handleForkSession = useCallback(
+    async (sid?: string) => {
+      const st = useStudioStore.getState();
+      const source = sid || st.sessionId;
+      if (!source || st.isStreaming) return;
+      const agentId = st.activeAgentId;
+      st.setBusy(true);
+      try {
+        const res: any = await forkSession(agentId, {
+          sessionId: source,
+          ...(st.currentWorkspace ? { cwd: st.currentWorkspace } : {}),
+        });
+        const cur = useStudioStore.getState();
+        cur.newThread(agentId);
+        cur.applySessionResult(res);
+        cur.bindThreadSession(
+          useStudioStore.getState().sessionId,
+          st.currentWorkspace || null,
+          cur.threadMcpServers(agentId)
+        );
+        cur.setMessages([
+          {
+            id: `sys-${Date.now()}`,
+            role: "system",
+            content: `已从 ${source.slice(0, 8)}… fork 出新会话。`,
+            timestamp: now(),
+          },
+        ]);
+        invalidateSessions(qc, agentId);
+      } catch (e: any) {
+        alert(`fork 失败: ${e.message}`);
+      } finally {
+        useStudioStore.getState().setBusy(false);
+      }
+    },
+    [qc, now]
+  );
+
+  const handleDeleteSession = useCallback(
+    async (item: SessionItem) => {
+      if (!confirm(`删除会话 ${item.title || item.sessionId}？`)) return;
+      const st = useStudioStore.getState();
+      const agentId = st.activeAgentId;
+      try {
+        await sessionRpc(agentId, "delete", { sessionId: item.sessionId });
+        const cur = useStudioStore.getState();
+        if (item.sessionId === cur.sessionId) {
+          cur.setSessionId(null);
+          cur.bindThreadSession(null);
+          cur.resetThread();
+        }
+        invalidateSessions(qc, agentId);
+      } catch (e: any) {
+        // Some agents reject delete — fall back to close (frees active resources).
+        try {
+          await sessionRpc(agentId, "close", { sessionId: item.sessionId });
+          const cur = useStudioStore.getState();
+          if (item.sessionId === cur.sessionId) {
+            cur.setSessionId(null);
+            cur.bindThreadSession(null);
+            cur.resetThread();
+          }
+          cur.appendMessage({
+            id: `sys-${Date.now()}`,
+            role: "system",
+            content: `该 Agent 不支持 delete，已改用 close。`,
+            timestamp: now(),
+          });
+          invalidateSessions(qc, agentId);
+        } catch {
+          alert(`删除失败: ${(e as Error).message}`);
+        }
+      }
+    },
+    [qc, now]
+  );
+
+  /** One-click cleanup of abandoned empty sessions (visible counts, never silent). */
+  const handleCleanupEmpty = useCallback(async () => {
+    const agentId = useStudioStore.getState().activeAgentId;
+    const st = useStudioStore.getState();
+    // Live-bound session ids must never be touched.
+    const bound = new Set<string>();
+    if (st.sessionId) bound.add(st.sessionId);
+    for (const t of Object.values(st.threads)) {
+      if (t.agentId === agentId && t.sessionId) bound.add(t.sessionId);
+    }
+    if (
+      !confirm(
+        `清理「${agentId}」下无对话记录、超过1小时、且当前未打开的空会话？\n（将跳过 ${bound.size} 个已绑定会话，逐个删除，失败逐条报告）`
+      )
+    )
+      return;
+    setCleaningEmpty(true);
+    try {
+      const res = await cleanupEmptySessions(agentId, [...bound]);
+      alert(
+        `清理完成：已删 ${res.deleted.length} 个。${
+          res.errors.length
+            ? `失败 ${res.errors.length} 个，首错：${res.errors[0].error}`
+            : "无失败。"
+        }`
+      );
+      invalidateSessions(qc, agentId);
+    } catch (e: any) {
+      alert(`清理失败: ${e?.message || e}`);
+    } finally {
+      setCleaningEmpty(false);
+    }
+  }, [qc]);
+
+  return {
+    probeAuth,
+    ensureSession,
+    restoreAgentSession,
+    resolveSession,
+    handleSelectAgent,
+    handleConnect,
+    handleCreateSession,
+    handleOpenSession,
+    handleForkSession,
+    handleDeleteSession,
+    handleCleanupEmpty,
+    cleaningEmpty,
+  };
+}
