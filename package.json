@@ -9,7 +9,14 @@
     "files": [
       "electron-dist/**/*",
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "node_modules/node-pty/package.json",
+      "node_modules/node-pty/lib/**/*",
+      "node_modules/node-pty/prebuilds/**/*",
+      "node_modules/node-pty/build/Release/conpty/**/*",
+      "!node_modules/node-pty/**/*.pdb",
+      "!node_modules/node-pty/**/*.map",
+      "!node_modules/node-pty/**/*.test.js"
     ],
     "win": {
       "target": [
@@ -37,7 +44,8 @@
       "output": "release"
     },
     "asarUnpack": [
-      "**/*.node"
+      "**/*.node",
+      "node_modules/node-pty/**/*"
     ]
   },
   "scripts": {

@@ -122,7 +122,8 @@ async function buildElectron(): Promise<boolean> {
     entrypoints: ["desktop/main.ts"],
     target: "node",
     format: "cjs",
-    external: ["electron"],
+    // node-pty external（同 desktop/build.ts）：native 不可打包进 cjs。
+    external: ["electron", "node-pty"],
     outdir: "electron-dist",
     naming: "main.cjs",
   });

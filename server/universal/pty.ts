@@ -100,8 +100,14 @@ function loadPtyImpl(): { spawn: PtySpawner } | null {
     return ptyImpl;
   }
   try {
-    const require = createRequire(import.meta.url);
-    ptyImpl = require("node-pty") as { spawn: PtySpawner };
+    // 双运行时解析：Electron main 是 Bun 打出的 CJS 包，模块级 require
+    // 可用且相对 main.cjs 定位（包内 app/node_modules），优先走它；
+    // Node ESM（server/node.ts、vitest）无模块 require，走 createRequire。
+    // 注意：Bun 打包会把下行 import.meta.url 内联成编译期绝对路径，但该
+    // 分支在包内永不可达（cjsRequire 恒真），仅 Node ESM 下是活代码。
+    const cjsRequire = (module as unknown as { require?: (id: string) => unknown })?.require;
+    const req = cjsRequire ?? createRequire(import.meta.url);
+    ptyImpl = req("node-pty") as { spawn: PtySpawner };
   } catch (err) {
     console.warn(`[PTY] node-pty 不可用（回落 one-shot）：${(err as Error).message}`);
     ptyImpl = null;

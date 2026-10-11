@@ -1,10 +1,13 @@
 // Bundle Electron main + preload for Node (Electron ships its own Node).
 // Run: bun desktop/build.ts
+// node-pty stays external: native .node can neither be bundled nor loaded
+// from inside asar (see package.json#build files/asarUnpack).
+const EXTERNAL = ["electron", "node-pty"];
 const main = await Bun.build({
   entrypoints: ["desktop/main.ts"],
   target: "node",
   format: "cjs",
-  external: ["electron"],
+  external: EXTERNAL,
   outdir: "electron-dist",
   naming: "main.cjs",
 });
