@@ -41,7 +41,9 @@ import {
 import {
   extractFileFromTool,
   fmtElapsed,
+  resolveToolDisplayTitle,
   resolveWidgetKey,
+  toolPath,
   type WidgetTool,
 } from "@/components/assistant/tool-widget-utils";
 import type { Message } from "@/components/ChatArea";
@@ -215,11 +217,13 @@ type AcpToolCall = WidgetTool;
 
 /** 单条工具行（未知种类回落；含 Diff 快捷入口 + 内联审批）。 */
 const ToolCallRow: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
-  const { title, kind = "", status } = tc;
-  const targetFile = extractFileFromTool(title);
+  const { kind = "", status } = tc;
+  const displayTitle = resolveToolDisplayTitle(tc);
+  const targetFile = extractFileFromTool(displayTitle) || toolPath(tc);
   const isFileTool =
     kind === "edit" || kind === "file" || kind === "diff" || !!targetFile;
   const active = status === "running" || status === "pending";
+  const shortId = tc.id ? (tc.id.length > 12 ? `${tc.id.slice(0, 8)}…` : tc.id) : null;
 
   return (
     <div className="rounded-lg bg-background/80 border border-border text-xs text-muted-foreground animate-fade-slide-in">
@@ -227,10 +231,18 @@ const ToolCallRow: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
         <Wrench className="w-3.5 h-3.5 text-primary shrink-0" />
         <span
           className={cn("flex-1 truncate", active && "animate-pulse")}
-          title={kind ? `${title} [${kind}]` : title}
+          title={kind ? `${displayTitle} [${kind}] (ID: ${tc.id})` : `${displayTitle} (ID: ${tc.id})`}
         >
-          {title}
+          {displayTitle}
         </span>
+        {shortId && (
+          <span
+            className="text-[10px] text-muted-foreground/50 hover:text-foreground font-mono shrink-0 select-all cursor-default"
+            title={`调用 ID: ${tc.id}`}
+          >
+            {shortId}
+          </span>
+        )}
         <LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />
         {isFileTool && <DiffButton file={targetFile} />}
         <StatusDot status={status} />
@@ -258,32 +270,52 @@ const ToolWidget: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
 
 /**
  * 工具折叠组（社区 ToolGroup 模式）：连续工具调用收成一行摘要，
- * 运行时默认展开、完成后默认收起，不再逐条侵入正文。
+ * 运行时默认展开、完成后自动收起，不再逐条侵入正文。
+ * 用户手动切换后尊重用户意图；若再次有新工具运行则重新自动展开。
  */
-const AcpToolGroup: React.FC<{ tools: AcpToolCall[] }> = ({ tools }) => {
+const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = ({ tools, running = false }) => {
   const activeTools = tools.filter((t) => t.status === "running" || t.status === "pending");
   const failed = tools.some((t) => t.status === "failed");
   const anyActive = activeTools.length > 0;
   const [open, setOpen] = React.useState(anyActive);
-  // 运行中新工具到达（false->true 跃迁）时自动展开；只开不关，用户手动收起不受干扰。
+  const manual = React.useRef(false);
   const prevActive = React.useRef(anyActive);
+
   React.useEffect(() => {
-    if (anyActive && !prevActive.current) setOpen(true);
+    // 当状态从无活动变为有活动（新工具启动）时，重置用户手动标记并自动展开
+    if (anyActive && !prevActive.current) {
+      manual.current = false;
+      setOpen(true);
+    }
+    // 当所有工具完成（从有活动变为无活动），或当前 AI 回答整体结束（running 变 false）时，自动收起
+    else if (!anyActive && prevActive.current) {
+      if (!manual.current) {
+        setOpen(false);
+      }
+    } else if (!running && !anyActive) {
+      if (!manual.current) {
+        setOpen(false);
+      }
+    }
     prevActive.current = anyActive;
-  }, [anyActive]);
+  }, [anyActive, running]);
+
   const latest = activeTools.length > 0 ? activeTools[activeTools.length - 1] : null;
   if (!tools || tools.length === 0) return null;
   return (
     <div className="rounded-lg bg-background/70 border border-border overflow-hidden">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          manual.current = true;
+          setOpen((o) => !o);
+        }}
         className="w-full flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40 transition-colors"
       >
         <Wrench className="w-3.5 h-3.5 text-primary shrink-0" />
         <span className="font-medium">工具调用 · {tools.length}</span>
         {latest ? (
-          <AnimatedShinyText className="text-[11px] truncate">正在调用 {latest.title}…</AnimatedShinyText>
+          <AnimatedShinyText className="text-[11px] truncate">正在调用 {resolveToolDisplayTitle(latest)}…</AnimatedShinyText>
         ) : (
           <span className="font-mono text-[10px] opacity-70">
             {failed ? "有失败" : "全部完成"}
@@ -303,13 +335,20 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[] }> = ({ tools }) => {
           className={cn("w-3.5 h-3.5 ml-auto transition-transform duration-300", open && "rotate-180")}
         />
       </button>
-      {open && (
-        <div className="px-1.5 pb-1.5 space-y-1.5">
-          {tools.map((tc) => (
-            <ToolWidget key={tc.id} tc={tc} />
-          ))}
+      <div
+        className={cn(
+          "grid transition-all duration-300 ease-out",
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="px-1.5 pb-1.5 space-y-1.5">
+            {tools.map((tc) => (
+              <ToolWidget key={tc.id} tc={tc} />
+            ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -626,7 +665,7 @@ const AssistantMessageView: React.FC<{ agentName: string }> = ({ agentName }) =>
                 <AcpReasoningView thought={acp.thought} running={running} timing={acp.thoughtTiming} />
               )}
               {acp?.toolCalls && acp.toolCalls.length > 0 && (
-                <AcpToolGroup tools={acp.toolCalls} />
+                <AcpToolGroup tools={acp.toolCalls} running={running} />
               )}
             </div>
           )}

@@ -31,6 +31,7 @@ import {
   toolCommand,
   isDiffText,
   resolveWidgetKey,
+  resolveToolDisplayTitle,
   fmtElapsed,
 } from "./tool-widget-utils";
 
@@ -275,7 +276,7 @@ export const FileReadCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
   return (
     <CardShell
       icon={<FileText className="w-3.5 h-3.5 text-primary shrink-0" />}
-      title={path || tc.title}
+      title={path || resolveToolDisplayTitle(tc)}
       right={
         <>
           <LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />
@@ -303,7 +304,7 @@ export const FileEditCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
   return (
     <CardShell
       icon={<PencilLine className="w-3.5 h-3.5 text-warning shrink-0" />}
-      title={path || tc.title}
+      title={path || resolveToolDisplayTitle(tc)}
       right={
         <>
           <LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />

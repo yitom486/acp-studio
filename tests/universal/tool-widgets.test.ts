@@ -17,6 +17,9 @@ import {
   toolCommand,
   toolPath,
   toolText,
+  isRawToolCallId,
+  resolveToolDisplayTitle,
+  friendlyToolActionName,
 } from "@/components/assistant/tool-widget-utils";
 
 describe("tool widget registry (generative UI)", () => {
@@ -32,6 +35,71 @@ describe("tool widget registry (generative UI)", () => {
     expect(resolveWidgetKey({ title: "npm run build" })).toBe("terminal");
     expect(resolveWidgetKey({ title: "read notes" })).toBe("file-read");
     expect(resolveWidgetKey({ title: "do something vague" })).toBeNull();
+
+    // camelCase / OpenCode tools
+    expect(resolveWidgetKey({ title: "call_123", name: "readFile" })).toBe("file-read");
+    expect(resolveWidgetKey({ title: "call_123", name: "listFiles" })).toBe("file-read");
+    expect(resolveWidgetKey({ title: "call_123", name: "executeCommand" })).toBe("terminal");
+    expect(resolveWidgetKey({ title: "call_123", name: "bash" })).toBe("terminal");
+    expect(resolveWidgetKey({ title: "call_123", name: "searchFiles" })).toBe("search");
+  });
+
+  it("identifies raw machine toolCallIds vs human-readable titles", () => {
+    expect(isRawToolCallId("call_01a12aca9593765283055503134294c8")).toBe(true);
+    expect(isRawToolCallId("tc-1791719322-a9b1")).toBe(true);
+    expect(isRawToolCallId("Tool call")).toBe(true);
+    expect(isRawToolCallId("读取文件: package.json")).toBe(false);
+    expect(isRawToolCallId("Get-ChildItem -Recurse")).toBe(false);
+    expect(isRawToolCallId("")).toBe(false);
+  });
+
+  it("resolves friendly display titles when title is a raw toolCallId or empty", () => {
+    // 1. Raw call id with readFile and path
+    expect(
+      resolveToolDisplayTitle({
+        id: "call_01a12aca9593765283055503134294c8",
+        title: "call_01a12aca9593765283055503134294c8",
+        name: "readFile",
+        rawInput: { path: "package.json" },
+      })
+    ).toBe("读取文件: package.json");
+
+    // 2. Raw call id with listFiles and dir
+    expect(
+      resolveToolDisplayTitle({
+        id: "call_01a12aca9e1376de89e7a93e1faff70e",
+        title: "call_01a12aca9e1376de89e7a93e1faff70e",
+        name: "listFiles",
+        rawInput: { directory: "src" },
+      })
+    ).toBe("浏览目录: src");
+
+    // 3. Raw call id with bash command
+    expect(
+      resolveToolDisplayTitle({
+        id: "call_01a12aca9ef67101b765938f32d4d5c5",
+        title: "call_01a12aca9ef67101b765938f32d4d5c5",
+        name: "bash",
+        rawInput: { command: "npm test" },
+      })
+    ).toBe("执行命令: npm test");
+
+    // 4. Already human-readable title remains intact
+    expect(
+      resolveToolDisplayTitle({
+        id: "call_01a12acaa0737721b570c076e3552e12",
+        title: "Running tool: view_file (server/index.ts)",
+        name: "view_file",
+      })
+    ).toBe("Running tool: view_file (server/index.ts)");
+
+    // 5. Fallback with only raw id
+    expect(
+      resolveToolDisplayTitle({
+        id: "call_01a12acaafd576e299dc4e521efd5f52",
+        title: "call_01a12acaafd576e299dc4e521efd5f52",
+      })
+    ).toBe("工具调用 (call_01a…)");
   });
 
   it("extracts paths and commands defensively", () => {

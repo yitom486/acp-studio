@@ -110,10 +110,27 @@ export function resolveWidgetKey(tc: Pick<WidgetTool, "title" | "kind" | "name">
   if (kind === "search") return "search";
 
   const name = (tc.name || "").toLowerCase();
-  if (/^(run_|exec|terminal|shell|bash|sh_|powershell)/.test(name) || name.includes("command")) return "terminal";
-  if (/^(write_|replace_|multi_|sed|edit|apply_)/.test(name)) return "file-edit";
-  if (/^(read_|view_|cat|list_)/.test(name)) return "file-read";
-  if (/^(find_|grep|search)/.test(name) || /search|grep/.test(name)) return "search";
+  if (
+    /^(run_|exec|terminal|shell|bash|sh_|powershell)/.test(name) ||
+    /^(runcommand|executecommand|bash|powershell|cmd|sh)$/.test(name) ||
+    name.includes("command")
+  ) return "terminal";
+
+  if (
+    /^(write_|replace_|multi_|sed|edit|apply_|patch)/.test(name) ||
+    /^(writefile|editfile|write|edit|patch)$/.test(name)
+  ) return "file-edit";
+
+  if (
+    /^(read_|view_|cat|list_|show_|fetch_)/.test(name) ||
+    /^(readfile|viewfile|listfiles|listdir|read|view|cat|list|glob|dir|ls)$/.test(name)
+  ) return "file-read";
+
+  if (
+    /^(find_|grep|search)/.test(name) ||
+    /search|grep/.test(name) ||
+    /^(searchfiles|findfiles|find|grep)$/.test(name)
+  ) return "search";
 
   const title = tc.title || "";
   if (/^(run|exec|npm|bun|yarn|node|python|git|docker|ls|cd|mkdir|rm|echo|chmod|cargo|go|cat)\s/i.test(title)) {
@@ -121,6 +138,102 @@ export function resolveWidgetKey(tc: Pick<WidgetTool, "title" | "kind" | "name">
   }
   if (/^(read|view|show|list)\s/i.test(title)) return "file-read";
   return null;
+}
+
+/** Detects opaque machine-generated tool call IDs (e.g. call_01a..., tc-123..., hex/uuid hashes). */
+export function isRawToolCallId(str?: string | null): boolean {
+  if (!str || typeof str !== "string") return false;
+  const s = str.trim();
+  if (!s) return false;
+  if (/^call_[a-zA-Z0-9_-]+$/i.test(s)) return true;
+  if (/^tc-\d+-[a-z0-9]+$/i.test(s)) return true;
+  if (/^tool-\d+.*$/i.test(s)) return true;
+  if (/^[0-9a-f]{20,64}$/i.test(s)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+  if (s === "Tool call" || s === "tool_call" || s === "工具调用") return true;
+  return false;
+}
+
+/** Human-friendly action verb or category from tool name/kind. */
+export function friendlyToolActionName(name?: string, kind?: string): string {
+  const n = (name || "").toLowerCase().trim();
+  const k = (kind || "").toLowerCase().trim();
+
+  // File Read / Browse
+  if (/^(read_file|readfile|view_file|viewfile|cat|read|view)$/i.test(n) || k === "read" || k === "file") {
+    return "读取文件";
+  }
+  if (/^(list_files|listfiles|list_dir|listdir|glob|dir|ls|list)$/i.test(n)) {
+    return "浏览目录";
+  }
+
+  // File Write / Edit
+  if (/^(write_file|writefile|write|create_file|createfile)$/i.test(n)) {
+    return "新建文件";
+  }
+  if (/^(edit_file|editfile|edit|replace_file_content|multi_replace_file_content|patch|apply_diff)$/i.test(n) || k === "edit" || k === "diff") {
+    return "编辑文件";
+  }
+
+  // Search
+  if (/^(grep_search|grep|search_files|searchfiles|find_files|findfiles|search|find)$/i.test(n) || k === "search") {
+    return "搜索代码";
+  }
+
+  // Terminal / Execute
+  if (/^(run_command|runcommand|execute_command|executecommand|bash|sh|powershell|cmd|terminal|exec|execute)$/i.test(n) || k === "execute" || k === "terminal") {
+    return "执行命令";
+  }
+
+  if (name && name.trim()) {
+    return name.trim();
+  }
+  return "工具调用";
+}
+
+/**
+ * Resolves a human-friendly display title for a tool call.
+ * If tc.title is already informative and not a raw hash/ID, it is returned directly.
+ * Otherwise, synthesizes a title using name, filePath, command, or search query.
+ */
+export function resolveToolDisplayTitle(
+  tc: Pick<WidgetTool, "id" | "title"> & Partial<Pick<WidgetTool, "name" | "kind" | "rawInput" | "locations">>
+): string {
+  const currentTitle = (tc.title || "").trim();
+  if (currentTitle && !isRawToolCallId(currentTitle)) {
+    return currentTitle;
+  }
+
+  const action = friendlyToolActionName(tc.name, tc.kind);
+  const path = toolPath(tc);
+  if (path) {
+    return `${action}: ${path}`;
+  }
+
+  const cmd = strField(tc.rawInput, ["CommandLine", "command", "cmd", "script", "code"]);
+  if (cmd) {
+    const oneLine = cmd.trim().replace(/\s+/g, " ");
+    const preview = oneLine.length > 80 ? oneLine.slice(0, 77) + "…" : oneLine;
+    return `${action}: ${preview}`;
+  }
+
+  const query = strField(tc.rawInput, ["pattern", "query", "search", "keyword"]);
+  if (query) {
+    const qPreview = query.length > 50 ? query.slice(0, 47) + "…" : query;
+    return `${action}: "${qPreview}"`;
+  }
+
+  if (tc.name && tc.name.trim()) {
+    const friendly = friendlyToolActionName(tc.name, tc.kind);
+    return friendly !== tc.name ? `${friendly} (${tc.name})` : tc.name;
+  }
+
+  if (tc.id) {
+    const shortId = tc.id.length > 16 ? `${tc.id.slice(0, 8)}…` : tc.id;
+    return `工具调用 (${shortId})`;
+  }
+
+  return "工具调用";
 }
 
 /** 真实耗时格式化（客户端 wall-clock 打点，无数据时不渲染）。 */

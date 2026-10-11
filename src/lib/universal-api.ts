@@ -93,9 +93,26 @@ function pickToolExtras(u: any): Partial<ToolCallItem> {
       .slice(0, 10)
       .map((l: any) => ({ path: l.path, ...(typeof l.line === "number" ? { line: l.line } : {}) }));
   }
-  if (u?.rawOutput !== undefined) out.rawOutput = capToolText(u.rawOutput);
-  if (u?.rawError !== undefined) out.rawError = capToolText(u.rawError);
+  if (u?.rawOutput !== undefined) out.rawOutput = capToolText(u?.rawOutput);
+  if (u?.rawError !== undefined) out.rawError = capToolText(u?.rawError);
   return out;
+}
+
+/** Strips opaque toolCallIds and synthesizes a readable initial title if needed. */
+function cleanToolTitle(rawTitle: unknown, toolCallId?: string, fallbackName?: string, rawInput?: any): string | undefined {
+  if (typeof rawTitle === "string" && rawTitle.trim()) {
+    const s = rawTitle.trim();
+    if (s !== toolCallId && !/^call_[a-zA-Z0-9_-]+$/i.test(s) && !/^tc-\d+-[a-z0-9]+$/i.test(s) && s !== "Tool call") {
+      return s;
+    }
+  }
+  if (typeof rawInput?.command === "string" && rawInput.command.trim()) {
+    return String(rawInput.command.trim());
+  }
+  if (typeof fallbackName === "string" && fallbackName.trim()) {
+    return fallbackName.trim();
+  }
+  return undefined;
 }
 
 export interface PlanEntry {
@@ -678,18 +695,20 @@ export async function consumeUniversalChat(
             // replayed history (session/load) — surface as text so UI can rebuild
             if (u.content?.type === "text") handlers.onTextChunk?.(u.content.text, u.messageId);
           } else if (kind === "tool_call") {
+            const resolvedTitle = cleanToolTitle(u.title, u.toolCallId, u.name, u.rawInput) || "Tool call";
             handlers.onToolCall?.({
               id: u.toolCallId,
-              title: u.title || "Tool call",
+              title: resolvedTitle,
               kind: u.kind,
               status: (u.status as ToolCallItem["status"]) || "pending",
               content: u.content,
               ...pickToolExtras(u),
             });
           } else if (kind === "tool_call_update") {
+            const resolvedTitle = cleanToolTitle(u.title, u.toolCallId, u.name, u.rawInput);
             handlers.onToolCallUpdate?.({
               id: u.toolCallId,
-              title: u.title || u.toolCallId,
+              title: resolvedTitle || "",
               kind: u.kind,
               status: mapToolStatus(u.status),
               content: u.content,
@@ -892,7 +911,7 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
       const m = byId.get(k)!;
       const newTool: ToolCallItem = {
         id: u.toolCallId || `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        title: u.title || (u.rawInput?.command ? String(u.rawInput.command) : "Tool call"),
+        title: cleanToolTitle(u.title, u.toolCallId, u.name, u.rawInput) || "Tool call",
         kind: u.kind,
         status: (u.status as ToolCallItem["status"]) || "pending",
         ...pickToolExtras(u),
@@ -902,8 +921,9 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
       for (const m of byId.values()) {
         const t = m.toolCalls?.find((x) => x.id === u.toolCallId);
         if (t) {
+          const updTitle = cleanToolTitle(u.title, u.toolCallId, u.name, u.rawInput);
           Object.assign(t, {
-            title: u.title || t.title,
+            title: updTitle || t.title,
             kind: u.kind ?? t.kind,
             status: mapToolStatus(u.status),
             ...pickToolExtras(u),
