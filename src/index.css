@@ -99,15 +99,9 @@
    * 确保所有文本（h1-h6, p, span, label, code）、小组件（button, badge, input）与
    * 容器背景在明暗切换时 100% 锁步渐变，彻底解决文字瞬间反色、小组件脱节的割裂感
    * ========================================================================= */
-  body,
-  h1, h2, h3, h4, h5, h6,
-  p, span, label, a,
-  code, pre, kbd, mark,
-  svg, path,
-  table, th, td, tr,
-  button, input, textarea, select,
-  aside, header, footer, nav, section, article, main,
-  div {
+  *,
+  *::before,
+  *::after {
     transition-property: var(--theme-transition-properties);
     transition-duration: var(--theme-transition-duration);
     transition-timing-function: var(--theme-transition-timing);

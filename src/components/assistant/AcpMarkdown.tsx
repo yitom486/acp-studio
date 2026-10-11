@@ -77,7 +77,10 @@ const acpComponents = memoizeMarkdownComponents({
     );
   },
   strong: ({ className, ...props }: any) => (
-    <strong className={cn("font-semibold text-foreground", className)} {...props} />
+    <strong className={cn("font-semibold", className)} {...props} />
+  ),
+  b: ({ className, ...props }: any) => (
+    <b className={cn("font-semibold", className)} {...props} />
   ),
   hr: ({ className, ...props }: any) => <hr className={cn("my-3 border-border", className)} {...props} />,
   table: ({ className, ...props }: any) => (

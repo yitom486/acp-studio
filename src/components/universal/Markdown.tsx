@@ -58,7 +58,10 @@ const components = {
     <a className="text-primary underline-offset-2 hover:underline" target="_blank" rel="noreferrer" {...props} />
   ),
   strong: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
-    <strong className="font-semibold text-foreground" {...props} />
+    <strong className="font-semibold" {...props} />
+  ),
+  b: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
+    <b className="font-semibold" {...props} />
   ),
   hr: ({ ...props }: React.HTMLAttributes<HTMLHRElement>) => (
     <hr className="my-3 border-border" {...props} />

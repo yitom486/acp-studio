@@ -68,25 +68,23 @@ checklist), `web-design-guidelines` (audit).
 * 容器类大组件（Card、Sidebar、TitleBar）往往自带 `transition-colors`，而内嵌的细粒度文本（`h1-h6`, `p`, `span`, `label`, `code`）以及图标（`svg`, `path`）默认 `transition: none`；
 * 切换瞬间，背景以 200ms 渐变，而文字在 **0ms 瞬间反色**，在中间时刻（如 80ms 处）极易产生“暗底黑字”或“白底亮字”的严重反色致盲与撕裂闪烁！
 
-为此采取双重防御体系：
-1. **全局文字与组件基线注入**（`src/index.css`）：
+为此采取全量防御与对齐体系：
+1. **全局通配基线覆盖**（`src/index.css`）：
+   放弃容易挂一漏万的具体标签列表（避免遗漏 `strong`、`b`、`em`、`li` 等），使用通用通配符注入基础过渡通道：
    ```css
-   /* 全局文字字体、图标与各级小组件色彩过渡基线 */
-   body,
-   h1, h2, h3, h4, h5, h6,
-   p, span, label, a,
-   code, pre, kbd, mark,
-   svg, path,
-   table, th, td, tr,
-   button, input, textarea, select,
-   aside, header, footer, nav, section, article, main,
-   div {
+   *,
+   *::before,
+   *::after {
      transition-property: var(--theme-transition-properties);
      transition-duration: var(--theme-transition-duration);
      transition-timing-function: var(--theme-transition-timing);
    }
    ```
-2. **Tailwind `@theme` 默认值对齐**：
+2. **Markdown 粗体与文本 100% 继承对齐**（`AcpMarkdown.tsx` / `Markdown.tsx`）：
+   `strong` 和 `b` 严禁写死 `text-foreground`，必须自然继承外层段落与消息气泡的主题文字色（`text-secondary-foreground` 或 `text-foreground`），确保加粗文本与常规文本的颜色计算值和过渡帧完全一致。
+3. **消除按钮对色彩通道的遮蔽**：
+   关键操作按钮（如顶栏“新会话”按钮）严禁使用 `transition-opacity`（它会把 transition 属性限定为仅透明度，导致底色与文字颜色 0ms 瞬间突变），统一采用 `transition-all`。
+4. **Tailwind `@theme` 默认值对齐**：
    ```css
    @theme {
      --default-transition-duration: var(--theme-transition-duration);
@@ -94,7 +92,7 @@ checklist), `web-design-guidelines` (audit).
    }
    ```
    所有使用 Tailwind 原生 `transition-colors`、`transition` 的小组件（Button、Badge、Input）自动遵循 200ms 设计令牌，杜绝 150ms 与 200ms 的节拍差。
-3. **首屏渲染零闪烁（Pre-paint Theme Bootstrap）**：
+5. **首屏渲染零闪烁（Pre-paint Theme Bootstrap）**：
    在 `index.html` 的 `<head>` 中注入同步脚本，在首帧 DOM 渲染前直接将用户保存的主题打在 `documentElement` 上，从根本上防止冷启动时的颜色过渡拉扯。
 
 ### 4. 桌面端原生控制栏（Window Controls Overlay）对齐规范

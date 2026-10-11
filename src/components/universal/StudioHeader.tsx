@@ -300,7 +300,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           type="button"
           onClick={onNewSession}
           disabled={isStreaming || busy}
-          className="h-7 px-3 text-xs gap-1.5 font-medium rounded-md bg-foreground text-background hover:opacity-90 flex items-center shadow-xs cursor-pointer transition-opacity disabled:opacity-50"
+          className="h-7 px-3 text-xs gap-1.5 font-medium rounded-md bg-foreground text-background hover:opacity-90 flex items-center shadow-xs cursor-pointer transition-all disabled:opacity-50"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>新会话</span>

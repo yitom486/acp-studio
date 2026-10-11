@@ -439,7 +439,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
           className="w-full h-8 rounded-full bg-muted/70 hover:bg-muted border border-border/80 text-foreground text-xs font-medium flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-[0.99]"
         >
           <Plus className="w-3.5 h-3.5" />
-          <span>New Conversation</span>
+          <span>新会话</span>
         </button>
       </div>
 

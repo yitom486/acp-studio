@@ -421,7 +421,7 @@ const AssistantWelcome: React.FC<{
             <button
               type="button"
               onClick={() => onEnsureSession?.()}
-              className="ml-auto px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-opacity shrink-0"
+              className="ml-auto px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-all shrink-0"
             >
               {sessionError ? "重试" : "建立会话"}
             </button>
