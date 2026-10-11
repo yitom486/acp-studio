@@ -10,8 +10,6 @@ import {
   Timer,
   Boxes,
   Settings,
-  Sun,
-  Moon,
   Trash2,
   GitFork,
   Bot,
@@ -19,14 +17,12 @@ import {
   PlusCircle,
   SlidersHorizontal,
   Cloud,
-  Check,
   MoreHorizontal,
   X,
   FolderOpen,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { AgentSummary } from "@/lib/universal-api";
-import { useThemeStore, THEMES, type ThemeId } from "@/stores/useThemeStore";
 import type { RecentWorkspace } from "@/stores/useStudioStore";
 
 export interface SessionItem {
@@ -313,10 +309,8 @@ export const ProjectSessionsModal: React.FC<ProjectSessionsModalProps> = ({
 };
 
 export const Sidebar: React.FC<SidebarProps> = (p) => {
-  const { theme, setTheme } = useThemeStore();
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
-  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [modalProject, setModalProject] = useState<{
@@ -369,10 +363,6 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
 
   const toggleProject = (name: string) => {
     setCollapsedProjects((prev) => ({ ...prev, [name]: !prev[name] }));
-  };
-
-  const toggleTheme = () => {
-    setTheme(theme === "light" ? "dark" : "light");
   };
 
   return (
@@ -621,62 +611,16 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
         )}
       </div>
 
-      {/* 6. Bottom Sticky Settings & Theme Bar */}
-      <div className="p-2 border-t border-border shrink-0 space-y-1 relative bg-background">
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={p.onOpenSettings || p.onNewSession}
-            className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors text-xs font-medium"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Settings</span>
-          </button>
-
-          {/* Instant Light/Dark Switcher */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={toggleTheme}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setThemeMenuOpen(!themeMenuOpen);
-              }}
-              title={`当前：${THEMES[theme]?.name || "暗色"} (点击切换明暗，右键选择更多)`}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-            >
-              {theme === "light" ? (
-                <Sun className="w-3.5 h-3.5 text-warning" />
-              ) : (
-                <Moon className="w-3.5 h-3.5 text-primary" />
-              )}
-            </button>
-
-            {/* Quick Theme Selector Dropdown */}
-            {themeMenuOpen && (
-              <div className="absolute right-0 bottom-full mb-1.5 w-44 rounded-md border border-border bg-popover p-1 shadow-lg text-xs z-50">
-                {(Object.keys(THEMES) as ThemeId[]).map((tid) => (
-                  <button
-                    key={tid}
-                    type="button"
-                    onClick={() => {
-                      setTheme(tid);
-                      setThemeMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-sm text-left transition-colors ${
-                      theme === tid
-                        ? "bg-primary text-primary-foreground font-medium"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
-                    }`}
-                  >
-                    <span>{THEMES[tid].name}</span>
-                    {theme === tid && <Check className="w-3 h-3" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+      {/* 6. Bottom Sticky Settings Bar */}
+      <div className="p-2 border-t border-border shrink-0 bg-background">
+        <button
+          type="button"
+          onClick={p.onOpenSettings || p.onNewSession}
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors text-xs font-medium cursor-pointer"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          <span>设置 (Settings)</span>
+        </button>
       </div>
 
       {/* 7. Modal for viewing all sessions in a project */}
