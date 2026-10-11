@@ -106,16 +106,42 @@ function getAppIcon(): Electron.NativeImage | undefined {
   return undefined;
 }
 
+function getSavedOverlayConfig(): { color: string; symbolColor: string } {
+  try {
+    const configPath = path.join(app.getPath("userData"), "theme-overlay.json");
+    if (fs.existsSync(configPath)) {
+      const data = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (data && typeof data.color === "string" && typeof data.symbolColor === "string") {
+        return data;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return { color: "#0b0e14", symbolColor: "#94a3b8" };
+}
+
+function saveOverlayConfig(cfg: { color: string; symbolColor: string }) {
+  try {
+    const configPath = path.join(app.getPath("userData"), "theme-overlay.json");
+    fs.writeFileSync(configPath, JSON.stringify(cfg), "utf-8");
+  } catch {
+    // ignore
+  }
+}
+
 async function createWindow() {
   const isMac = process.platform === "darwin";
   const appIcon = getAppIcon();
+  const initialOverlay = getSavedOverlayConfig();
+
   win = new BrowserWindow({
     width: 1360,
     height: 900,
     minWidth: 1024,
     minHeight: 640,
     autoHideMenuBar: true,
-    backgroundColor: "#0b0e14",
+    backgroundColor: initialOverlay.color,
     title: "ACP Studio",
     icon: appIcon,
     titleBarStyle: "hidden",
@@ -125,8 +151,8 @@ async function createWindow() {
         }
       : {
           titleBarOverlay: {
-            color: "#0b0e14",
-            symbolColor: "#94a3b8",
+            color: initialOverlay.color,
+            symbolColor: initialOverlay.symbolColor,
             height: 32,
           },
         }),
@@ -188,12 +214,17 @@ ipcMain.handle("shell:openPath", async (_event, targetPath: string) => {
 // Window controls & title bar overlay styling
 ipcMain.handle("window:setTitleBarOverlay", (_event, options: { color?: string; symbolColor?: string; height?: number }) => {
   if (win && !win.isDestroyed() && process.platform !== "darwin") {
+    const color = options.color || "#0b0e14";
+    const symbolColor = options.symbolColor || "#94a3b8";
+    const height = options.height || 32;
     try {
       win.setTitleBarOverlay({
-        color: options.color || "#0b0e14",
-        symbolColor: options.symbolColor || "#94a3b8",
-        height: options.height || 32,
+        color,
+        symbolColor,
+        height,
       });
+      win.setBackgroundColor(color);
+      saveOverlayConfig({ color, symbolColor });
     } catch (err) {
       console.warn("[Electron] setTitleBarOverlay failed:", err);
     }

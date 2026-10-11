@@ -244,6 +244,10 @@ export default function App() {
           onOpenProviders={handleOpenProviders}
           supportsProviders={supportsProviders}
           onManageCustom={handleManageCustom}
+          currentWorkspace={s.currentWorkspace}
+          recentWorkspaces={s.recentWorkspaces}
+          onSelectWorkspace={(p, name) => s.setWorkspace(p, name)}
+          onOpenSettings={() => s.setSettingsOpen(true)}
         />
 
         <div className="flex-1 flex flex-col min-w-0">
@@ -356,6 +360,11 @@ export default function App() {
               onFallbackModel={handleFallbackModel}
               onEnsureSession={() => ensureSession()}
               sessionLoading={s.sessionLoading}
+              currentWorkspace={effectiveCwd}
+              recentWorkspaces={s.recentWorkspaces}
+              onSelectWorkspace={(p, name) => s.setWorkspace(p, name)}
+              onOpenChanges={() => s.setGitChangesOpen(true)}
+              onToggleTerminal={() => s.setTerminalOpen(!s.terminalOpen)}
             />
           </AcpAssistantProvider>
         </div>

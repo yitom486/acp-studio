@@ -1,8 +1,33 @@
-import React from "react";
+import React, { useState, useMemo } from "react";
 import { motion } from "framer-motion";
-import { Bot, PlusCircle, RefreshCw, GitFork, Trash2, XCircle, Cpu, Plug } from "lucide-react";
+import {
+  Plus,
+  Search,
+  ChevronRight,
+  ChevronDown,
+  Folder,
+  History,
+  Timer,
+  Boxes,
+  Settings,
+  Sun,
+  Moon,
+  Trash2,
+  GitFork,
+  Bot,
+  RefreshCw,
+  PlusCircle,
+  SlidersHorizontal,
+  Cloud,
+  Check,
+  MoreHorizontal,
+  X,
+  FolderOpen,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { AgentSummary } from "@/lib/universal-api";
+import { useThemeStore, THEMES, type ThemeId } from "@/stores/useThemeStore";
+import type { RecentWorkspace } from "@/stores/useStudioStore";
 
 export interface SessionItem {
   sessionId: string;
@@ -32,28 +57,34 @@ export interface SidebarProps {
   supportsProviders: boolean;
   onManageCustom: () => void;
   /** One-click empty-session cleanup (null/false hides it). */
-  cleaningEmpty: boolean;
-  onCleanupEmpty: () => void;
+  cleaningEmpty?: boolean;
+  onCleanupEmpty?: () => void;
+  currentWorkspace?: string | null;
+  recentWorkspaces?: RecentWorkspace[];
+  onSelectWorkspace?: (path: string, name?: string) => void;
+  onOpenSettings?: () => void;
 }
 
 function shortCwd(cwd?: string): string {
   if (!cwd) return "";
-  const parts = cwd.replace(/\\/g, "/").split("/");
-  return parts.slice(-2).join("/");
+  const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts.slice(-1)[0] || "";
 }
 
-function timeAgo(iso?: string | null): string {
+function compactTimeAgo(iso?: string | null): string {
   if (!iso) return "";
   const t = new Date(iso).getTime();
   if (!Number.isFinite(t)) return "";
   const mins = Math.max(0, Math.floor((Date.now() - t) / 60000));
-  if (mins < 1) return "刚刚";
-  if (mins < 60) return `${mins}分钟前`;
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}小时前`;
+  if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}天前`;
-  return new Date(t).toLocaleDateString();
+  if (days < 30) return `${days}d`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo`;
+  return `${Math.floor(months / 12)}y`;
 }
 
 /** Memoized single agent row */
@@ -73,48 +104,18 @@ export const AgentRow = React.memo<AgentRowProps>(
       <div
         onClick={() => onSelect(agent.id)}
         title={agent.authHint ? `认证复用：${agent.authHint}` : agent.description}
-        className={`rounded-xl px-2.5 py-2 cursor-pointer border transition-colors ${
-          active ? "bg-muted/50 border-primary/40" : "border-transparent hover:bg-card"
+        className={`rounded-md px-2.5 py-1.5 cursor-pointer border transition-colors ${
+          active ? "bg-muted/70 border-border font-medium" : "border-transparent hover:bg-muted/40"
         }`}
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <Bot className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span className="font-semibold text-foreground truncate flex-1">{agent.title}</span>
+          <span className="text-xs text-foreground truncate flex-1">{agent.title}</span>
           <span
             className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-              connected ? "bg-success" : "bg-muted-foreground"
+              connected ? "bg-success" : "bg-muted-foreground/40"
             }`}
           />
-        </div>
-        <div className="flex items-center gap-1.5 mt-1 pl-5">
-          <span className="font-mono text-[10px] text-muted-foreground truncate flex-1">{agent.id}</span>
-          {authOk === true && (
-            <Badge variant="success" className="h-4 text-[9px] px-1">
-              已登录
-            </Badge>
-          )}
-          {authOk === false && (
-            <Badge variant="warning" className="h-4 text-[9px] px-1">
-              需认证
-            </Badge>
-          )}
-          {!connected && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onConnect(agent.id);
-              }}
-              disabled={connecting}
-              className="flex items-center gap-1 text-[10px] text-primary hover:text-foreground disabled:opacity-50"
-            >
-              {connecting ? (
-                <RefreshCw className="w-3 h-3 animate-spin" />
-              ) : (
-                <Plug className="w-3 h-3" />
-              )}
-              连接
-            </button>
-          )}
         </div>
       </div>
     );
@@ -122,7 +123,7 @@ export const AgentRow = React.memo<AgentRowProps>(
 );
 AgentRow.displayName = "AgentRow";
 
-/** Memoized single session row with smooth framer-motion FLIP glide */
+/** Memoized single session row matching Antigravity clean design */
 export interface SessionRowProps {
   session: SessionItem;
   active: boolean;
@@ -134,47 +135,65 @@ export interface SessionRowProps {
 
 export const SessionRow = React.memo<SessionRowProps>(
   ({ session, active, supportsFork, onOpen, onFork, onDelete }) => {
+    const time = compactTimeAgo(session.updatedAt);
     return (
       <motion.div
         layout
-        transition={{ type: "spring", stiffness: 420, damping: 32 }}
+        transition={{ type: "spring", stiffness: 400, damping: 32 }}
         onClick={() => onOpen(session)}
-        className={`rounded-xl px-2.5 py-2 cursor-pointer border group transition-colors ${
-          active ? "bg-muted/50 border-primary/40" : "border-transparent hover:bg-card"
+        className={`group relative flex items-center justify-between rounded-md px-2 py-1.5 cursor-pointer text-xs transition-colors select-none ${
+          active
+            ? "bg-muted/70 text-foreground font-medium"
+            : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
         }`}
       >
-        <div className="text-foreground truncate font-medium" title={session.title || session.sessionId}>
-          {session.title || session.sessionId.slice(0, 12) + "…"}
+        <div
+          title={session.title || session.sessionId}
+          className="truncate flex-1 pr-1.5 flex items-center gap-1.5"
+        >
+          <span className="truncate">{session.title || session.sessionId.slice(0, 16)}</span>
         </div>
-        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono text-muted-foreground">
-          <span className="truncate flex-1">
-            {shortCwd(session.cwd)}
-            {timeAgo(session.updatedAt) ? ` · ${timeAgo(session.updatedAt)}` : ""}
-          </span>
-          <span className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Action icons on hover */}
+          <span className="hidden group-hover:flex items-center gap-1">
             {supportsFork && (
-              <span
+              <button
+                type="button"
                 title="Fork 会话"
                 onClick={(e) => {
                   e.stopPropagation();
                   onFork(session);
                 }}
-                className="hover:text-primary"
+                className="p-0.5 rounded hover:text-primary transition-colors"
               >
                 <GitFork className="w-3 h-3" />
-              </span>
+              </button>
             )}
-            <span
+            <button
+              type="button"
               title="删除会话"
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete(session);
               }}
-              className="hover:text-destructive"
+              className="p-0.5 rounded hover:text-destructive transition-colors"
             >
               <Trash2 className="w-3 h-3" />
-            </span>
+            </button>
           </span>
+
+          {/* Timestamp or Active blue indicator */}
+          {active ? (
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 group-hover:hidden"
+              title="活动会话"
+            />
+          ) : time ? (
+            <span className="text-[10px] font-mono text-muted-foreground/60 tabular-nums shrink-0 group-hover:hidden">
+              {time}
+            </span>
+          ) : null}
         </div>
       </motion.div>
     );
@@ -182,100 +201,499 @@ export const SessionRow = React.memo<SessionRowProps>(
 );
 SessionRow.displayName = "SessionRow";
 
-export const Sidebar = React.memo<SidebarProps>((p) => {
-  return (
-    <aside className="w-64 shrink-0 border-r border-border/80 bg-background/90 flex flex-col text-xs overflow-hidden select-none">
-      {/* Agents */}
-      <div className="px-3.5 pt-3 pb-2.5 flex items-center justify-between">
-        <span className="font-bold text-muted-foreground tracking-wide">AGENTS</span>
-        <button
-          onClick={p.onManageCustom}
-          title="添加 / 管理自定义 agent"
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          <PlusCircle className="w-3.5 h-3.5" />自定
-        </button>
-      </div>
-      <div className="px-2 space-y-1 overflow-y-auto max-h-[38%]">
-        {p.agents.map((a) => (
-          <AgentRow
-            key={a.id}
-            agent={a}
-            active={a.id === p.activeAgentId}
-            authOk={p.authOk[a.id]}
-            connecting={p.connectingId === a.id}
-            onSelect={p.onSelectAgent}
-            onConnect={p.onConnectAgent}
-          />
-        ))}
-        {p.agents.length === 0 && <div className="text-muted-foreground px-2 py-1">加载中…</div>}
-      </div>
+export interface ProjectSessionsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  projectName: string;
+  isCloud?: boolean;
+  sessions: SessionItem[];
+  activeSessionId: string | null;
+  supportsFork: boolean;
+  onOpenSession: (s: SessionItem) => void;
+  onForkSession: (s: SessionItem) => void;
+  onDeleteSession: (s: SessionItem) => void;
+}
 
-      {/* Sessions */}
-      <div className="px-3 pt-3 pb-2 flex items-center justify-between border-t border-border/60 mt-1">
-        <span className="font-bold text-muted-foreground tracking-wide">SESSIONS</span>
-        <div className="flex items-center gap-1">
+export const ProjectSessionsModal: React.FC<ProjectSessionsModalProps> = ({
+  isOpen,
+  onClose,
+  projectName,
+  isCloud,
+  sessions,
+  activeSessionId,
+  supportsFork,
+  onOpenSession,
+  onForkSession,
+  onDeleteSession,
+}) => {
+  const [filter, setFilter] = useState("");
+
+  if (!isOpen) return null;
+
+  const filtered = filter.trim()
+    ? sessions.filter((s) => (s.title || s.sessionId).toLowerCase().includes(filter.trim().toLowerCase()))
+    : sessions;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-xs p-4 animate-in fade-in duration-150 select-none"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg bg-card border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[80vh] animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            {isCloud ? (
+              <Cloud className="w-4 h-4 text-muted-foreground shrink-0" />
+            ) : (
+              <Folder className="w-4 h-4 text-primary shrink-0" />
+            )}
+            <h3 className="font-semibold text-sm text-foreground truncate">{projectName}</h3>
+            <span className="text-[11px] font-mono text-muted-foreground/80 px-1.5 py-0.5 rounded bg-muted">
+              {sessions.length} 个会话
+            </span>
+          </div>
           <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Filter input */}
+        <div className="px-4 py-2.5 border-b border-border/40 shrink-0">
+          <div className="relative flex items-center">
+            <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 pointer-events-none" />
+            <input
+              type="text"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="搜索此项目下的所有会话..."
+              autoFocus
+              className="w-full bg-muted/40 border border-border/60 rounded-md pl-8 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60"
+            />
+          </div>
+        </div>
+
+        {/* Sessions list */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {filtered.length === 0 ? (
+            <div className="py-8 text-center text-xs text-muted-foreground">未找到匹配会话</div>
+          ) : (
+            filtered.map((s) => (
+              <SessionRow
+                key={s.sessionId}
+                session={s}
+                active={s.sessionId === activeSessionId}
+                supportsFork={supportsFork}
+                onOpen={(sess) => {
+                  onOpenSession(sess);
+                  onClose();
+                }}
+                onFork={onForkSession}
+                onDelete={onDeleteSession}
+              />
+            ))
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div className="px-4 py-2 border-t border-border/40 text-[11px] text-muted-foreground flex items-center justify-between shrink-0 bg-muted/20">
+          <span>点击切换会话 · 支持实时搜索</span>
+          <span className="font-mono text-[10px]">点击外部或 ✕ 关闭</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const Sidebar: React.FC<SidebarProps> = (p) => {
+  const { theme, setTheme } = useThemeStore();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  const [modalProject, setModalProject] = useState<{
+    name: string;
+    items: SessionItem[];
+    isCloud?: boolean;
+  } | null>(null);
+
+  const MAX_VISIBLE_SESSIONS = 5;
+
+  // Group sessions by directory/project
+  const projectGroups = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const filtered = query
+      ? p.sessions.filter((s) => (s.title || s.sessionId).toLowerCase().includes(query))
+      : p.sessions;
+
+    const map = new Map<string, SessionItem[]>();
+
+    // Seed recent workspaces to show projects even if no sessions yet
+    if (p.recentWorkspaces && p.recentWorkspaces.length > 0) {
+      for (const w of p.recentWorkspaces) {
+        const name = w.name || shortCwd(w.path);
+        if (name && !map.has(name)) {
+          map.set(name, []);
+        }
+      }
+    } else if (p.currentWorkspace) {
+      const cur = shortCwd(p.currentWorkspace) || "Workspace";
+      map.set(cur, []);
+    }
+
+    // Distribute sessions
+    for (const sess of filtered) {
+      let grpName = shortCwd(sess.cwd);
+      if (!grpName) {
+        grpName = p.currentWorkspace ? shortCwd(p.currentWorkspace) || "General" : "General";
+      }
+      const existing = map.get(grpName) || [];
+      existing.push(sess);
+      map.set(grpName, existing);
+    }
+
+    return Array.from(map.entries()).map(([name, items]) => ({
+      name,
+      items,
+      isCloud: name.toLowerCase().includes("cli") || name.toLowerCase().includes("cloud"),
+    }));
+  }, [p.sessions, searchQuery, p.recentWorkspaces, p.currentWorkspace]);
+
+  const toggleProject = (name: string) => {
+    setCollapsedProjects((prev) => ({ ...prev, [name]: !prev[name] }));
+  };
+
+  const toggleTheme = () => {
+    setTheme(theme === "light" ? "dark" : "light");
+  };
+
+  return (
+    <aside className="w-64 shrink-0 border-r border-border bg-background flex flex-col text-xs overflow-hidden select-none z-10 transition-colors">
+      {/* 1. Top Controls Bar: Logo & Tool Icons */}
+      <div className="h-11 px-3 flex items-center justify-between border-b border-border/40 shrink-0">
+        <div className="flex items-center gap-2">
+          {/* Antigravity Logo mark */}
+          <div className="w-6 h-6 rounded-md flex items-center justify-center font-bold text-foreground bg-muted/60 text-sm">
+            ∧
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowSearch(!showSearch)}
+            title="搜索会话"
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1">
+          {p.onCleanupEmpty && (
+            <button
+              type="button"
+              onClick={p.onCleanupEmpty}
+              disabled={p.cleaningEmpty}
+              title="清理空会话"
+              className="p-1 rounded-md text-muted-foreground hover:text-warning hover:bg-muted/50 transition-colors disabled:opacity-40"
+            >
+              <Trash2 className={`w-3.5 h-3.5 ${p.cleaningEmpty ? "animate-spin" : ""}`} />
+            </button>
+          )}
+          <button
+            type="button"
             onClick={p.onRefreshSessions}
-            title="刷新会话列表"
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+            title="刷新会话"
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${p.sessionsLoading ? "animate-spin" : ""}`} />
           </button>
+        </div>
+      </div>
+
+      {/* Optional Search Input */}
+      {showSearch && (
+        <div className="px-3 pt-2">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索会话..."
+            autoFocus
+            className="w-full bg-muted/50 border border-border rounded-md px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60"
+          />
+        </div>
+      )}
+
+      {/* 2. Antigravity + New Conversation Pill Button */}
+      <div className="p-3 pb-2 shrink-0">
+        <button
+          type="button"
+          onClick={p.onNewSession}
+          className="w-full h-8 rounded-full bg-muted/70 hover:bg-muted border border-border/80 text-foreground text-xs font-medium flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-[0.99]"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>New Conversation</span>
+        </button>
+      </div>
+
+      {/* 3. Global Navigation Links */}
+      <div className="px-2 space-y-0.5 shrink-0">
+        <button
+          type="button"
+          onClick={p.onNewSession}
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
+        >
+          <History className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+          <span className="truncate flex-1">Conversation History</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {}}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left group"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Timer className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+            <span className="truncate">Automations</span>
+          </div>
+          <span className="text-[10px] font-mono text-muted-foreground/50 group-hover:text-muted-foreground">
+            Ctrl+U
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={p.onManageCustom}
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
+        >
+          <Boxes className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+          <span className="truncate flex-1">Customizations</span>
+        </button>
+      </div>
+
+      {/* 4. Projects Tree Header */}
+      <div className="px-3 pt-3.5 pb-1 flex items-center justify-between text-[11px] font-semibold text-muted-foreground shrink-0 select-none">
+        <div className="flex items-center gap-1.5 tracking-tight text-foreground/80">
+          <span>Projects</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-muted-foreground/60">
           <button
-            onClick={p.onCleanupEmpty}
-            disabled={p.cleaningEmpty}
-            title="清理空会话：删除无对话记录、超过1小时、且当前未打开的会话（逐个删除，失败会逐条报告）"
-            className="p-1 rounded text-muted-foreground hover:text-warning hover:bg-muted disabled:opacity-50"
+            type="button"
+            onClick={async () => {
+              if (window.acpStudio?.openDirectory) {
+                try {
+                  const chosen = await window.acpStudio.openDirectory();
+                  if (chosen) p.onSelectWorkspace?.(chosen);
+                } catch (e: any) {
+                  alert("打开文件夹失败: " + e.message);
+                }
+              } else {
+                const input = prompt("请输入本地项目路径:");
+                if (input?.trim()) p.onSelectWorkspace?.(input.trim());
+              }
+            }}
+            title="打开本地项目文件夹 (Ctrl+O)"
+            className="hover:text-foreground cursor-pointer"
           >
-            <Trash2 className={`w-3.5 h-3.5 ${p.cleaningEmpty ? "animate-spin" : ""}`} />
+            <FolderOpen className="w-3.5 h-3.5" />
           </button>
+          <SlidersHorizontal className="w-3 h-3 hover:text-foreground cursor-pointer" />
           <button
+            type="button"
             onClick={p.onNewSession}
-            title="新会话"
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+            title="新建会话"
+            className="hover:text-foreground cursor-pointer"
           >
-            <PlusCircle className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
-      <div className="px-2 space-y-1 overflow-y-auto flex-1">
-        {!p.supportsList && (
-          <div className="text-[11px] text-muted-foreground px-2 py-1">该 Agent 不支持 session/list。</div>
-        )}
-        {p.sessions.map((s) => (
-          <SessionRow
-            key={s.sessionId}
-            session={s}
-            active={s.sessionId === p.activeSessionId}
-            supportsFork={p.supportsFork}
-            onOpen={p.onOpenSession}
-            onFork={p.onForkSession}
-            onDelete={p.onDeleteSession}
-          />
-        ))}
-        {p.supportsList && p.sessions.length === 0 && !p.sessionsLoading && (
-          <div className="text-[11px] text-muted-foreground px-2 py-1">暂无会话，点击 + 新建。</div>
-        )}
-      </div>
 
-      {/* Footer: providers */}
-      <div className="p-2 border-t border-border/60">
-        {p.supportsProviders ? (
-          <button
-            onClick={p.onOpenProviders}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-muted-foreground hover:bg-card"
-          >
-            <Cpu className="w-3.5 h-3.5 text-primary" />
-            Providers（模型通道）
-          </button>
-        ) : (
-          <div className="px-2.5 py-1 text-[10px] font-mono text-muted-foreground flex items-center gap-1">
-            <XCircle className="w-3 h-3" /> 无 providers 能力
+      {/* 5. Scrollable Project Groups & Conversations Tree */}
+      <div className="flex-1 overflow-y-auto px-2 space-y-1.5 py-1">
+        {projectGroups.map((grp) => {
+          const isCollapsed = Boolean(collapsedProjects[grp.name]);
+          return (
+            <div key={grp.name} className="space-y-0.5">
+              {/* Project folder row */}
+              <div
+                onClick={() => toggleProject(grp.name)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-foreground/90 font-medium hover:bg-muted/40 cursor-pointer transition-colors"
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
+                )}
+                {grp.isCloud ? (
+                  <Cloud className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                ) : (
+                  <Folder className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                )}
+                <span className="truncate flex-1">{grp.name}</span>
+              </div>
+
+              {/* Child sessions */}
+              {!isCollapsed && (
+                <div className="pl-3.5 space-y-0.5 border-l border-border/40 ml-2.5 my-0.5">
+                  {grp.items.length === 0 ? (
+                    <div className="px-2 py-1 text-[11px] text-muted-foreground/60 italic">
+                      No conversations yet
+                    </div>
+                  ) : (() => {
+                    const isExpanded = Boolean(expandedProjects[grp.name]);
+                    const total = grp.items.length;
+                    const needsTruncation = total > MAX_VISIBLE_SESSIONS && !isExpanded;
+
+                    let visibleItems = grp.items;
+                    if (needsTruncation) {
+                      const activeIdx = grp.items.findIndex((s) => s.sessionId === p.activeSessionId);
+                      if (activeIdx >= MAX_VISIBLE_SESSIONS) {
+                        visibleItems = [
+                          ...grp.items.slice(0, MAX_VISIBLE_SESSIONS - 1),
+                          grp.items[activeIdx],
+                        ];
+                      } else {
+                        visibleItems = grp.items.slice(0, MAX_VISIBLE_SESSIONS);
+                      }
+                    }
+
+                    return (
+                      <>
+                        {visibleItems.map((s) => (
+                          <SessionRow
+                            key={s.sessionId}
+                            session={s}
+                            active={s.sessionId === p.activeSessionId}
+                            supportsFork={p.supportsFork}
+                            onOpen={p.onOpenSession}
+                            onFork={p.onForkSession}
+                            onDelete={p.onDeleteSession}
+                          />
+                        ))}
+
+                        {total > MAX_VISIBLE_SESSIONS && (
+                          <div className="pt-0.5 flex items-center justify-between text-[11px] select-none">
+                            <button
+                              type="button"
+                              onClick={() => setModalProject(grp)}
+                              title={`查看全部 ${total} 个会话`}
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                            >
+                              <MoreHorizontal className="w-3.5 h-3.5" />
+                              <span>{total - visibleItems.length > 0 ? `更多 ${total - visibleItems.length} 个...` : "查看全部..."}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedProjects((prev) => ({
+                                  ...prev,
+                                  [grp.name]: !prev[grp.name],
+                                }))
+                              }
+                              className="text-[10px] text-muted-foreground/60 hover:text-foreground px-1 py-0.5 rounded transition-colors"
+                            >
+                              {isExpanded ? "收起" : "展开"}
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Fallback if no projects */}
+        {projectGroups.length === 0 && (
+          <div className="px-3 py-4 text-center text-muted-foreground text-xs">
+            暂无会话项目
           </div>
         )}
       </div>
+
+      {/* 6. Bottom Sticky Settings & Theme Bar */}
+      <div className="p-2 border-t border-border shrink-0 space-y-1 relative bg-background">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={p.onOpenSettings || p.onNewSession}
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors text-xs font-medium"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>Settings</span>
+          </button>
+
+          {/* Instant Light/Dark Switcher */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setThemeMenuOpen(!themeMenuOpen);
+              }}
+              title={`当前：${THEMES[theme]?.name || "暗色"} (点击切换明暗，右键选择更多)`}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              {theme === "light" ? (
+                <Sun className="w-3.5 h-3.5 text-warning" />
+              ) : (
+                <Moon className="w-3.5 h-3.5 text-primary" />
+              )}
+            </button>
+
+            {/* Quick Theme Selector Dropdown */}
+            {themeMenuOpen && (
+              <div className="absolute right-0 bottom-full mb-1.5 w-44 rounded-md border border-border bg-popover p-1 shadow-lg text-xs z-50">
+                {(Object.keys(THEMES) as ThemeId[]).map((tid) => (
+                  <button
+                    key={tid}
+                    type="button"
+                    onClick={() => {
+                      setTheme(tid);
+                      setThemeMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-sm text-left transition-colors ${
+                      theme === tid
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+                    }`}
+                  >
+                    <span>{THEMES[tid].name}</span>
+                    {theme === tid && <Check className="w-3 h-3" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 7. Modal for viewing all sessions in a project */}
+      {modalProject && (
+        <ProjectSessionsModal
+          isOpen={Boolean(modalProject)}
+          onClose={() => setModalProject(null)}
+          projectName={modalProject.name}
+          isCloud={modalProject.isCloud}
+          sessions={modalProject.items}
+          activeSessionId={p.activeSessionId}
+          supportsFork={p.supportsFork}
+          onOpenSession={p.onOpenSession}
+          onForkSession={p.onForkSession}
+          onDeleteSession={p.onDeleteSession}
+        />
+      )}
     </aside>
   );
-});
-Sidebar.displayName = "Sidebar";
+};

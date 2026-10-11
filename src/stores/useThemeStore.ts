@@ -45,7 +45,7 @@ export const THEMES: Record<ThemeId, ThemeMeta> = {
     name: "清爽浅色",
     description: "透亮白日模式，清晰高质感",
     badge: "Light Modern",
-    overlayColor: "#f8fafc",
+    overlayColor: "#ffffff",
     overlaySymbolColor: "#334155",
     isDark: false,
   },
@@ -63,6 +63,24 @@ function getInitialTheme(): ThemeId {
     // fallback
   }
   return "dark";
+}
+
+function syncTitleBarOverlay(color: string, symbolColor: string) {
+  if (typeof window === "undefined") return;
+  const apply = () => {
+    if (window.acpStudio?.setTitleBarOverlay) {
+      window.acpStudio.setTitleBarOverlay({
+        color,
+        symbolColor,
+        height: 32,
+      }).catch(() => {});
+    }
+  };
+  apply();
+  // Retry on next tick in case bridge exposes just after script execution
+  if (typeof setTimeout !== "undefined") {
+    setTimeout(apply, 100);
+  }
 }
 
 function applyThemeToDOM(themeId: ThemeId) {
@@ -83,13 +101,12 @@ function applyThemeToDOM(themeId: ThemeId) {
   }
 
   // Sync to Electron native title bar overlay
-  if (typeof window !== "undefined" && window.acpStudio?.setTitleBarOverlay) {
-    window.acpStudio.setTitleBarOverlay({
-      color: meta.overlayColor,
-      symbolColor: meta.overlaySymbolColor,
-      height: 32,
-    }).catch(() => {});
-  }
+  syncTitleBarOverlay(meta.overlayColor, meta.overlaySymbolColor);
+}
+
+// Immediately apply theme on script load
+if (typeof document !== "undefined") {
+  applyThemeToDOM(getInitialTheme());
 }
 
 interface ThemeState {

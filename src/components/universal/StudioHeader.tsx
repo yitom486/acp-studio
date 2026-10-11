@@ -155,10 +155,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           </Button>
         ) : (
           <div className="flex items-center gap-1.5">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
-            </span>
+            <span className="w-2 h-2 rounded-full bg-success shrink-0" />
             <Badge variant="outline" className="h-6 text-[10px] font-mono px-2 gap-1 text-muted-foreground hidden md:inline-flex">
               <PlugZap className="w-3 h-3 text-success" />
               <span>{pid ? `pid ${pid}` : "已连接"}</span>
@@ -260,22 +257,23 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           onClick={onOpenChanges}
           disabled={busy || !hasChangesCwd}
           title={hasChangesCwd ? "查看本地代码变更 (Ctrl+Shift+D)" : "当前目录无代码变更"}
-          className={`h-7 px-2.5 text-xs gap-1.5 transition-colors ${
-            hasChangesCwd ? "border-primary/40 text-primary hover:bg-primary/10" : "text-muted-foreground opacity-60"
+          className={`h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border bg-card hover:bg-muted transition-colors ${
+            hasChangesCwd ? "text-foreground font-medium" : "text-muted-foreground opacity-60"
           }`}
         >
           <FileDiff className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">变更</span>
+          {hasChangesCwd && <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />}
         </Button>
 
         {/* Integrated Terminal Drawer */}
         <Button
           size="sm"
-          variant={terminalOpen ? "default" : "outline"}
+          variant="outline"
           onClick={onToggleTerminal}
           title="集成终端 (Ctrl+`)"
-          className={`h-7 px-2.5 text-xs gap-1.5 transition-colors ${
-            terminalOpen ? "shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground"
+          className={`h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border transition-colors ${
+            terminalOpen ? "bg-muted text-foreground font-medium shadow-xs" : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60"
           }`}
         >
           <Terminal className="w-3.5 h-3.5" />
@@ -290,24 +288,23 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
             onClick={onOpenProviders}
             disabled={busy}
             title="Providers（模型通道与网关配置）"
-            className="h-7 px-2.5 text-xs gap-1.5 hidden sm:inline-flex"
+            className="h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 hidden sm:inline-flex"
           >
             <Cpu className="w-3.5 h-3.5" />
             <span>通道</span>
           </Button>
         )}
 
-        {/* Primary New Session Button */}
-        <Button
-          size="sm"
-          variant="default"
+        {/* Primary New Session Button (Monochromatic High-Contrast) */}
+        <button
+          type="button"
           onClick={onNewSession}
           disabled={isStreaming || busy}
-          className="h-7 px-3 text-xs gap-1.5 font-medium shadow-sm"
+          className="h-7 px-3 text-xs gap-1.5 font-medium rounded-md bg-foreground text-background hover:opacity-90 flex items-center shadow-xs cursor-pointer transition-opacity disabled:opacity-50"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>新会话</span>
-        </Button>
+        </button>
 
         {/* More Actions Menu (...) */}
         <div className="relative" ref={menuRef}>

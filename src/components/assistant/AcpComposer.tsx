@@ -1,6 +1,30 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ComposerPrimitive, useAui, useAuiState } from "@assistant-ui/react";
-import { Brain, Command, Cpu, ImagePlus, LayoutGrid, Paperclip, Send, Settings2, ShieldCheck, Square, Trash2, X } from "lucide-react";
+import {
+  Brain,
+  Command,
+  Cpu,
+  ImagePlus,
+  LayoutGrid,
+  Paperclip,
+  Send,
+  Settings2,
+  ShieldCheck,
+  Square,
+  Trash2,
+  X,
+  ChevronDown,
+  ArrowRight,
+  Laptop,
+  Mic,
+  FolderOpen,
+  FileDiff,
+  Terminal,
+  ExternalLink,
+  Folder,
+  Clock,
+  Check,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AnimatedShinyText } from "@/components/magicui/animated-shiny-text";
 import { configCurrentValue, findConfigOption, extractModelThinking, type Attachment, type ConfigOptionLike, type ModelCatalogEntry } from "@/lib/universal-api";
@@ -25,6 +49,11 @@ export interface AcpComposerProps {
   onEnsureSession?: () => void;
   /** session/new 在途：模型区显示加载态而非“点击加载”。 */
   sessionLoading?: boolean;
+  currentWorkspace?: string | null;
+  recentWorkspaces?: Array<{ path: string; name: string; lastOpened: number }>;
+  onSelectWorkspace?: (path: string, name?: string) => void;
+  onOpenChanges?: () => void;
+  onToggleTerminal?: () => void;
 }
 
 const TEXTISH = /^(text\/|application\/(json|javascript|typescript|xml|x-www-form-urlencoded)|.*\+(json|xml)$)/;
@@ -91,6 +120,40 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIdx, setSlashIdx] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  const [localMenuOpen, setLocalMenuOpen] = useState(false);
+  const localMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (localMenuRef.current && !localMenuRef.current.contains(e.target as Node)) {
+        setLocalMenuOpen(false);
+      }
+    };
+    if (localMenuOpen) document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [localMenuOpen]);
+
+  const handleOpenFolder = async () => {
+    setLocalMenuOpen(false);
+    if (window.acpStudio?.openDirectory) {
+      try {
+        const chosen = await window.acpStudio.openDirectory();
+        if (chosen) p.onSelectWorkspace?.(chosen);
+      } catch (err: any) {
+        alert("打开文件夹失败: " + err.message);
+      }
+      return;
+    }
+    const input = prompt("请输入工作区绝对路径:", p.currentWorkspace || "");
+    if (input?.trim()) p.onSelectWorkspace?.(input.trim());
+  };
+
+  const handleRevealInExplorer = async () => {
+    setLocalMenuOpen(false);
+    if (p.currentWorkspace && window.acpStudio?.openPath) {
+      await window.acpStudio.openPath(p.currentWorkspace);
+    }
+  };
 
   const token = (() => {
     const m = composerText.match(/(^|\s)(\/[A-Za-z0-9_-]*)$/);
@@ -254,21 +317,21 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
   };
 
   return (
-    <div className="p-4 md:p-5 bg-background/90 border-t border-border/80 shrink-0">
-      <div className="max-w-4xl mx-auto space-y-2">
+    <div className="p-4 md:p-6 bg-background shrink-0 select-none">
+      <div className="max-w-3xl mx-auto space-y-2">
         {p.attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 px-1">
             {p.attachments.map((a) => (
-              <span key={a.id} className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg bg-muted/80 border border-border text-[11px] font-mono text-muted-foreground">
+              <span key={a.id} className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-md bg-muted/70 border border-border text-[11px] font-mono text-muted-foreground">
                 {a.preview ? (
-                  <img src={a.preview} alt={a.name} className="w-8 h-8 rounded object-cover" />
+                  <img src={a.preview} alt={a.name} className="w-6 h-6 rounded object-cover" />
                 ) : String((a.block as any).type) === "image" ? (
                   <ImagePlus className="w-3.5 h-3.5 text-primary" />
                 ) : (
                   <Paperclip className="w-3.5 h-3.5 text-primary" />
                 )}
                 <span className="max-w-[160px] truncate" title={`${a.name} (${a.mimeType}, ${(a.size / 1024).toFixed(1)}KB)`}>{a.name}</span>
-                <button onClick={() => removeAttachment(a.id)} className="text-muted-foreground hover:text-destructive">
+                <button onClick={() => removeAttachment(a.id)} className="text-muted-foreground hover:text-destructive ml-0.5">
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -278,20 +341,26 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
 
         <ComposerPrimitive.Root>
           <div
-            className={`relative flex flex-col rounded-2xl border bg-card/90 shadow-2xl focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-ring/20 transition-all ${dragOver ? "border-primary border-dashed" : canCancel ? "border-primary/50 shadow-primary/10" : "border-border/80"}`}
+            className={`relative flex flex-col rounded-2xl border bg-card shadow-xs transition-all ${
+              dragOver
+                ? "border-primary border-dashed ring-1 ring-primary/20"
+                : canCancel
+                ? "border-primary/50"
+                : "border-border hover:border-border/80 focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-ring/20"
+            }`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer?.files); }}
           >
             {dragOver && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-muted/70 text-sm text-primary pointer-events-none">
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-muted/80 text-xs text-primary pointer-events-none">
                 松开以添加文件 / 图片附件
               </div>
             )}
             {slashOpen && (
-              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-border bg-background/95 shadow-xl overflow-hidden z-20">
+              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-border bg-popover shadow-lg overflow-hidden z-20">
                 {filtered.slice(0, 8).map((c, i) => (
-                  <div key={c.name} onClick={() => applyCommand(c.name)} className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs ${i === slashIdx ? "bg-muted/70 text-primary" : "text-muted-foreground"}`}>
+                  <div key={c.name} onClick={() => applyCommand(c.name)} className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs ${i === slashIdx ? "bg-muted text-foreground font-medium" : "text-muted-foreground"}`}>
                     <Command className="w-3 h-3 text-muted-foreground" />
                     <span className="font-mono font-semibold">/{c.name}</span>
                     <span className="truncate text-muted-foreground">{c.description || ""}</span>
@@ -303,69 +372,254 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
               rows={1}
               onKeyDown={handleInputKeyDown}
               onPaste={handlePaste}
-              placeholder={p.isStreaming ? `${p.agentTitle} 正在响应中…可继续编辑，结束后发送` : `随便问点什么，/ 可查看命令，拖拽/粘贴可添加图片文件…`}
-              className="w-full resize-none bg-transparent px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none max-h-48 min-h-[48px]"
+              placeholder={p.isStreaming ? `${p.agentTitle} 正在响应中…可继续编辑，结束后发送` : `Ask anything, @ to mention, / for actions (随便问点什么)`}
+              className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none max-h-48 min-h-[46px]"
             />
-            <div className="flex items-center gap-1.5 px-3.5 pb-2.5 pt-1 text-xs">
-              <div className="flex items-center gap-1">
+            <div className="flex items-center justify-between px-3 pb-2 pt-1 text-xs gap-2">
+              {/* Left actions: + Attachment, Models, Thinking, Settings */}
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                 <input ref={fileRef} type="file" multiple accept={p.supportImage ? undefined : ".txt,.md,.json,.js,.ts,.tsx,.py,.log,.csv"} className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-                <button type="button" onClick={() => fileRef.current?.click()} title={p.supportImage ? "附加文件或图片（可拖拽 / 粘贴）" : "附加文本文件（该 Agent 不支持图片输入）"} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted/80 transition-colors text-lg leading-none">+</button>
-                <button type="button" onClick={() => aui.composer.setText("/" + composerText.trimStart())} title="唤出 Slash 快捷命令菜单" className="px-1.5 py-1 rounded-md text-xs font-mono font-bold text-muted-foreground hover:text-primary hover:bg-muted/80 transition-colors leading-none">/</button>
-              </div>
-              {p.connected && (
-                <>
-                  {modelOpt ? renderSelect(modelOpt, <Cpu className="w-3.5 h-3.5 text-primary shrink-0" />) : renderFallbackModel()}
-                  {thinkOpt ? (
-                    renderSelect(thinkOpt, <Brain className="w-3.5 h-3.5 text-primary shrink-0" />)
-                  ) : modelThinking ? (
-                    <span className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground" title={`当前模型内置思考参数: ${modelThinking} (跟随模型切换)`}>
-                      <Brain className="w-3.5 h-3.5 text-primary/70 shrink-0" />
-                      思考: {modelThinking}
-                    </span>
-                  ) : (
-                    muted("思考：—", "该 Agent 未提供独立思考等级配置")
-                  )}
-                  {permOpt ? renderSelect(permOpt, <ShieldCheck className="w-3.5 h-3.5 text-warning shrink-0" />) : muted("权限：—", "该 Agent 未提供权限配置")}
-                  {otherOpts.map((opt) =>
-                    opt.type === "boolean" ? (
-                      <label key={opt.id} className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none" title={opt.description || opt.name}>
-                        <input type="checkbox" checked={Boolean(opt.currentValue)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.checked)} className="rounded border-border text-primary focus:ring-primary/20" />
-                        <span className="text-[11px] font-medium">{opt.name || opt.id}</span>
-                      </label>
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  title={p.supportImage ? "附加文件或图片（可拖拽 / 粘贴）" : "附加文本文件"}
+                  className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors text-base"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  onClick={() => aui.composer.setText("/" + composerText.trimStart())}
+                  title="唤出 Slash 快捷命令菜单"
+                  className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-mono font-bold text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+                >
+                  /
+                </button>
+
+                {p.connected && (
+                  <>
+                    <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
+                      {modelOpt ? renderSelect(modelOpt, <Cpu className="w-3 h-3 text-muted-foreground shrink-0" />) : renderFallbackModel()}
+                    </div>
+                    {thinkOpt ? (
+                      <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
+                        {renderSelect(thinkOpt, <Brain className="w-3 h-3 text-muted-foreground shrink-0" />)}
+                      </div>
+                    ) : modelThinking ? (
+                      <span className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground px-1.5 py-0.5" title={`思考: ${modelThinking}`}>
+                        <Brain className="w-3 h-3 text-muted-foreground shrink-0" />
+                        思考: {modelThinking}
+                      </span>
                     ) : (
-                      renderSelect(opt, <Settings2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />)
-                    )
-                  )}
-                </>
-              )}
-              {p.onBrowseModels && (
-                <button type="button" onClick={p.onBrowseModels} title={p.hasModelCatalog ? "浏览 / 重新发现模型库" : "发现可用模型"} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted/80 transition-colors">
-                  <LayoutGrid className="w-3.5 h-3.5" />
+                      muted("思考：—", "该 Agent 未提供独立思考等级配置")
+                    )}
+                    {permOpt ? (
+                      <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
+                        {renderSelect(permOpt, <ShieldCheck className="w-3 h-3 text-warning shrink-0" />)}
+                      </div>
+                    ) : muted("权限：—", "该 Agent 未提供权限配置")}
+                    {otherOpts.map((opt) =>
+                      opt.type === "boolean" ? (
+                        <label key={opt.id} className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none" title={opt.description || opt.name}>
+                          <input type="checkbox" checked={Boolean(opt.currentValue)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.checked)} className="rounded border-border text-primary focus:ring-primary/20" />
+                          <span className="text-[11px] font-medium">{opt.name || opt.id}</span>
+                        </label>
+                      ) : (
+                        renderSelect(opt, <Settings2 className="w-3 h-3 text-muted-foreground shrink-0" />)
+                      )
+                    )}
+                  </>
+                )}
+
+                {p.onBrowseModels && (
+                  <button type="button" onClick={p.onBrowseModels} title={p.hasModelCatalog ? "浏览 / 发现模型库" : "发现可用模型"} className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors">
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Right actions: Mic, Clear, and Send Arrow */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  title="语音输入 / 辅助"
+                  className="p-1 rounded-md text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <Mic className="w-3.5 h-3.5" />
                 </button>
-              )}
-              {!p.connected && (
-                <span className="font-mono text-[11px] text-muted-foreground hidden sm:inline">Enter 发送 · Shift+Enter 换行 · / 命令联想</span>
-              )}
-              <div className="flex-1" />
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={p.onClear} disabled={p.isStreaming} title="清空聊天记录" className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-muted/80 transition-colors disabled:opacity-40">
-                  <Trash2 className="w-4 h-4" />
+
+                <button
+                  type="button"
+                  onClick={p.onClear}
+                  disabled={p.isStreaming}
+                  title="清空聊天记录"
+                  className="p-1 rounded-md text-muted-foreground/60 hover:text-destructive hover:bg-muted/50 transition-colors disabled:opacity-40"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
+
                 {canCancel ? (
                   <ComposerPrimitive.Cancel asChild>
-                    <Button size="sm" variant="destructive" className="h-8 gap-1.5 rounded-lg text-xs">
-                      <Square className="w-3.5 h-3.5 fill-current" /> 停止
-                    </Button>
+                    <button
+                      type="button"
+                      title="停止生成"
+                      className="h-7 px-2.5 rounded-full bg-destructive text-destructive-foreground hover:opacity-90 flex items-center gap-1 text-xs font-medium cursor-pointer"
+                    >
+                      <Square className="w-3 h-3 fill-current" />
+                      <span>停止</span>
+                    </button>
                   </ComposerPrimitive.Cancel>
                 ) : (
-                  <Button size="sm" variant="default" onClick={handleSendClick} disabled={!canSendAny || p.isStreaming} className="h-8 gap-1.5 rounded-lg text-xs font-semibold">
-                    <Send className="w-3.5 h-3.5" /> 发送
-                  </Button>
+                  <button
+                    type="button"
+                    onClick={handleSendClick}
+                    disabled={!canSendAny || p.isStreaming}
+                    title="发送消息"
+                    className={`h-7 w-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                      canSendAny && !p.isStreaming
+                        ? "bg-foreground text-background hover:opacity-90 shadow-xs"
+                        : "bg-muted text-muted-foreground/50 opacity-60 cursor-not-allowed"
+                    }`}
+                  >
+                    <ArrowRight className="w-3.5 h-3.5" />
+                    <span className="sr-only">发送</span>
+                  </button>
                 )}
               </div>
             </div>
           </div>
         </ComposerPrimitive.Root>
+
+        {/* Antigravity Local Target Tag & Workspace Menu */}
+        <div className="flex items-center justify-between pt-0.5 px-1 text-xs text-muted-foreground select-none relative">
+          <div className="relative" ref={localMenuRef}>
+            <button
+              type="button"
+              onClick={() => setLocalMenuOpen(!localMenuOpen)}
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/40 hover:bg-muted border border-border/50 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+            >
+              <Laptop className="w-3 h-3 text-muted-foreground/80" />
+              <span>Local</span>
+              <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+            </button>
+
+            {localMenuOpen && (
+              <div className="absolute left-0 bottom-full mb-1.5 w-72 p-1.5 rounded-xl border border-border bg-popover shadow-xl text-xs z-50 animate-in fade-in-50 zoom-in-95 duration-100 space-y-1">
+                {/* Current Workspace Header */}
+                <div className="px-2 py-1.5 border-b border-border/50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-foreground flex items-center gap-1.5">
+                      <Folder className="w-3.5 h-3.5 text-primary" />
+                      {p.currentWorkspace
+                        ? p.currentWorkspace.split(/[/\\]/).filter(Boolean).pop()
+                        : "未绑定工作区"}
+                    </span>
+                    {p.currentWorkspace && (
+                      <button
+                        type="button"
+                        onClick={handleRevealInExplorer}
+                        title="在资源管理器中定位"
+                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                  {p.currentWorkspace && (
+                    <div className="text-[10px] font-mono text-muted-foreground/70 truncate mt-0.5" title={p.currentWorkspace}>
+                      {p.currentWorkspace}
+                    </div>
+                  )}
+                </div>
+
+                {/* Workspace Actions */}
+                <div className="space-y-0.5">
+                  <button
+                    type="button"
+                    onClick={handleOpenFolder}
+                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-foreground hover:bg-muted/80 text-left transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FolderOpen className="w-3.5 h-3.5 text-primary" />
+                      <span>打开本地项目 / 文件夹…</span>
+                    </div>
+                    <kbd className="text-[9px] font-mono bg-muted px-1 py-0.5 rounded text-muted-foreground border border-border/50">
+                      Ctrl+O
+                    </kbd>
+                  </button>
+
+                  {p.onOpenChanges && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLocalMenuOpen(false);
+                        p.onOpenChanges?.();
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 text-left transition-colors"
+                    >
+                      <FileDiff className="w-3.5 h-3.5" />
+                      <span>查看 Git 代码变更 (Diff)</span>
+                    </button>
+                  )}
+
+                  {p.onToggleTerminal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLocalMenuOpen(false);
+                        p.onToggleTerminal?.();
+                      }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 text-left transition-colors"
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>打开集成终端</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Recent Projects (if any) */}
+                {p.recentWorkspaces && p.recentWorkspaces.length > 0 && (
+                  <div className="pt-1 border-t border-border/50">
+                    <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      <span>最近项目</span>
+                    </div>
+                    <div className="max-h-28 overflow-y-auto space-y-0.5">
+                      {p.recentWorkspaces.slice(0, 4).map((rw) => (
+                        <button
+                          key={rw.path}
+                          type="button"
+                          onClick={() => {
+                            setLocalMenuOpen(false);
+                            p.onSelectWorkspace?.(rw.path, rw.name);
+                          }}
+                          className={`w-full flex items-center justify-between px-2 py-1 rounded text-left text-[11px] transition-colors ${
+                            p.currentWorkspace === rw.path
+                              ? "bg-muted text-foreground font-medium"
+                              : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                          }`}
+                        >
+                          <span className="truncate">{rw.name || rw.path.split(/[/\\]/).pop()}</span>
+                          {p.currentWorkspace === rw.path && <Check className="w-3 h-3 text-primary shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Environment Status info */}
+                <div className="px-2 py-1.5 pt-1 border-t border-border/50 text-[10px] text-muted-foreground/80 flex items-center justify-between">
+                  <span>运行目标: 本地主机 (Local)</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-success" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="text-[10px] font-mono text-muted-foreground/50 hidden sm:inline">
+            Enter 发送 · Shift+Enter 换行 · / 命令
+          </div>
+        </div>
       </div>
     </div>
   );
