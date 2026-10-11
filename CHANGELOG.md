@@ -10,6 +10,27 @@
 ## [Unreleased]
 
 ### Added
+<!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+
+## [0.1.0] - 2026-10-12
+
+首个公开发版（此前 `package.json` 误标 1.0.0，回正为 0.1.0 起步）。
+
+### Added
+- 通用 ACP v1 网关（`server/universal`）：多 agent stdio 管理、
+  permission/fs/terminal/elicitation 客户端能力、authStatus 透出、
+  fork/providers 透传、load 回放收集、HTTP/SSE 接口。
+- ACP Studio Web 工作台：Agents/Sessions 侧边栏、模型库浏览器
+  （模型/思考等级/权限选择与发现）、slash 联想、附件（拖拽/粘贴/预览）、
+  Markdown 富文本、git 变更查看（前后对照 + 统一 diff）、
+  providers 面板、elicitation 表单、权限审批流。
+- Hono 网关（Bun/Node 双入口）与 Electron 桌面壳（进程内网关、
+  打包配置、GitHub CI/Release 工作流）。
+- 前端工程化：zustand 客户端状态、TanStack Query 服务端状态、
+  shadcn + Magic UI 组件体系、蓝灰变量主题、集中错误处理
+  （error-bus/ErrorBoundary/ErrorToast）。
+- 文档：`docs/sdk`（客户端/服务端写法，TS+Rust）、agent 规则
+  （版本/ UI 设计/错误处理/状态管理）。
 - **真 PTY 交互终端**（`node-pty` + WebSocket）：抽屉打开即探活，可用走
   WS 全双工真 shell（原生回显、`Ctrl+C` 即 SIGINT、job control、vim/ssh
   可用），不可用（Bun dev 网关）回落单次执行并明示；标题栏 `PTY`/`单次`
@@ -28,7 +49,6 @@
   Diff（复用 Git 审查）/还原（confirm + git restore）；非 git 只读。
 - **发送失败自动重试**：传输类错误重发（默认 2 次 backoff），注脚成功即
   清；abort/auth/语义错误永不重试。
-<!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
 - Studio store 新增 `useStudioShallow` / `useStudioMessages`：选择性订阅
   视图状态，刻意排除 `messages`（流式热路径字段）。
 - README 新增“桥接库三源版本对齐”小节：根 `package.json ^x.y.z` /
@@ -42,7 +62,7 @@
 ### Changed
 - **正式包可用 PTY**：`node-pty` 改 external（native 不可打进 cjs），
   `files` 收运行子集（去 pdb/map/单测），整包 `asarUnpack`；加载双路径
-  （包内 CJS 走模块 require，Node ESM 走 createRequire）。
+  （包内 CJS 走裸 require，Node ESM 走 createRequire）。
 - **Studio 外壳重渲染修复**：`App.tsx` 原先用无选择器
   `useStudioStore()` 订阅整个 store，导致每个流式分片都重渲染整个布局。
   现改为 `useStudioShallow` 选择性订阅，`messages` 下移到真正渲染它的
@@ -105,26 +125,6 @@
   可预期清理失败（disconnect/close）允许忽略但均已留痕；
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
-
-## [0.1.0] - 2026-09-22
-
-首个基线版本（此前 `package.json` 误标 1.0.0，回正为 0.1.0 起步）。
-
-### Added
-- 通用 ACP v1 网关（`server/universal`）：多 agent stdio 管理、
-  permission/fs/terminal/elicitation 客户端能力、authStatus 透出、
-  fork/providers 透传、load 回放收集、HTTP/SSE 接口。
-- ACP Studio Web 工作台：Agents/Sessions 侧边栏、模型库浏览器
-  （模型/思考等级/权限选择与发现）、slash 联想、附件（拖拽/粘贴/预览）、
-  Markdown 富文本、git 变更查看（前后对照 + 统一 diff）、
-  providers 面板、elicitation 表单、权限审批流。
-- Hono 网关（Bun/Node 双入口）与 Electron 桌面壳（进程内网关、
-  打包配置、GitHub CI/Release 工作流）。
-- 前端工程化：zustand 客户端状态、TanStack Query 服务端状态、
-  shadcn + Magic UI 组件体系、蓝灰变量主题、集中错误处理
- （error-bus/ErrorBoundary/ErrorToast）。
-- 文档：`docs/sdk`（客户端/服务端写法，TS+Rust）、agent 规则
- （版本/ UI 设计/错误处理/状态管理）。
 
 [Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
