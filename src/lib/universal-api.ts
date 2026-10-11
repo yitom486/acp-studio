@@ -350,6 +350,36 @@ export async function gitRestore(cwd: string, file: string): Promise<void> {
   if (!data.ok) throw new Error(data.error || "git restore 失败");
 }
 
+/** 真 PTY 可用性（决定抽屉走 WS 交互模式还是回落 one-shot）。 */
+export async function ptyStatus(): Promise<{ ok: boolean; available: boolean; reason: string | null }> {
+  const res = await fetch("/api/universal/terminal/pty/status");
+  return res.json();
+}
+
+/** PTY 列数同步（抽屉 fit 后调；未知会话 404 即忽略，由重连恢复）。 */
+export async function ptyResize(ptyId: string, cols: number, rows: number): Promise<void> {
+  const res = await fetch("/api/universal/terminal/pty/resize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ptyId, cols, rows }),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "pty resize 失败");
+}
+
+/** WS 基址候选（纯函数，可测）：同源优先（prod 与 ws 代理环境），直连回环兜底（vite dev 代理不转 WS）。 */
+export function ptyWsCandidateBases(host: string, protocol: string, gatewayPort = 3004): string[] {
+  const wsProto = protocol === "https:" ? "wss:" : "ws:";
+  const sameOrigin = `${wsProto}//${host}`;
+  const loopback = `${wsProto}//127.0.0.1:${gatewayPort}`;
+  return sameOrigin === loopback ? [sameOrigin] : [sameOrigin, loopback];
+}
+
+/** PTY 连接 URL（纯函数，可测）：ptyId 由客户端生成，resize POST 凭它找会话。 */
+export function buildPtyWsUrl(base: string, ptyId: string, cwd: string, cols: number, rows: number): string {
+  return `${base}/api/universal/terminal/pty?ptyId=${encodeURIComponent(ptyId)}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
+}
+
 export interface WorkspaceValidateResult {
   ok: boolean;
   path?: string;

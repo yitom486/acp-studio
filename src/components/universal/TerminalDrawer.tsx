@@ -6,10 +6,14 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import "@xterm/xterm/css/xterm.css";
-import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder, Square, Search, ChevronUp, ChevronDown, Download } from "lucide-react";
+import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder, Square, Search, ChevronUp, ChevronDown, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 import { useStudioStore } from "@/stores/useStudioStore";
+import { ptyStatus, ptyResize, ptyWsCandidateBases, buildPtyWsUrl } from "@/lib/universal-api";
+
+/** 抽屉传输模式：pty=真交互 shell；oneshot=单次执行（PTY 不可用时回落）。 */
+export type TerminalMode = "probing" | "pty" | "oneshot";
 
 /** 终端输出写屏上限：超长只保留前 128KB 并注明，避免巨量输出卡死 xterm。 */
 export const TERMINAL_OUTPUT_CAP = 131072;
@@ -197,6 +201,17 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   const [searchCount, setSearchCount] = useState(0);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
+  // 传输模式：pty 优先，status 不可用/WS 全败即回落 oneshot（Bun dev）。
+  const [mode, setModeState] = useState<TerminalMode>("probing");
+  const modeRef = useRef<TerminalMode>("probing");
+  const [ptyDead, setPtyDead] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const ptyIdRef = useRef<string>("");
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setMode = (m: TerminalMode) => {
+    modeRef.current = m;
+    setModeState(m);
+  };
   const [geom, setGeom] = useState<TerminalGeom | null>(null);
   // 拖拽会话（pointer down 时快照，move 时按增量换算，避免闭包过期）。
   const dragRef = useRef<{
@@ -272,6 +287,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
         fontSize: 12,
         lineHeight: 1.25,
+        scrollback: 5000,
         theme: buildXtermTheme(vars, isLightTerminalTheme()),
       });
 
@@ -312,6 +328,12 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
 
       // Handle key input
       term.onData((data) => {
+        // PTY 模式：全量透传给 shell（它自己回显；Ctrl+C 即 \x03 即 SIGINT）。
+        if (modeRef.current === "pty") {
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+          return;
+        }
         // 运行中只响应 Ctrl+C（取消），其余输入丢弃防交错
         if (runningRef.current) {
           if (data === "\x03") handleCancel();
@@ -506,6 +528,8 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     raf = requestAnimationFrame(() => {
       raf = requestAnimationFrame(fit);
     });
+    // 列数变化同步给 pty（debounced；oneshot 下空转）。
+    notifyPtyResize();
     return () => cancelAnimationFrame(raf);
   }, [maximized, geom, isOpen, searchOpen]);
 
@@ -598,14 +622,24 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
       if (cancelled) return;
       const term = termRef.current;
       if (term && !runningRef.current) {
-        while (currentLineRef.current.length > 0) {
-          term.write("\b \b");
-          currentLineRef.current = currentLineRef.current.slice(0, -1);
+        // PTY 模式：把命令“打”进 shell 行，不带回车，绝不自动执行。
+        if (modeRef.current === "pty") {
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(prefill);
+            useStudioStore.getState().setTerminalPrefill(null);
+            return;
+          }
+        } else if (modeRef.current === "oneshot") {
+          while (currentLineRef.current.length > 0) {
+            term.write("\b \b");
+            currentLineRef.current = currentLineRef.current.slice(0, -1);
+          }
+          currentLineRef.current = prefill;
+          term.write(prefill);
+          useStudioStore.getState().setTerminalPrefill(null);
+          return;
         }
-        currentLineRef.current = prefill;
-        term.write(prefill);
-        useStudioStore.getState().setTerminalPrefill(null);
-        return;
       }
       if (++tries < 30) setTimeout(attempt, 100);
     };
@@ -649,6 +683,127 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
+  const note = (text: string) => {
+    termRef.current?.writeln(`\r\n\x1b[90m${text}\x1b[0m`);
+  };
+
+  const closePty = () => {
+    const ws = wsRef.current;
+    wsRef.current = null;
+    try {
+      ws?.close();
+    } catch {
+      // 关闭中：忽略
+    }
+  };
+
+  const enterOneshotFallback = (reason: string | null) => {
+    closePty();
+    setMode("oneshot");
+    if (reason) note(`[真 PTY 不可用：${reason}，已回落单次执行模式]`);
+    if (termRef.current && !runningRef.current) printPrompt(termRef.current);
+  };
+
+  // PTY 连接：候选基址逐个试（同源 → 回环直连），全败即回落 oneshot。
+  // 每次连接用新 ptyId；服务端同 id 重入会先杀旧会话，天然防重影。
+  const connectPty = () => {
+    const term = termRef.current;
+    if (!term) return;
+    if (!hasCwd) {
+      enterOneshotFallback("未选择工作目录");
+      return;
+    }
+    ptyIdRef.current = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const ptyId = ptyIdRef.current;
+    const bases = ptyWsCandidateBases(window.location.host, window.location.protocol);
+    setPtyDead(false);
+    const attempt = (i: number) => {
+      if (i >= bases.length) {
+        enterOneshotFallback("PTY 连接失败");
+        return;
+      }
+      let settled = false;
+      const ws = new WebSocket(buildPtyWsUrl(bases[i], ptyId, activeCwd, 80, 24));
+      ws.onopen = () => {
+        settled = true;
+        wsRef.current = ws;
+        setMode("pty");
+        setPtyDead(false);
+        notifyPtyResize();
+      };
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === "string") termRef.current?.write(ev.data);
+      };
+      ws.onerror = () => {
+        if (!settled) {
+          settled = true;
+          try {
+            ws.close();
+          } catch {
+            // 忽略
+          }
+          attempt(i + 1);
+        }
+      };
+      ws.onclose = () => {
+        if (!settled) {
+          settled = true;
+          attempt(i + 1);
+          return;
+        }
+        // 建连后的断开：shell 退出或网关重启 → 显式重连入口，不静默重生
+        //（自动重生会丢 shell 状态还让人困惑，loud 原则）。
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+          setPtyDead(true);
+          note("[PTY 连接断开，点标题栏重连恢复]");
+        }
+      };
+    };
+    attempt(0);
+  };
+
+  // 列数同步（fit 后调，debounced；未知会话 404 即忽略，由重连恢复）。
+  const notifyPtyResize = () => {
+    if (modeRef.current !== "pty" || !ptyIdRef.current) return;
+    const term = termRef.current;
+    const fit = fitAddonRef.current;
+    if (!term || !fit) return;
+    let dims: { cols: number; rows: number } | undefined;
+    try {
+      dims = fit.proposeDimensions() as { cols: number; rows: number } | undefined;
+    } catch {
+      return;
+    }
+    if (!dims?.cols || !dims?.rows) return;
+    if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+    resizeTimerRef.current = setTimeout(() => {
+      ptyResize(ptyIdRef.current, dims.cols, dims.rows).catch(() => {});
+    }, 300);
+  };
+
+  // 打开即探活：PTY 可用走 WS，不可用（Bun dev）回落单次；关闭即断 WS。
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    setMode("probing");
+    setPtyDead(false);
+    ptyStatus()
+      .then((st) => {
+        if (cancelled) return;
+        if (st.available) connectPty();
+        else enterOneshotFallback(st.reason);
+      })
+      .catch(() => {
+        if (!cancelled) enterOneshotFallback("网关不可达");
+      });
+    return () => {
+      cancelled = true;
+      closePty();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   // 最大化：占视口主体（留边），禁用拖拽/缩放。
@@ -682,6 +837,19 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         <div className="flex items-center gap-2 font-semibold text-foreground">
           <TerminalIcon className="w-3.5 h-3.5 text-primary" />
           <span>终端 (Terminal)</span>
+          {/* 传输模式徽标：诚实展示当前是真 shell 还是回落 */}
+          <span
+            className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${
+              mode === "pty"
+                ? "text-success border-success/40 bg-success/10"
+                : mode === "oneshot"
+                  ? "text-warning border-warning/40 bg-warning/10"
+                  : "text-muted-foreground border-border/60 bg-muted/40"
+            }`}
+            title={mode === "pty" ? "真 PTY 交互 shell" : mode === "oneshot" ? "单次执行回落（真 PTY 不可用）" : "正在探测真 PTY…"}
+          >
+            {mode === "pty" ? "PTY" : mode === "oneshot" ? "单次" : "…"}
+          </span>
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded border border-border/50 max-w-[300px] truncate">
             <Folder className="w-3 h-3 shrink-0" />
             <span className="truncate" title={hasCwd ? activeCwd : "未选择工作目录，按 Ctrl+O 选择"}>
@@ -691,13 +859,33 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         </div>
 
         <div className="flex items-center gap-1 text-muted-foreground">
-          {running && (
+          {ptyDead && mode === "pty" && (
             <Button
               size="sm"
               variant="ghost"
-              onClick={handleCancel}
+              onClick={() => connectPty()}
+              className="h-6 px-1.5 text-[11px] gap-1 text-primary hover:text-primary"
+              title="重建 PTY 会话并重连（旧 shell 状态不保留）"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span className="hidden sm:inline">重连</span>
+            </Button>
+          )}
+          {(running || (mode === "pty" && !ptyDead)) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                // PTY 下停止 = 发 SIGINT（\x03），与终端里按 Ctrl+C 等价
+                if (modeRef.current === "pty") {
+                  const ws = wsRef.current;
+                  if (ws && ws.readyState === WebSocket.OPEN) ws.send("\x03");
+                } else {
+                  handleCancel();
+                }
+              }}
               className="h-6 px-1.5 text-[11px] gap-1 text-destructive hover:text-destructive"
-              title="取消当前命令 (Ctrl+C)"
+              title={mode === "pty" ? "发送 Ctrl+C 中断前台程序" : "取消当前命令 (Ctrl+C)"}
             >
               <Square className="w-3 h-3 fill-current" />
               <span className="hidden sm:inline">停止</span>

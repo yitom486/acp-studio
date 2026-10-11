@@ -52,6 +52,12 @@ electron electron-dist/main.cjs   # main 内起网关并打开窗口
   `<app>/dist`），**禁止依赖 `process.cwd()`**。
 - `spawn` 跨运行时走 `spawnCrossPlatform`（`server/universal/AgentConnection.ts`）：
   Node 在 Windows 下直接 exec `.cmd` 会 `EINVAL`，须经 shell 中转。
+- **真 PTY（node-pty）是 native 模块**（`server/universal/pty.ts`）：
+  `package.json#build.asarUnpack` 含 `**/*.node`（asar 内 native 不可加载，
+  必须解包）；打包机上 electron-builder 默认 `npmRebuild` 会按 Electron ABI
+  重编（需配好编译工具链：Windows 要 VS Build Tools）。dev 下 Bun 网关无
+  PTY（回落单次执行），要真 PTY 请用 `dev:server:node`（Node 网关）或
+  Electron 内置网关。
 
 ## GitHub 运维流程
 

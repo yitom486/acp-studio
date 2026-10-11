@@ -5,6 +5,7 @@
 import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "./gateway";
 import { gatewayTokenPreview } from "./universal/security";
+import { attachPtyUpgrade } from "./universal/pty";
 
 setupEnv();
 freePortIfOccupied(PORT);
@@ -29,9 +30,13 @@ const netServer = server as unknown as {
   requestTimeout: number;
   headersTimeout: number;
   close: (cb?: () => void) => void;
+  on: (event: string, listener: (...args: never[]) => void) => void;
 };
 netServer.requestTimeout = 0;
 netServer.headersTimeout = 0;
+
+// 真 PTY 的 WS 升级（Bun 入口 server/index.ts 不挂：Bun 下无 node-pty）。
+void attachPtyUpgrade(netServer as never);
 
 const gracefulShutdown = async () => {
   console.log("\n[Server] Shutting down cleanly...");

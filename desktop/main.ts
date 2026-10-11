@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "../server/gateway";
 import { ensureGatewayToken, gatewayTokenPreview } from "../server/universal/security";
+import { attachPtyUpgrade } from "../server/universal/pty";
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const START_URL = process.env.ELECTRON_START_URL || `http://localhost:${PORT}`;
@@ -57,6 +58,8 @@ async function startGateway() {
   // Never cut long-lived SSE streams.
   srv.requestTimeout = 0;
   srv.headersTimeout = 0;
+  // 真 PTY 的 WS 升级（与 server/node.ts 同源；Bun dev 网关无此挂载）。
+  void attachPtyUpgrade(srv as never);
   gateway = srv;
 }
 
