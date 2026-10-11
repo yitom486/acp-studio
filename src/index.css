@@ -79,7 +79,40 @@
 }
 
 @layer base {
-  :root,
+  :root {
+    /* =========================================================================
+     * Unified Theme Transition Design Tokens
+     * 统一明暗主题切换动效设计令牌（杜绝组件间时间与缓动硬编码引起的视觉割裂）
+     * ========================================================================= */
+    --theme-transition-duration: 200ms;
+    --theme-transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
+    --theme-transition-properties: color, background-color, border-color, text-decoration-color, fill, stroke, box-shadow;
+  }
+
+  /* 全局同步主题切换过渡态：由 useThemeStore 触发，全站组件以统一节拍平滑联动 */
+  html.theme-transitioning,
+  html.theme-transitioning *,
+  html.theme-transitioning *::before,
+  html.theme-transitioning *::after {
+    transition-property: var(--theme-transition-properties) !important;
+    transition-duration: var(--theme-transition-duration) !important;
+    transition-timing-function: var(--theme-transition-timing) !important;
+    transition-delay: 0s !important;
+  }
+
+  /* 尊重系统动效减弱偏好 (Accessibility) */
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --theme-transition-duration: 0ms;
+    }
+    html.theme-transitioning,
+    html.theme-transitioning *,
+    html.theme-transitioning *::before,
+    html.theme-transitioning *::after {
+      transition: none !important;
+    }
+  }
+
   [data-theme="dark"] {
     /* 默认：经典蓝灰暗黑 (VS Code Modern Dark) */
     --background: 222 26% 7%;

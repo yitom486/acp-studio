@@ -83,10 +83,25 @@ function syncTitleBarOverlay(color: string, symbolColor: string) {
   }
 }
 
-function applyThemeToDOM(themeId: ThemeId) {
+let themeTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+
+function applyThemeToDOM(themeId: ThemeId, isUserSwitch = false) {
   if (typeof document === "undefined") return;
   const meta = THEMES[themeId] || THEMES.dark;
   const root = document.documentElement;
+
+  if (isUserSwitch) {
+    // Read dynamic duration token from CSS variable (single source of truth)
+    const cssDuration = getComputedStyle(root).getPropertyValue("--theme-transition-duration").trim();
+    const parsedDuration = parseInt(cssDuration, 10);
+    const durationMs = Number.isFinite(parsedDuration) ? parsedDuration : 200;
+
+    root.classList.add("theme-transitioning");
+    if (themeTransitionTimer) clearTimeout(themeTransitionTimer);
+    themeTransitionTimer = setTimeout(() => {
+      root.classList.remove("theme-transitioning");
+    }, durationMs + 30);
+  }
 
   // Set data-theme attribute
   root.setAttribute("data-theme", meta.id);
@@ -104,9 +119,9 @@ function applyThemeToDOM(themeId: ThemeId) {
   syncTitleBarOverlay(meta.overlayColor, meta.overlaySymbolColor);
 }
 
-// Immediately apply theme on script load
+// Immediately apply theme on script load (cold boot: no animation to avoid flicker)
 if (typeof document !== "undefined") {
-  applyThemeToDOM(getInitialTheme());
+  applyThemeToDOM(getInitialTheme(), false);
 }
 
 interface ThemeState {
@@ -124,11 +139,12 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         localStorage.setItem(THEME_STORAGE_KEY, newTheme);
       }
     } catch {}
-    applyThemeToDOM(newTheme);
+    // User triggered theme toggle: trigger synchronized smooth transition
+    applyThemeToDOM(newTheme, true);
     set({ theme: newTheme });
   },
   initTheme: () => {
     const current = get().theme;
-    applyThemeToDOM(current);
+    applyThemeToDOM(current, false);
   },
 }));
