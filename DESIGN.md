@@ -95,12 +95,14 @@ checklist), `web-design-guidelines` (audit).
 5. **首屏渲染零闪烁（Pre-paint Theme Bootstrap）**：
    在 `index.html` 的 `<head>` 中注入同步脚本，在首帧 DOM 渲染前直接将用户保存的主题打在 `documentElement` 上，从根本上防止冷启动时的颜色过渡拉扯。
 
-### 4. 桌面端原生控制栏（Window Controls Overlay - 三大金刚按钮）对齐规范
-* **Preload 路径多候选自动定位**：在 Windows 调试模式下，Electron 以 `electron electron-dist/main.cjs` 启动时，`app.getAppPath()` 解析为 `electron-dist` 目录。主进程通过 `getPreloadPath()` 自动匹配候选列表（`preload.cjs`、`electron-dist/preload.cjs` 及 cwd），确保 `window.acpStudio` 桥接对象 100% 正确注入渲染进程。
-* **色值 100% 咬合**：标题栏 CSS 变量 `--titlebar-bg`（浅色 `#ffffff` 或 暗黑 `#0b0e14`）与原生系统遮罩 `overlayColor` 完全一致，图标色 `overlaySymbolColor` 与 `--foreground`（浅色 `#334155`、暗黑 `#94a3b8`）同步咬合。
-* **TitleBar 挂载与切换双重响应**：`TitleBar` 组件挂载时及主题变更时通过 `useEffect` 自动执行 `window.acpStudio.setTitleBarOverlay`，彻底杜绝窗口右上角“三大金刚”（最小化、最大化、关闭）与主界面明暗状态脱节。
-* **实体无透底**：TitleBar 严禁使用半透明修饰符（如 `bg-card/90`），必须使用纯色实体 `bg-[hsl(var(--titlebar-bg))]`，避免 Electron 窗口底色漏底。
-* **主进程持久化**：主进程通过 `userData/theme-overlay.json` 记忆最后一次主题色，冷启动开窗直接以此颜色创建原生遮罩，消除冷启动黑块。
+### 4. 桌面端窗口控制栏（Pure Frontend Window Controls - 三大金刚按钮）全量对齐规范
+* **架构解耦与职责纯粹**：后端/主进程（Electron）严格恪守“只提供底层系统能力（IPC）”的原则（`minimize`、`maximize`、`close`、`isMaximized`），坚决摒弃 Chromium 底层封闭的 `titleBarOverlay` 原生遮罩。**UI 100% 交由前端 React（`TitleBar.tsx`）全权绘制**，从架构根源上杜绝跨进程色值滞后、黑块漏底与样式无法定制的问题。
+* **标准桌面工程学尺寸**：最小化、最大化/还原、关闭按钮统一采用标准桌面尺寸 `w-[46px] h-[32px]`，无缝贴靠窗口右上角边缘（`pr-0`），点击热区宽裕且符合直觉。
+* **全局主题 150ms 动效毫秒级锁步**：控制按钮底色与图标色全部通过 CSS 变量绑定当前主题，在主题切换瞬间跟随 `--theme-transition-duration: 150ms` 和 `--theme-transition-timing: cubic-bezier(0.16, 1, 0.3, 1)` 与顶栏、侧边栏、卡片、文字**完全锁步渐变**，实现 100% 的视觉统一性。
+* **桌面交互体验完备**：
+  * **悬浮反馈**：最小化与最大化按钮使用 `hover:bg-muted/80 text-muted-foreground hover:text-foreground`；关闭按钮使用经典的沉浸式警示交互 `hover:bg-[#e81123] hover:text-white`；
+  * **双击缩放**：标题栏拖拽区域（`app-drag`）绑定 `onDoubleClick={handleMaximize}`，双击即可切换最大化与还原；
+  * **动态图标**：最大化状态下图标自动在单方框（`<Square />`）与重叠双框（`<Copy />`）之间精确切换。
 
 ### 5. 无障碍减弱动效 (Accessibility)
 严格遵循系统辅助功能规范：

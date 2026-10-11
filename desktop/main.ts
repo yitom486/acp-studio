@@ -159,7 +159,7 @@ async function createWindow() {
     minWidth: 1024,
     minHeight: 640,
     autoHideMenuBar: true,
-    backgroundColor: initialOverlay.color,
+    backgroundColor: "#0b0e14",
     title: "ACP Studio",
     icon: appIcon,
     titleBarStyle: "hidden",
@@ -167,13 +167,7 @@ async function createWindow() {
       ? {
           trafficLightPosition: { x: 12, y: 10 },
         }
-      : {
-          titleBarOverlay: {
-            color: initialOverlay.color,
-            symbolColor: initialOverlay.symbolColor,
-            height: 32,
-          },
-        }),
+      : {}),
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -227,25 +221,8 @@ ipcMain.handle("shell:openPath", async (_event, targetPath: string) => {
   await shell.openPath(targetPath);
 });
 
-// Window controls & title bar overlay styling
-ipcMain.handle("window:setTitleBarOverlay", (_event, options: { color?: string; symbolColor?: string; height?: number }) => {
-  if (win && !win.isDestroyed() && process.platform !== "darwin") {
-    const color = options.color || "#0b0e14";
-    const symbolColor = options.symbolColor || "#94a3b8";
-    const height = options.height || 32;
-    try {
-      win.setTitleBarOverlay({
-        color,
-        symbolColor,
-        height,
-      });
-      win.setBackgroundColor(color);
-      saveOverlayConfig({ color, symbolColor });
-    } catch (err) {
-      console.warn("[Electron] setTitleBarOverlay failed:", err);
-    }
-  }
-});
+// Window controls styling (pure React handles 100% of the UI; kept as no-op for IPC compatibility)
+ipcMain.handle("window:setTitleBarOverlay", () => {});
 
 ipcMain.handle("window:minimize", () => {
   if (win && !win.isDestroyed()) win.minimize();
