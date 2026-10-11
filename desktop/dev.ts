@@ -8,7 +8,7 @@
  * 5. Watches desktop/ directory for changes and rebuilds main bundle
  * 6. Clean process-tree shutdown on Ctrl+C or when Electron exits
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import * as net from "node:net";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -40,6 +40,32 @@ function log(prefix: string, color: string, msg: string) {
   }
 }
 
+function recyclePort(port: number, serviceName: string): void {
+  if (!isWin) return;
+  try {
+    const stdout = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const pids = new Set<number>();
+    for (const line of stdout.split("\n")) {
+      const parts = line.trim().split(/\s+/);
+      const pid = Number(parts[parts.length - 1]);
+      if (pid && !isNaN(pid) && pid !== process.pid) {
+        pids.add(pid);
+      }
+    }
+    for (const pid of pids) {
+      console.log(`${c.yellow}[launcher] 端口 ${port} (${serviceName}) 残留旧进程 PID ${pid}，taskkill 自动回收...${c.reset}`);
+      try {
+        execSync(`taskkill /F /T /PID ${pid}`, { windowsHide: true, stdio: "ignore" });
+      } catch {}
+    }
+  } catch {
+    // Port is free (findstr exits with code 1)
+  }
+}
+
 async function killProcessTree(proc: ChildProcess | undefined) {
   if (!proc || !proc.pid) return;
   try {
@@ -66,14 +92,12 @@ async function cleanupAndExit(code = 0) {
     await killProcessTree(child);
   }
 
-  // Windows safety net: kill any remaining electron.exe from this workspace
+  // Windows safety net: kill any remaining electron.exe and ensure ports are cleanly freed
   if (isWin) {
     try {
-      spawn("taskkill", ["/F", "/IM", "electron.exe"], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
+      execSync("taskkill /F /IM electron.exe", { windowsHide: true, stdio: "ignore" });
     } catch {}
+    recyclePort(VITE_PORT, "Vite Dev Server");
   }
 
   setTimeout(() => {
@@ -148,7 +172,7 @@ function startSubProcess(name: string, color: string, cmd: string, args: string[
 async function main() {
   console.log(`${c.bold}${c.magenta}=== ACP Studio 桌面端集成开发环境启动中 ===${c.reset}\n`);
 
-  // 1. Windows preflight: kill lingering electron.exe
+  // 1. Windows preflight: kill lingering electron.exe and reclaim Vite dev port
   if (isWin) {
     try {
       const cleanup = spawn("taskkill", ["/F", "/IM", "electron.exe"], {
@@ -157,6 +181,7 @@ async function main() {
       });
       await new Promise((r) => cleanup.on("close", r));
     } catch {}
+    recyclePort(VITE_PORT, "Vite Dev Server");
   }
 
   // 2. Build electron bundle
