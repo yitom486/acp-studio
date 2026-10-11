@@ -88,9 +88,9 @@
      * Unified Theme Transition Design Tokens
      * 统一明暗主题切换动效设计令牌（全局单一真实数据源）
      * ========================================================================= */
-    --theme-transition-duration: 200ms;
-    --theme-transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
-    --theme-transition-properties: color, background-color, border-color, text-decoration-color, fill, stroke, box-shadow;
+    --theme-transition-duration: 150ms;
+    --theme-transition-timing: cubic-bezier(0.16, 1, 0.3, 1);
+    --theme-transition-properties: color, background-color, border-color, text-decoration-color, fill, stroke;
   }
 
   /* =========================================================================

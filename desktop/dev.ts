@@ -182,27 +182,35 @@ async function main() {
   }
 
   // 5. Start Electron
-  const electronProc = spawn(
-    isWin ? "npx.cmd" : "npx",
-    ["electron", "electron-dist/main.cjs"],
-    {
-      shell: isWin,
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        ELECTRON_DEV: "1",
-        ELECTRON_START_URL: `http://localhost:${VITE_PORT}`,
-      },
-    }
-  );
+  let electronProc: ChildProcess | null = null;
+  let isRestartingElectron = false;
 
-  children.push(electronProc);
+  function launchElectron() {
+    electronProc = spawn(
+      isWin ? "npx.cmd" : "npx",
+      ["electron", "electron-dist/main.cjs"],
+      {
+        shell: isWin,
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          ELECTRON_DEV: "1",
+          ELECTRON_START_URL: `http://localhost:${VITE_PORT}`,
+        },
+      }
+    );
 
-  // When Electron GUI window closes, cleanly shut down server and client
-  electronProc.on("exit", (code) => {
-    console.log(`\n${c.cyan}[electron] 桌面窗口已关闭${c.reset}`);
-    cleanupAndExit(code || 0);
-  });
+    children.push(electronProc);
+
+    // When Electron GUI window closes, cleanly shut down server and client
+    electronProc.on("exit", (code) => {
+      if (isRestartingElectron) return;
+      console.log(`\n${c.cyan}[electron] 桌面窗口已关闭${c.reset}`);
+      cleanupAndExit(code || 0);
+    });
+  }
+
+  launchElectron();
 
   // 6. Watch desktop directory for edits
   let buildDebounce: Timer | null = null;
@@ -215,7 +223,15 @@ async function main() {
       console.log(`\n${c.yellow}[watch] 检测到 desktop/${filename} 变更，正在增量构建...${c.reset}`);
       const success = await buildElectron();
       if (success) {
-        console.log(`${c.green}[watch] Electron 主进程构建就绪！${c.reset}`);
+        console.log(`${c.green}[watch] Electron 主进程构建就绪，正在热重启窗口...${c.reset}`);
+        isRestartingElectron = true;
+        if (electronProc) {
+          await killProcessTree(electronProc);
+        }
+        setTimeout(() => {
+          isRestartingElectron = false;
+          launchElectron();
+        }, 400);
       }
     }, 200);
   });

@@ -54,12 +54,12 @@ checklist), `web-design-guidelines` (audit).
 所有主题切换的动作与时间**严禁在具体组件中硬编码**，统一收敛在 `src/index.css` 的 `:root` 变量中：
 ```css
 :root {
-  /* 统一切换时长：200ms（利落干脆，杜绝拖泥带水，兼具丝滑感） */
-  --theme-transition-duration: 200ms;
-  /* 统一缓动曲线：自然流畅的标准减速贝塞尔 */
-  --theme-transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
-  /* 统一联动的视觉通道 */
-  --theme-transition-properties: color, background-color, border-color, text-decoration-color, fill, stroke, box-shadow;
+  /* 统一切换时长：150ms（黄金响应时间，杜绝慢速切换下的线条反向对比残影与滞后感） */
+  --theme-transition-duration: 150ms;
+  /* 统一缓动曲线：自然流畅的高阶指数减速曲线 (Ease-Out Expo) */
+  --theme-transition-timing: cubic-bezier(0.16, 1, 0.3, 1);
+  /* 统一联动的视觉通道：坚决剔除 box-shadow，防止阴影模糊半径矩阵渐变造成卡片边缘黑色漫反射“拖影” */
+  --theme-transition-properties: color, background-color, border-color, text-decoration-color, fill, stroke;
 }
 ```
 
