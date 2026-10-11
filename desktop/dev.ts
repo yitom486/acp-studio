@@ -185,7 +185,15 @@ async function main() {
   console.log(`${c.green}[build] 编译完成 (electron-dist/main.cjs + preload.cjs)${c.reset}\n`);
 
   // 3. Start Gateway Server & Vite Client
-  const serverProc = startSubProcess("server", c.cyan, "bun", ["--watch", "server/index.ts"]);
+  // 默认 Bun 网关（快、有 watch）；ACP_GATEWAY=node 时改跑 Node 网关，
+  // 真 PTY（node-pty）只在 Node 网关下可用（Bun 下无 native，回落单次模式）。
+  const useNodeGateway = process.env.ACP_GATEWAY === "node";
+  if (useNodeGateway) {
+    console.log(`${c.cyan}[launcher] ACP_GATEWAY=node：改跑 Node 网关，真 PTY 可用。${c.reset}`);
+  }
+  const serverProc = useNodeGateway
+    ? startSubProcess("server", c.cyan, "bun", ["run", "dev:server:node"])
+    : startSubProcess("server", c.cyan, "bun", ["--watch", "server/index.ts"]);
   const clientProc = startSubProcess("client", c.green, "bun", ["run", "dev:client"]);
 
   // 4. Wait for Vite client ready

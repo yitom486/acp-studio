@@ -19,6 +19,7 @@ Electron main (Node, electron-dist/main.cjs)
 
 ```bash
 bun run dev:desktop      # 【推荐】一键启动桌面开发环境（自动编译主进程 + 启动网关与 Vite + 开启热更新桌面窗口）
+ACP_GATEWAY=node bun run dev:desktop   # 要体验真 PTY 终端：改跑 Node 网关（默认 Bun 网关无 node-pty，终端回落单次模式）
 
 # 亦可分步调试：
 bun run build:electron   # 仅打包 main+preload 到 electron-dist/
