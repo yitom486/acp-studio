@@ -10,6 +10,24 @@
 ## [Unreleased]
 
 ### Added
+- **真 PTY 交互终端**（`node-pty` + WebSocket）：抽屉打开即探活，可用走
+  WS 全双工真 shell（原生回显、`Ctrl+C` 即 SIGINT、job control、vim/ssh
+  可用），不可用（Bun dev 网关）回落单次执行并明示；标题栏 `PTY`/`单次`
+  徽标、fit 列数同步、预填只打字不回车、断线显式重连；`ACP_GATEWAY=node`
+  一键切 Node 网关体验（`dev:desktop` 默认仍是 Bun 网关）。
+- **终端 xterm addons**：链接可点、回滚搜索（`Ctrl+F`）、一键导出 `.log`、
+  Unicode11 CJK 列宽对齐；`Ctrl+L` 清屏。
+- **终端浮动面板**：右下浮动替代整条占底，标题栏拖动、八向缩放、几何
+  持久化；xterm 配色跟随 4 套主题（浅色 ANSI 压暗、black/white 对调），
+  切换热更新不重建。
+- **排队/插队**：流转中发送进队列按序排出（edit/reload 先清队列）；
+  插队按钮先停当前轮再发送；`TerminalCard` 加“终端打开”（预填不执行）。
+- **@-mention 文件引用**：`@` 触发工作区文件防抖搜索（网关只读端点，
+  cwd 禁闭/数量字节封顶/拒二进制），选中拼 `resource` 附件进发送管线。
+- **本轮改动撤销**：助手 footer“改动 N”进 TurnChanges 面板，逐文件
+  Diff（复用 Git 审查）/还原（confirm + git restore）；非 git 只读。
+- **发送失败自动重试**：传输类错误重发（默认 2 次 backoff），注脚成功即
+  清；abort/auth/语义错误永不重试。
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
 - Studio store 新增 `useStudioShallow` / `useStudioMessages`：选择性订阅
   视图状态，刻意排除 `messages`（流式热路径字段）。
@@ -22,6 +40,9 @@
   不含 `.exe`），codex 回归守卫同在。
 
 ### Changed
+- **正式包可用 PTY**：`node-pty` 改 external（native 不可打进 cjs），
+  `files` 收运行子集（去 pdb/map/单测），整包 `asarUnpack`；加载双路径
+  （包内 CJS 走模块 require，Node ESM 走 createRequire）。
 - **Studio 外壳重渲染修复**：`App.tsx` 原先用无选择器
   `useStudioStore()` 订阅整个 store，导致每个流式分片都重渲染整个布局。
   现改为 `useStudioShallow` 选择性订阅，`messages` 下移到真正渲染它的
