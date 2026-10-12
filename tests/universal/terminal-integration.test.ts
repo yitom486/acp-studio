@@ -3,7 +3,7 @@ import { createElement as h } from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { TerminalCard } from "@/components/assistant/AcpToolWidgets";
-import { applyTerminalCap, TERMINAL_OUTPUT_CAP, defaultTerminalGeom, clampTerminalGeom, moveTerminalGeom, resizeTerminalGeom, buildXtermTheme, readTerminalCssVars, isLightTerminalTheme, buildTerminalExportFilename } from "@/components/universal/TerminalDrawer";
+import { applyTerminalCap, TERMINAL_OUTPUT_CAP, defaultTerminalGeom, clampTerminalGeom, moveTerminalGeom, resizeTerminalGeom, buildXtermTheme, readTerminalCssVars, isLightTerminalTheme, buildTerminalExportFilename, newPtyId } from "@/components/universal/TerminalDrawer";
 import { useStudioStore } from "@/stores/useStudioStore";
 
 describe("terminal integration (P0/P1)", () => {
@@ -39,6 +39,43 @@ describe("terminal integration (P0/P1)", () => {
     root.unmount();
     el.remove();
     useStudioStore.setState({ terminalOpen: false, terminalPrefill: null } as any);
+  });
+
+  it("open-in-terminal carries the tool cwd (null falls back to workspace)", async () => {
+    useStudioStore.setState({ terminalOpen: false, terminalPrefill: null, terminalCwd: null } as any);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(TerminalCard, {
+          tc: {
+            id: "t-cwd",
+            title: "go build ./...",
+            kind: "terminal",
+            status: "completed",
+            rawInput: { command: "go build ./...", cwd: "D:/repo/proj" },
+          } as any,
+        })
+      );
+    });
+    const btn = Array.from(el.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("终端打开")
+    );
+    await act(async () => {
+      (btn as HTMLElement).click();
+    });
+    const st = useStudioStore.getState();
+    expect(st.terminalPrefill).toBe("go build ./...");
+    expect(st.terminalCwd).toBe("D:/repo/proj");
+    root.unmount();
+    el.remove();
+    useStudioStore.setState({ terminalOpen: false, terminalPrefill: null, terminalCwd: null } as any);
+  });
+
+  it("generates stable-format pty ids", () => {
+    expect(newPtyId(123, 0.5)).toMatch(/^pty-123-[a-z0-9]+$/);
+    expect(newPtyId(1, 0.1)).not.toBe(newPtyId(1, 0.9));
   });
 
   it("hides the open-in-terminal entry when no command is present", async () => {

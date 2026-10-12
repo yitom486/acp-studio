@@ -10,14 +10,16 @@
  *   ② resize-after-exit 必须吞掉（ConPTY 句柄已死时 resize 会同步抛错，
  *   未捕获即崩整个网关进程）。
  *
- * 传输：WebSocket（见 attachPtyUpgrade），1 连接 = 1 pty，会话随连接生死，
- * 无需 GC。resize 走 HTTP POST（避免 WS 文本帧与控制帧的歧义）。
+ * 传输：WebSocket（见 attachPtyUpgrade），1 连接 = 1 pty；WS 断后会话进
+ * 3 分钟保留期（见 PTY_GRACE_MS），同 id 重连即续接原 shell（刷新/闪断
+ * 不丢状态），到期无续接才杀。resize 走 HTTP POST（避免 WS 文本帧与控制帧的歧义）。
  */
 import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type * as http from "node:http";
 import type { Socket } from "node:net";
+import type { WebSocket } from "ws";
 import { gatewayAuthHeaders } from "./security";
 
 export const PTY_PATH = "/api/universal/terminal/pty";
@@ -84,6 +86,26 @@ export function resolvePtyCwd(raw: string): { ok: true; cwd: string } | { ok: fa
 }
 
 const sessions = new Map<string, PtySession>();
+
+/** 断线保留期：WS 断后 shell 再活这么久，等同 id 续接（刷新/闪断不丢状态）。 */
+export const PTY_GRACE_MS = 3 * 60 * 1000;
+
+const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** 有活 WS 挂着的会话 id → WS（重影接管时关旧端；stale close 凭此免误杀）。 */
+const attachedWs = new Map<string, WebSocket>();
+
+function clearGraceTimer(id: string): void {
+  const t = graceTimers.get(id);
+  if (t !== undefined) {
+    clearTimeout(t);
+    graceTimers.delete(id);
+  }
+}
+
+/** 诊断/单测用：当前在断线保留期内的会话 id。 */
+export function ptyGraceIds(): string[] {
+  return [...graceTimers.keys()];
+}
 
 function defaultSpawner(): PtySpawner | null {
   const impl = loadPtyImpl();
@@ -220,10 +242,49 @@ export function getPtySession(id: string): PtySession | undefined {
 }
 
 export function destroyPtySession(id: string): void {
+  clearGraceTimer(id);
+  attachedWs.delete(id);
   const s = sessions.get(id);
   if (!s) return;
   sessions.delete(id);
   s.kill();
+}
+
+/**
+ * WS 断开：会话不立即杀，进保留期（到期无续接才杀，见 grace timer）。
+ * 已退出/未知会话 → false（调用方无事可做）。
+ */
+export function detachPtySession(id: string): boolean {
+  const s = sessions.get(id);
+  if (!s || s.exited) return false;
+  attachedWs.delete(id);
+  clearGraceTimer(id);
+  graceTimers.set(id, setTimeout(() => destroyPtySession(id), PTY_GRACE_MS));
+  return true;
+}
+
+/**
+ * 同 id 续接：保留期内且未退出的会话交还给新 WS，不 spawn 新 shell。
+ * 不存在/已退出 → undefined（调用方走新建；destroy 残留后 create）。
+ */
+export function tryResumePtySession(id: string): PtySession | undefined {
+  const s = sessions.get(id);
+  if (!s || s.exited) return undefined;
+  clearGraceTimer(id);
+  return s;
+}
+
+/** 新 WS 接管会话：旧活 WS（重影）先关，防双端同时读写。 */
+export function attachPtySocket(id: string, ws: WebSocket): void {
+  const old = attachedWs.get(id);
+  if (old && old !== ws) {
+    try {
+      old.close(1000, "superseded");
+    } catch {
+      // 关闭中：忽略
+    }
+  }
+  attachedWs.set(id, ws);
 }
 
 /** 进程退出兜底：子 shell 不随网关陪葬（Windows 尤其会 lingering）。 */
@@ -244,6 +305,41 @@ try {
 interface UpgradeHead {
   headers: Record<string, string | string[] | undefined>;
   url?: string;
+}
+
+/**
+ * 会话 ↔ WS 接线（新建与续接共用）：shell 输出→WS，WS 输入→shell 全量透传。
+ * WS 断开只 detach（进保留期），到期无续接才杀 shell；stale close（接管后
+ * 旧端的 close）因 attachedWs 已换新，不会误杀。
+ */
+function wirePtySocket(id: string, session: PtySession, ws: WebSocket): void {
+  session.onData((data) => {
+    if (ws.readyState === ws.OPEN) ws.send(data);
+  });
+  session.onExit((code) => {
+    clearGraceTimer(id);
+    try {
+      if (ws.readyState === ws.OPEN) ws.send(`\r\n\x1b[90m[shell exited ${code}]\x1b[0m\r\n`);
+    } catch {
+      // 关闭中：忽略
+    }
+    try {
+      ws.close(1000, `exited-${code}`);
+    } catch {
+      // 忽略
+    }
+    sessions.delete(id);
+    attachedWs.delete(id);
+  });
+  // 客户端 → pty：全量透传（shell 自己回显；Ctrl+C 即 \x03 即 SIGINT）。
+  ws.on("message", (msg: Buffer) => {
+    session.write(msg.toString());
+  });
+  const onGone = () => {
+    if (attachedWs.get(id) === ws) detachPtySession(id);
+  };
+  ws.on("close", onGone);
+  ws.on("error", onGone);
 }
 
 /**
@@ -297,37 +393,29 @@ export async function attachPtyUpgrade(server: http.Server): Promise<void> {
       parseInt(url.searchParams.get("rows") || "24", 10)
     );
     wss.handleUpgrade(req as never, socket, head, (ws) => {
+      // 续接优先：保留期内的同 id 会话直接交还新 WS（不 spawn 新 shell）。
+      const resumed = tryResumePtySession(ptyId);
+      if (resumed) {
+        attachPtySocket(ptyId, ws);
+        wirePtySocket(ptyId, resumed, ws);
+        try {
+          if (ws.readyState === ws.OPEN) ws.send(`\r\n\x1b[90m[已续接会话]\x1b[0m\r\n`);
+        } catch {
+          // 关闭中：忽略
+        }
+        return;
+      }
       let session: PtySession;
       try {
-        // 同 id 重连：先杀旧会话（抽屉重连按钮走此路径）。
+        // 无可续接（未知/已退出/保留期外）：清残留后建新会话。
         destroyPtySession(ptyId);
         session = createPtySession(ptyId, cwdCheck.cwd, size);
       } catch (err) {
         ws.close(1011, (err as Error).message || "pty spawn failed");
         return;
       }
-      session.onData((data) => {
-        if (ws.readyState === ws.OPEN) ws.send(data);
-      });
-      session.onExit((code) => {
-        try {
-          if (ws.readyState === ws.OPEN) ws.send(`\r\n\x1b[90m[shell exited ${code}]\x1b[0m\r\n`);
-        } catch {
-          // 关闭中：忽略
-        }
-        try {
-          ws.close(1000, `exited-${code}`);
-        } catch {
-          // 忽略
-        }
-        sessions.delete(ptyId);
-      });
-      // 客户端 → pty：全量透传（shell 自己回显；Ctrl+C 即 \x03 即 SIGINT）。
-      ws.on("message", (msg: Buffer) => {
-        session.write(msg.toString());
-      });
-      ws.on("close", () => destroyPtySession(ptyId));
-      ws.on("error", () => destroyPtySession(ptyId));
+      attachPtySocket(ptyId, ws);
+      wirePtySocket(ptyId, session, ws);
     });
   });
 }

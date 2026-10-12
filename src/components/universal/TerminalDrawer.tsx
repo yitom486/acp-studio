@@ -115,6 +115,11 @@ export function buildTerminalExportFilename(cwd: string, now: number = Date.now(
   return `terminal-${short}-${now}.log`;
 }
 
+/** 新 PTY 会话 id（纯函数，可测）：时间戳 + 随机尾。 */
+export function newPtyId(now: number = Date.now(), rand: number = Math.random()): string {
+  return `pty-${now}-${rand.toString(36).slice(2, 8)}`;
+}
+
 /** 浮动终端几何（纯函数，可测；组件只负责指针事件接线）。 */
 export interface TerminalGeom {
   x: number;
@@ -741,6 +746,8 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     closePty();
     sessionCwdRef.current = "";
     cardCwdRef.current = null;
+    // 轮转 id：服务端旧会话虽在保留期，但新 id 永不续接，保证下次是全新 shell。
+    ptyIdRef.current = "";
     if (modeRef.current === "pty") {
       setPtyDead(true);
       note("[PTY 会话已手动结束，点重连新建会话]");
@@ -755,7 +762,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   };
 
   // PTY 连接：候选基址逐个试（同源 → 回环直连），全败即回落 oneshot。
-  // 每次连接用新 ptyId；服务端同 id 重入会先杀旧会话，天然防重影。
+  // ptyId 稳定复用：服务端保留期内的同 id 会话直接续接；无可续接才建新 shell。
   // cwdOverride（卡片携带的工具 cwd）优先于当前工作区；建连目录记入 sessionCwdRef。
   const connectPty = (cwdOverride?: string) => {
     const term = termRef.current;
@@ -766,7 +773,9 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
       return;
     }
     sessionCwdRef.current = sessionCwd;
-    ptyIdRef.current = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // ptyId 跨开关/重连保持稳定：同 id 才能续接服务端保留期内的原 shell；
+    // 显式杀会话（handleKillPty）会轮转 id，保证下次是全新 shell。
+    if (!ptyIdRef.current) ptyIdRef.current = newPtyId();
     const ptyId = ptyIdRef.current;
     const bases = ptyWsCandidateBases(window.location.host, window.location.protocol);
     setPtyDead(false);
@@ -948,7 +957,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
               variant="ghost"
               onClick={() => connectPty()}
               className="h-6 px-1.5 text-[11px] gap-1 text-primary hover:text-primary"
-              title="重建 PTY 会话并重连（旧 shell 状态不保留）"
+              title="重连：3 分钟内续接原会话（含 shell 状态），超期或已退出则新建"
             >
               <RefreshCw className="w-3 h-3" />
               <span className="hidden sm:inline">重连</span>
