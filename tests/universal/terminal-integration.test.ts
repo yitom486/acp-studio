@@ -108,11 +108,11 @@ describe("terminal integration (P0/P1)", () => {
     expect(dark.background).toBe("#ffffff");
     expect(dark.foreground).toBe("#111");
     expect(dark.cursor).toBe("#257");
-    expect(dark.white).toBe("#f8fafc");
+    expect(dark.white).toBe("#fafafa");
     const light = buildXtermTheme(vars, true);
     // 浅色下 black/white 对调，否则白底看不见字
-    expect(light.black).toBe("#64748b");
-    expect(light.white).toBe("#1e293b");
+    expect(light.black).toBe("#737373");
+    expect(light.white).toBe("#262626");
     expect(light.red).toBe("#dc2626");
   });
 

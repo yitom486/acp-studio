@@ -1,7 +1,9 @@
 /**
  * Universal ACP frontend API + SSE consumer (v1 complete).
  * Talks to server/universal gateway (/api/universal/*).
+ * Every request goes through apiFetch (adds the gateway Bearer token).
  */
+import { apiFetch } from "@/lib/gateway-auth";
 
 /** usage_update payload: used/size/cost 必有；缓存计数由 agent 透传、有则收。 */
 export interface UsageUpdate {
@@ -250,6 +252,8 @@ export interface Attachment {
   block: Record<string, unknown>;
   /** Local object URL for image thumbnails (not sent). */
   preview?: string;
+  /** 工作区内的 @ 引用（输入框里显示为引用标签；删除标签同时删掉文本里的 @路径） */
+  mention?: { path: string; kind: "file" | "dir" };
 }
 
 /** ACP "Authentication required" (-32000, reserved ACP range -32000..-32099). */
@@ -317,21 +321,21 @@ export interface GitFileResult {
 }
 
 export async function gitStatus(cwd: string): Promise<GitStatusResult> {
-  const res = await fetch(`/api/universal/git/status?cwd=${encodeURIComponent(cwd)}`);
+  const res = await apiFetch(`/api/universal/git/status?cwd=${encodeURIComponent(cwd)}`);
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "git status 失败");
   return data;
 }
 
 export async function gitFile(cwd: string, file: string): Promise<GitFileResult> {
-  const res = await fetch(`/api/universal/git/file?cwd=${encodeURIComponent(cwd)}&file=${encodeURIComponent(file)}`);
+  const res = await apiFetch(`/api/universal/git/file?cwd=${encodeURIComponent(cwd)}&file=${encodeURIComponent(file)}`);
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "git diff 失败");
   return data;
 }
 
 export async function gitStage(cwd: string, file: string): Promise<void> {
-  const res = await fetch("/api/universal/git/stage", {
+  const res = await apiFetch("/api/universal/git/stage", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd, file }),
@@ -341,7 +345,7 @@ export async function gitStage(cwd: string, file: string): Promise<void> {
 }
 
 export async function gitRestore(cwd: string, file: string): Promise<void> {
-  const res = await fetch("/api/universal/git/restore", {
+  const res = await apiFetch("/api/universal/git/restore", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd, file }),
@@ -352,13 +356,13 @@ export async function gitRestore(cwd: string, file: string): Promise<void> {
 
 /** 真 PTY 可用性（决定抽屉走 WS 交互模式还是回落 one-shot）。 */
 export async function ptyStatus(): Promise<{ ok: boolean; available: boolean; reason: string | null }> {
-  const res = await fetch("/api/universal/terminal/pty/status");
+  const res = await apiFetch("/api/universal/terminal/pty/status");
   return res.json();
 }
 
 /** PTY 列数同步（抽屉 fit 后调；未知会话 404 即忽略，由重连恢复）。 */
 export async function ptyResize(ptyId: string, cols: number, rows: number): Promise<void> {
-  const res = await fetch("/api/universal/terminal/pty/resize", {
+  const res = await apiFetch("/api/universal/terminal/pty/resize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ptyId, cols, rows }),
@@ -389,14 +393,14 @@ export interface WorkspaceValidateResult {
 }
 
 export async function getWorkspaceDefault(): Promise<{ path: string; name: string }> {
-  const res = await fetch("/api/universal/workspace/default");
+  const res = await apiFetch("/api/universal/workspace/default");
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "获取默认工作区失败");
   return data;
 }
 
 export async function validateWorkspace(path: string): Promise<WorkspaceValidateResult> {
-  const res = await fetch("/api/universal/workspace/validate", {
+  const res = await apiFetch("/api/universal/workspace/validate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path }),
@@ -416,7 +420,7 @@ export async function searchWorkspaceFiles(
   q: string,
   limit = 50
 ): Promise<{ repo: string; files: WorkspaceFileEntry[]; truncated: boolean }> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/universal/workspace/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(q)}&limit=${limit}`
   );
   const data = await res.json();
@@ -435,7 +439,7 @@ export interface WorkspaceFileContent {
 
 /** Read a workspace text file for @-mention attachments (capped, no binaries). */
 export async function readWorkspaceFile(cwd: string, file: string): Promise<WorkspaceFileContent> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/universal/workspace/read?cwd=${encodeURIComponent(cwd)}&file=${encodeURIComponent(file)}`
   );
   const data = await res.json();
@@ -526,7 +530,7 @@ export interface UniversalHandlers {
 }
 
 export async function fetchAgents(): Promise<AgentSummary[]> {
-  const res = await fetch("/api/universal/agents");
+  const res = await apiFetch("/api/universal/agents");
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "fetch agents failed");
   return data.agents;
@@ -540,7 +544,7 @@ export async function connectAgent(agentId: string) {
   }
   const promise = (async () => {
     try {
-      const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/connect`, { method: "POST" });
+      const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/connect`, { method: "POST" });
       const data = await res.json();
       if (!data.ok) throwGatewayError(data, "connect failed", res.status);
       return data;
@@ -553,7 +557,7 @@ export async function connectAgent(agentId: string) {
 }
 
 export async function agentStatus(agentId: string) {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/status`);
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/status`);
   return res.json();
 }
 
@@ -568,7 +572,7 @@ export async function cleanupEmptySessions(
   agentId: string,
   exceptIds: string[] = [],
 ): Promise<EmptyCleanupResult> {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/sessions/empty`, {
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/sessions/empty`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ exceptIds }),
@@ -601,7 +605,7 @@ export interface CustomAgentInput {
 }
 
 export async function upsertAgentProfile(input: CustomAgentInput) {
-  const res = await fetch("/api/universal/agents", {
+  const res = await apiFetch("/api/universal/agents", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -612,13 +616,13 @@ export async function upsertAgentProfile(input: CustomAgentInput) {
 }
 
 export async function deleteAgentProfile(agentId: string) {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}`, { method: "DELETE" });
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "delete agent failed");
 }
 
 export async function authenticateAgent(agentId: string, methodId: string, extra?: Record<string, unknown>) {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/authenticate`, {
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/authenticate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ methodId, ...(extra || {}) }),
@@ -629,14 +633,14 @@ export async function authenticateAgent(agentId: string, methodId: string, extra
 }
 
 export async function logoutAgent(agentId: string) {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/logout`, { method: "POST" });
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/logout`, { method: "POST" });
   const data = await res.json();
   if (!data.ok) throwGatewayError(data, "logout failed", res.status);
   return data.result;
 }
 
 export async function sessionNew(agentId: string, args: Record<string, unknown> = {}) {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/session/new`, {
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/session/new`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd: undefined, mcpServers: [], ...args }),
@@ -647,7 +651,7 @@ export async function sessionNew(agentId: string, args: Record<string, unknown> 
 }
 
 export async function sessionRpc(agentId: string, action: string, body: Record<string, unknown> = {}) {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/session/${action}`, {
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/session/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -659,7 +663,7 @@ export async function sessionRpc(agentId: string, action: string, body: Record<s
 
 /** session/load with replayed history (result + replayed session/update list). */
 export async function loadSession(agentId: string, body: Record<string, unknown> = {}): Promise<{ result: any; replayed: any[] }> {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/session/load`, {
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/session/load`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -676,7 +680,7 @@ export async function forkSession(agentId: string, body: Record<string, unknown>
 
 /** UNSTABLE providers/* (list | set | disable). */
 export async function providersRpc(agentId: string, action: "list" | "set" | "disable", body: Record<string, unknown> = {}) {
-  const res = await fetch(`/api/universal/agents/${encodeURIComponent(agentId)}/providers/${action}`, {
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/providers/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -687,7 +691,7 @@ export async function providersRpc(agentId: string, action: "list" | "set" | "di
 }
 
 export async function respondPermission(agentId: string, permissionId: string, outcome: unknown) {
-  const res = await fetch("/api/universal/permission/respond", {
+  const res = await apiFetch("/api/universal/permission/respond", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agentId, permissionId, outcome }),
@@ -697,7 +701,7 @@ export async function respondPermission(agentId: string, permissionId: string, o
 }
 
 export async function respondElicitation(agentId: string, elicitationId: string, result: unknown) {
-  const res = await fetch("/api/universal/elicitation/respond", {
+  const res = await apiFetch("/api/universal/elicitation/respond", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agentId, elicitationId, result }),
@@ -712,7 +716,7 @@ export async function consumeUniversalChat(
   handlers: UniversalHandlers = {},
   signal?: AbortSignal
 ): Promise<{ stopReason?: string; sessionId?: string }> {
-  const res = await fetch("/api/universal/chat", {
+  const res = await apiFetch("/api/universal/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -961,6 +965,9 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
       const m = byId.get(k)!;
       m.role = "user";
       m.content += extractText(u);
+      // 回放里用户发过的图片（ACP image 块）
+      const uimg = u.content?.type === "image" ? toChatImage(u.content) : null;
+      if (uimg) m.images = [...(m.images || []), uimg].slice(-8);
     } else if (kind === "agent_message_chunk") {
       const k = u.messageId ? ensureMessage("assistant", u.messageId) : (lastAssistantKey || ensureMessage("assistant"));
       lastAssistantKey = k;

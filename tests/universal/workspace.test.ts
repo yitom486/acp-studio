@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { handleUniversal } from "../../server/universal/routes";
 import { useStudioStore } from "../../src/stores/useStudioStore";
+import { authedRequest } from "../helpers/gateway-auth";
 
 describe("workspace and terminal routes", () => {
   beforeEach(() => {
@@ -11,7 +12,7 @@ describe("workspace and terminal routes", () => {
   });
 
   it("returns default workspace", async () => {
-    const req = new Request("http://localhost/api/universal/workspace/default", { method: "GET" });
+    const req = authedRequest("http://localhost/api/universal/workspace/default", { method: "GET" });
     const res = (await handleUniversal(req))!;
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -23,7 +24,7 @@ describe("workspace and terminal routes", () => {
   it("validates existing directory and detects git", async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "acp-ws-"));
     try {
-      const req = new Request("http://localhost/api/universal/workspace/validate", {
+      const req = authedRequest("http://localhost/api/universal/workspace/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: tmp }),
@@ -37,7 +38,7 @@ describe("workspace and terminal routes", () => {
 
       // Now create .git folder
       fs.mkdirSync(path.join(tmp, ".git"));
-      const req2 = new Request("http://localhost/api/universal/workspace/validate", {
+      const req2 = authedRequest("http://localhost/api/universal/workspace/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: tmp }),
@@ -54,7 +55,7 @@ describe("workspace and terminal routes", () => {
   it("rejects non-existent path and files as directory", async () => {
     // Non-existent path
     const badPath = path.join(os.tmpdir(), "non_existent_dir_123456");
-    const req = new Request("http://localhost/api/universal/workspace/validate", {
+    const req = authedRequest("http://localhost/api/universal/workspace/validate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: badPath }),
@@ -67,7 +68,7 @@ describe("workspace and terminal routes", () => {
     const tmpFile = path.join(os.tmpdir(), "temp_file_for_test.txt");
     fs.writeFileSync(tmpFile, "test");
     try {
-      const fileReq = new Request("http://localhost/api/universal/workspace/validate", {
+      const fileReq = authedRequest("http://localhost/api/universal/workspace/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: tmpFile }),
@@ -88,7 +89,7 @@ describe("workspace and terminal routes", () => {
     const isWin = process.platform === "win32";
     const command = isWin ? "Write-Output 'acp_terminal_ok'" : "echo 'acp_terminal_ok'";
 
-    const req = new Request("http://localhost/api/universal/terminal/exec", {
+    const req = authedRequest("http://localhost/api/universal/terminal/exec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cwd: tmp, command }),
@@ -107,7 +108,7 @@ describe("workspace and terminal routes", () => {
       output += decoder.decode(value);
     }
     expect(output).toContain("acp_terminal_ok");
-  });
+  }, 30_000); // Windows CI 上 PowerShell 冷启动慢
 
   it("manages workspace and terminal state in useStudioStore", () => {
     const s = useStudioStore.getState();

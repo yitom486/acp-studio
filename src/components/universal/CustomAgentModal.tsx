@@ -80,7 +80,7 @@ export const CustomAgentModal: React.FC<CustomAgentModalProps> = ({ isOpen, onCl
   const inputCls = "w-full rounded-lg bg-background border border-border px-3 py-1.5 text-xs text-foreground outline-none focus:border-ring";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80" onClick={onClose}>
       <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-5 text-foreground space-y-3 text-xs max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border pb-2">
           <h2 className="font-bold text-sm">自定义 Agent（壳原则：只填官方 CLI 入口）</h2>

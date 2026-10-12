@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, memo, useMemo, useState } from "react";
+import React, { Suspense, lazy, memo, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   MarkdownTextPrimitive,
   memoizeMarkdownComponents,
@@ -8,7 +8,9 @@ import {
 import "@assistant-ui/react-markdown/styles/dot.css";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
-import type { TextMessagePartComponent } from "@assistant-ui/react";
+import { useMessagePartText, type TextMessagePartComponent } from "@assistant-ui/react";
+import { closeOpenFences, hasMath } from "@/lib/markdown-preprocess";
+import { getMathPlugins, loadMathPlugins, subscribeMath } from "@/components/assistant/math-plugins";
 import { cn } from "@/lib/utils";
 import { AcpImageView, isSafeLinkHref, isSafeMediaSrc } from "@/components/assistant/AcpMedia";
 
@@ -154,13 +156,28 @@ const mermaidByLanguage = {
   mermaid: { SyntaxHighlighter: MermaidBlock },
 };
 
+const BASE_REMARK = [remarkGfm];
+const fencesOnly = (t: string) => closeOpenFences(t);
+
 export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   const components = useMemo(() => acpComponents, []);
   const byLanguage = useMemo(() => mermaidByLanguage, []);
+  const { text } = useMessagePartText();
+  const math = useSyncExternalStore(subscribeMath, getMathPlugins);
+  const needsMath = useMemo(() => hasMath(text), [text]);
+  useEffect(() => {
+    if (needsMath && !math) void loadMathPlugins();
+  }, [needsMath, math]);
+  const useMath = needsMath && !!math;
+  const remarkPlugins = useMemo(() => (useMath ? [...BASE_REMARK, ...math!.remark] : BASE_REMARK), [useMath, math]);
+  const rehypePlugins = useMemo(() => (useMath ? math!.rehype : undefined), [useMath, math]);
+  const preprocess = useMemo(() => (useMath ? (t: string) => closeOpenFences(math!.preprocess(t)) : fencesOnly), [useMath, math]);
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
-      className="text-sm leading-relaxed break-words text-foreground"
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
+      preprocess={preprocess}
+      className="acp-md text-sm leading-relaxed break-words text-foreground"
       components={components}
       componentsByLanguage={byLanguage}
       defer

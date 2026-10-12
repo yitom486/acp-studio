@@ -15,38 +15,38 @@ export interface ThemeMeta {
 export const THEMES: Record<ThemeId, ThemeMeta> = {
   dark: {
     id: "dark",
-    name: "经典暗黑",
-    description: "VS Code 现代蓝灰极客风格",
-    badge: "Modern Dark",
-    overlayColor: "#0b0e14",
-    overlaySymbolColor: "#94a3b8",
+    name: "深色",
+    description: "默认。中性深灰底色（vercel 配色，底色抬亮到 7%）",
+    badge: "Dark",
+    overlayColor: "#171717",
+    overlaySymbolColor: "#a5a5a5",
     isDark: true,
   },
   oled: {
     id: "oled",
-    name: "极黑深邃",
-    description: "纯黑超高对比度，OLED 屏幕极致沉浸",
-    badge: "Pitch Black",
-    overlayColor: "#040508",
-    overlaySymbolColor: "#94a3b8",
+    name: "纯黑",
+    description: "纯黑底色，适合 OLED 屏幕",
+    badge: "OLED",
+    overlayColor: "#080808",
+    overlaySymbolColor: "#a5a5a5",
     isDark: true,
   },
   dim: {
     id: "dim",
-    name: "柔和深灰",
-    description: "低对比度炭黑夜间模式，舒适护眼",
-    badge: "Charcoal Dim",
-    overlayColor: "#171b24",
-    overlaySymbolColor: "#94a3b8",
+    name: "暗灰",
+    description: "中灰底色，对比更柔和，适合长时间使用",
+    badge: "Dim",
+    overlayColor: "#202020",
+    overlaySymbolColor: "#b0b0b0",
     isDark: true,
   },
   light: {
     id: "light",
-    name: "清爽浅色",
-    description: "透亮白日模式，清晰高质感",
-    badge: "Light Modern",
-    overlayColor: "#ffffff",
-    overlaySymbolColor: "#334155",
+    name: "浅色",
+    description: "近白底色，适合白天和投屏",
+    badge: "Light",
+    overlayColor: "#fcfcfc",
+    overlaySymbolColor: "#525252",
     isDark: false,
   },
 };
@@ -83,40 +83,55 @@ function syncTitleBarOverlay(color: string, symbolColor: string) {
   }
 }
 
-let themeTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+function setThemeAttributes(meta: ThemeMeta) {
+  const root = document.documentElement;
+  root.setAttribute("data-theme", meta.id);
+  // Tailwind darkMode: "class"
+  root.classList.toggle("dark", meta.isDark);
+  root.classList.toggle("light", !meta.isDark);
+  syncTitleBarOverlay(meta.overlayColor, meta.overlaySymbolColor);
+}
 
+/** 浏览器支持 View Transitions 且用户没开“减少动态效果”时才做交叉淡化。 */
+export function canAnimateThemeSwitch(doc: Document = document, win: Window = window): boolean {
+  if (typeof (doc as any).startViewTransition !== "function") return false;
+  try {
+    return !win.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * 应用主题。用户切换时：
+ * - 根节点加 .theme-transitioning，关掉所有元素自身过渡（只在切换这一刻）；
+ * - 支持 View Transitions 则整页交叉淡化一次（时长取 --theme-transition-duration）；
+ * - 不支持 / 减少动态效果 → 直接瞬间切换。
+ */
 function applyThemeToDOM(themeId: ThemeId, isUserSwitch = false) {
   if (typeof document === "undefined") return;
   const meta = THEMES[themeId] || THEMES.dark;
   const root = document.documentElement;
-
-  if (isUserSwitch) {
-    // Read dynamic duration token from CSS variable (single source of truth)
-    const cssDuration = getComputedStyle(root).getPropertyValue("--theme-transition-duration").trim();
-    const parsedDuration = parseInt(cssDuration, 10);
-    const durationMs = Number.isFinite(parsedDuration) ? parsedDuration : 200;
-
-    root.classList.add("theme-transitioning");
-    if (themeTransitionTimer) clearTimeout(themeTransitionTimer);
-    themeTransitionTimer = setTimeout(() => {
-      root.classList.remove("theme-transitioning");
-    }, durationMs + 30);
+  if (!isUserSwitch) {
+    setThemeAttributes(meta);
+    return;
   }
-
-  // Set data-theme attribute
-  root.setAttribute("data-theme", meta.id);
-
-  // Toggle dark class for Tailwind darkMode: "class"
-  if (meta.isDark) {
-    root.classList.add("dark");
-    root.classList.remove("light");
-  } else {
-    root.classList.remove("dark");
-    root.classList.add("light");
+  root.classList.add("theme-transitioning");
+  const cleanup = () => {
+    // 等新样式落地一帧后再恢复过渡，避免恢复瞬间又触发颜色过渡
+    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("theme-transitioning")));
+  };
+  if (canAnimateThemeSwitch()) {
+    try {
+      const vt = (document as any).startViewTransition(() => setThemeAttributes(meta));
+      vt.finished.finally(cleanup);
+      return;
+    } catch {
+      // 落到瞬间切换
+    }
   }
-
-  // Sync to Electron native title bar overlay
-  syncTitleBarOverlay(meta.overlayColor, meta.overlaySymbolColor);
+  setThemeAttributes(meta);
+  cleanup();
 }
 
 // Immediately apply theme on script load (cold boot: no animation to avoid flicker)

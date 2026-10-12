@@ -10,7 +10,7 @@
 | :--- | :--- | :--- | :--- |
 | **00** | **核心总览与 Zed 完全手册** | 🌟 **推荐首读**。30秒快速在 Zed 中配置使用、为什么旧方案吃满 C 盘、全链路原理拆解、双端共生方案与实测 FAQ。 | [00_master_guide_and_zed_faq.md](file:///d:/project/js/Electron/antigravity-acp/docs/00_master_guide_and_zed_faq.md) |
 | **01** | **架构原理与方案论证** | 深入剖析 PyInstaller `--onefile` 机制、对比剖析 3 个社区开源方案（shindgew、shubzkothekar、hicder），阐述双模引擎架构设计。 | [01_architecture_and_principles.md](file:///d:/project/js/Electron/antigravity-acp/docs/01_architecture_and_principles.md) |
-| **02** | **Zed 编辑器接入专刊** | 专注于 Zed 编辑器的配置参数细节、`settings.json` 的 `agent_servers` 写法、`run-zed-acp.cmd` 与管道防污染原则。 | [02_zed_integration_guide.md](file:///d:/project/js/Electron/antigravity-acp/docs/02_zed_integration_guide.md) |
+| **02** | **Zed 编辑器接入专刊** | 专注于 Zed 编辑器的配置参数细节、`settings.json` 的 `agent_servers` 写法与管道防污染原则。 | [02_zed_integration_guide.md](file:///d:/project/js/Electron/antigravity-acp/docs/02_zed_integration_guide.md) |
 | **03** | **协议转译与事件映射规范** | 详尽的协议双向映射字典：ACP JSON-RPC 2.0 方法与 Google `agy` CLI `stream-json`（NDJSON）事件字段的逐一转换对照表。 | [03_protocol_and_mapping_spec.md](file:///d:/project/js/Electron/antigravity-acp/docs/03_protocol_and_mapping_spec.md) |
 | **04** | **认证机制与会话生命周期白皮书** | 系统分析 Google Antigravity 本地凭证继承原理、会话隔离、进程生命周期守护、异常退出回收机制与安全策略。 | [antigravity_acp_auth_and_lifecycle.md](file:///d:/project/js/Electron/antigravity-acp/docs/antigravity_acp_auth_and_lifecycle.md) |
 

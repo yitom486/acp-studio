@@ -116,6 +116,37 @@ const app = acp
       return { stopReason: "end_turn" };
     }
 
+    // Scenario: client-side guards. `trigger_fs_write <abs path>` asks the client
+    // to write a file; `trigger_terminal_create <cwd>` asks it to spawn a
+    // terminal there. The outcome is reported back as one text chunk:
+    // "GUARD:OK" or "GUARD:ERR:<message>" so tests can assert enforcement.
+    const guard = /trigger_(fs_write|terminal_create)\s+(\S+)/.exec(promptText);
+    if (guard) {
+      const [, kind, arg] = guard;
+      let report: string;
+      try {
+        if (kind === "fs_write") {
+          await (ctx.client as any).request(acp.methods.client.fs.writeTextFile, { sessionId, path: arg, content: "mock-write" });
+        } else {
+          const created = await (ctx.client as any).request(acp.methods.client.terminal.create, {
+            sessionId,
+            command: process.platform === "win32" ? "cmd.exe" : "true",
+            args: process.platform === "win32" ? ["/c", "exit 0"] : [],
+            cwd: arg,
+          });
+          await (ctx.client as any).request(acp.methods.client.terminal.release, { sessionId, terminalId: created.terminalId });
+        }
+        report = "GUARD:OK";
+      } catch (err: any) {
+        report = `GUARD:ERR:${err?.message || String(err)}`;
+      }
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: report } },
+      });
+      return { stopReason: "end_turn" };
+    }
+
     // Scenario: Interactive Permission Request
     if (promptText.includes("trigger_permission")) {
       try {

@@ -15,6 +15,7 @@ import {
 import { handleUniversal } from "../../server/universal/routes";
 import { buildPtyWsUrl, ptyWsCandidateBases } from "@/lib/universal-api";
 import { useStudioStore } from "../../src/stores/useStudioStore";
+import { authedRequest } from "../helpers/gateway-auth";
 
 /** 假 pty 工厂：复刻 ConPTY 死后 resize 同步抛错的行为。 */
 function fakeSpawner(log: string[]): PtySpawner {
@@ -89,7 +90,7 @@ describe("pty helpers (真终端服务端)", () => {
   it("status/resize routes", async () => {
     useStudioStore.getState().resetStudio();
     const status = await handleUniversal(
-      new Request("http://localhost/api/universal/terminal/pty/status", { method: "GET" })
+      authedRequest("http://localhost/api/universal/terminal/pty/status", { method: "GET" })
     );
     const sj = await status!.json();
     expect(sj.ok).toBe(true);
@@ -97,7 +98,7 @@ describe("pty helpers (真终端服务端)", () => {
     expect(typeof isPtyAvailable()).toBe("boolean");
 
     const resize = await handleUniversal(
-      new Request("http://localhost/api/universal/terminal/pty/resize", {
+      authedRequest("http://localhost/api/universal/terminal/pty/resize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ptyId: "ghost", cols: 80, rows: 24 }),

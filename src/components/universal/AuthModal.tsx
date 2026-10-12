@@ -57,7 +57,7 @@ export const UniversalAuthModal: React.FC<UniversalAuthModalProps> = ({ isOpen, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80">
       <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 text-foreground space-y-4">
         <div className="flex items-center justify-between border-b border-border pb-3">
           <div className="flex items-center gap-2">

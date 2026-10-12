@@ -249,8 +249,8 @@ interface UpgradeHead {
 /**
  * 把 WS 升级挂到 Node http.Server（server/node.ts 与 Electron main.ts 调；
  * Bun.serve 的 server/index.ts 不调——Bun 下无 pty，status 路由回 501）。
- * 鉴权复用 gatewayAuthHeaders（loopback/Origin 规则与 HTTP 一致，WS 浏览器
- * 发不了自定义头，走 Origin 判定；伪造 Bearer 照样 loud 401）。
+ * 鉴权复用 gatewayAuthHeaders（token 必填 + loopback/Origin 规则与 HTTP 一致；
+ * WS 浏览器发不了自定义头，token 走 `?token=` 查询参数）。
  */
 export async function attachPtyUpgrade(server: http.Server): Promise<void> {
   const { WebSocketServer } = await import("ws");
@@ -264,13 +264,16 @@ export async function attachPtyUpgrade(server: http.Server): Promise<void> {
       return;
     }
     if (url.pathname !== PTY_PATH) return; // 非 PTY 升级：不归我们管
+    // 浏览器 WebSocket 发不了 Authorization 头：额外接受 `?token=`（仅此升级路径）。
     const check = gatewayAuthHeaders(
       new Request(url.toString(), {
         headers: {
           ...(req.headers.host ? { host: req.headers.host } : {}),
           ...(req.headers.origin ? { origin: req.headers.origin as string } : {}),
+          ...(req.headers.authorization ? { authorization: req.headers.authorization as string } : {}),
         },
-      })
+      }),
+      { allowQueryToken: true }
     );
     if (!check.ok) {
       socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");

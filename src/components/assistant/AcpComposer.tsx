@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ComposerPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import {
   Brain,
   Command,
   Cpu,
   ImagePlus,
+  AtSign,
   LayoutGrid,
   Paperclip,
   Send,
@@ -14,9 +15,8 @@ import {
   Trash2,
   X,
   ChevronDown,
-  ArrowRight,
+  ArrowUp,
   Laptop,
-  Mic,
   FolderOpen,
   FileDiff,
   Terminal,
@@ -26,17 +26,21 @@ import {
   Check,
   FileText,
   Zap,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AnimatedShinyText } from "@/components/magicui/animated-shiny-text";
 import { configCurrentValue, findConfigOption, extractModelThinking, searchWorkspaceFiles, readWorkspaceFile, type Attachment, type ConfigOptionLike, type ModelCatalogEntry, type WorkspaceFileEntry } from "@/lib/universal-api";
 import { matchMentionToken, applyMentionInsert, buildMentionAttachment, formatFileSize } from "@/lib/mention";
+import { ACP_PATH_MIME, decodeDragRefs, relativeToWorkspace, classifyOutsideFile, collectFolderFiles, stripMentionText, FOLDER_FILE_CAP, OUTSIDE_FILE_MAX, type DragRef } from "@/lib/composer-drop";
+import { fsList } from "@/lib/fs-api";
+import { matchSlashToken, replaceSlashToken, mergeCommands, filterCommands, type SlashCommand } from "@/lib/slash-commands";
 
 export interface AcpComposerProps {
   onSendAttachmentOnly: () => void;
   onClear: () => void;
   isStreaming: boolean;
-  commands: Array<{ name: string; description?: string }>;
+  /** Agent-advertised commands (ACP available_commands_update); local built-ins are merged in here. */
+  commands: SlashCommand[];
   supportImage: boolean;
   attachments: Attachment[];
   setAttachments: (a: Attachment[]) => void;
@@ -123,6 +127,19 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
   const canCancel = useAuiState((s) => s.composer.canCancel);
   const fileRef = useRef<HTMLInputElement>(null);
   const [slashOpen, setSlashOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const h = (e: MouseEvent) => moreRef.current && !moreRef.current.contains(e.target as Node) && setMoreOpen(false);
+    const k = (e: KeyboardEvent) => e.key === "Escape" && setMoreOpen(false);
+    document.addEventListener("mousedown", h);
+    document.addEventListener("keydown", k);
+    return () => {
+      document.removeEventListener("mousedown", h);
+      document.removeEventListener("keydown", k);
+    };
+  }, [moreOpen]);
   const [slashIdx, setSlashIdx] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   // @-mention workspace files (gateway search, debounced)
@@ -167,22 +184,28 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     }
   };
 
-  const token = (() => {
-    const m = composerText.match(/(^|\s)(\/[A-Za-z0-9_-]*)$/);
-    return m ? m[2] : null;
+  const token = matchSlashToken(composerText);
+  const allCommands = useMemo(() => mergeCommands(p.commands), [p.commands]);
+  const filtered = filterCommands(allCommands, token);
+  // Open whenever a `/` token is typed — even with no agent commands (empty-state hint)
+  // and while streaming (browse only; Enter fills in, never sends).
+  const showSlash = !!token;
+  // Argument hint for an already-inserted command: "/name " or "/name partial-arg".
+  const activeHint = (() => {
+    const m = composerText.match(/^\s*\/(\S+)\s([\s\S]*)$/);
+    if (!m) return null;
+    const c = allCommands.find((x) => x.name === m[1]);
+    return c?.hint && !m[2].trim() ? c : null;
   })();
-  const filtered = token ? p.commands.filter((c) => (`/${c.name}`.startsWith(token) || c.name.startsWith(token.slice(1)))) : [];
-  const showSlash = !!token && filtered.length > 0 && !p.isStreaming;
 
   useEffect(() => {
     setSlashIdx(0);
     setSlashOpen(showSlash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, p.commands.length]);
+  }, [token, allCommands.length]);
 
   const applyCommand = (name: string) => {
-    const full = name.startsWith("/") ? name : `/${name}`;
-    aui.composer.setText(composerText.replace(/(^|\s)(\/[A-Za-z0-9_-]*)$/, `$1${full} `));
+    aui.composer.setText(replaceSlashToken(composerText, name));
     setSlashOpen(false);
   };
 
@@ -231,7 +254,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     setMentionOpen(false);
     try {
       const f = await readWorkspaceFile(cwd, filePath);
-      p.setAttachments([...p.attachments, buildMentionAttachment(f)]);
+      p.setAttachments([...p.attachments, { ...buildMentionAttachment(f), mention: { path: filePath, kind: "file" } }]);
       aui.composer.setText(applyMentionInsert(composerText, filePath));
     } catch (err: any) {
       alert(`引用 ${filePath} 失败: ${err.message}`);
@@ -250,15 +273,33 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
         setSlashIdx((i) => (i - 1 + filtered.length) % filtered.length);
         return;
       }
-      if (e.key === "Tab" && token && token.length > 1) {
+      if (e.key === "Tab") {
         e.preventDefault();
         applyCommand(filtered[slashIdx].name);
         return;
+      }
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+        const sel = filtered[slashIdx];
+        if (token !== `/${sel.name}` || p.isStreaming) {
+          // Fill in the command instead of sending (always while streaming).
+          e.preventDefault();
+          applyCommand(sel.name);
+          return;
+        }
       }
       if (e.key === "Escape") {
         setSlashOpen(false);
         return;
       }
+    }
+    if (slashOpen && e.key === "Escape") {
+      setSlashOpen(false);
+      return;
+    }
+    if (slashOpen && p.isStreaming && e.key === "Enter" && !e.shiftKey) {
+      // Browsing the (empty) menu while streaming must never send.
+      e.preventDefault();
+      return;
     }
     if (mentionOpen && mentionItems.length > 0) {
       if (e.key === "ArrowDown") {
@@ -284,17 +325,30 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     }
   };
 
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   const handleFiles = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
     const next = [...p.attachments];
+    const rejectedImages: string[] = [];
+    const tooBig: string[] = [];
     for (const file of Array.from(files)) {
+      const kind = classifyOutsideFile(file, p.supportImage);
+      if (kind === "reject-image") { rejectedImages.push(file.name || "图片"); continue; }
+      if (kind === "reject-size") { tooBig.push(file.name); continue; }
       try {
-        const { text, dataUrl } = await readFile(file, p.supportImage);
         const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        if (file.type.startsWith("image/") && p.supportImage && dataUrl) {
+        if (kind === "image") {
+          const { dataUrl } = await readFile(file, true);
+          if (!dataUrl) continue;
           let payload = dataUrl.split(",")[1] || "";
           let size = file.size;
-          let preview: string | undefined = URL.createObjectURL(file);
+          const preview: string | undefined = URL.createObjectURL(file);
           try {
             const small = await downscaleImage(dataUrl, file.type);
             payload = small.split(",")[1] || payload;
@@ -303,8 +357,9 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
             console.debug("[AcpComposer] 图片压缩失败，已回退原图 (已忽略):", err);
           }
           next.push({ id, name: file.name, mimeType: file.type, size, preview, block: { type: "image", data: payload, mimeType: file.type } });
-        } else if (text !== undefined && (TEXTISH.test(file.type) || file.type === "" || file.size < 512 * 1024)) {
-          next.push({ id, name: file.name, mimeType: file.type || "text/plain", size: file.size, block: { type: "resource", resource: { uri: `file:///${file.name}`, mimeType: file.type || "text/plain", text } } });
+        } else if (kind === "text") {
+          const { text } = await readFile(file, false);
+          next.push({ id, name: file.name, mimeType: file.type || "text/plain", size: file.size, block: { type: "resource", resource: { uri: `file:///${file.name}`, mimeType: file.type || "text/plain", text: text ?? "" } } });
         } else {
           next.push({ id, name: file.name, mimeType: file.type || "application/octet-stream", size: file.size, block: { type: "resource_link", name: file.name, uri: `file:///${file.name}`, mimeType: file.type || undefined, size: file.size } });
         }
@@ -314,6 +369,73 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     }
     p.setAttachments(next);
     if (fileRef.current) fileRef.current.value = "";
+    const msgs: string[] = [];
+    if (rejectedImages.length) msgs.push(`${p.agentTitle || "当前智能体"} 不支持图片输入（未声明 image 能力），已忽略：${rejectedImages.join("、")}。可换用支持图片的智能体，或把图片保存到工作区后用 @ 引用路径。`);
+    if (tooBig.length) msgs.push(`超过 ${OUTSIDE_FILE_MAX / 1024 / 1024}MB 的文件未添加：${tooBig.join("、")}`);
+    if (msgs.length) setNotice(msgs.join(" "));
+  };
+
+  /** 工作区内的文件 / 文件夹 → @ 引用（文件夹最多展开 FOLDER_FILE_CAP 个文件）。 */
+  const addRefs = async (refs: DragRef[]) => {
+    const cwd = p.currentWorkspace;
+    if (!cwd || refs.length === 0) return;
+    const added: Attachment[] = [];
+    let text = aui.composer.getState().text;
+    const notes: string[] = [];
+    const have = new Set(p.attachments.map((a) => a.mention?.path).filter(Boolean));
+    for (const r of refs) {
+      try {
+        let paths = [r.path];
+        if (r.kind === "dir") {
+          const { files, truncated } = await collectFolderFiles(r.path, (d) => fsList(cwd, d));
+          paths = files;
+          if (truncated) notes.push(`文件夹 ${r.path || "."} 只引用了前 ${FOLDER_FILE_CAP} 个文件`);
+          if (!files.length) notes.push(`文件夹 ${r.path} 里没有可引用的文件`);
+        }
+        for (const fp of paths) {
+          if (have.has(fp)) continue;
+          have.add(fp);
+          const f = await readWorkspaceFile(cwd, fp);
+          added.push({ ...buildMentionAttachment(f), mention: { path: fp, kind: "file" } });
+        }
+        const label = r.kind === "dir" ? `${r.path}/` : r.path;
+        text = `${text}${text && !/\s$/.test(text) ? " " : ""}@${label} `;
+      } catch (err: any) {
+        notes.push(`引用 ${r.path} 失败：${err.message}`);
+      }
+    }
+    if (added.length) p.setAttachments([...p.attachments, ...added]);
+    aui.composer.setText(text);
+    if (notes.length) setNotice(notes.join("；"));
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const internal = decodeDragRefs(dt.getData(ACP_PATH_MIME));
+    if (internal.length) {
+      await addRefs(internal);
+      return;
+    }
+    const cwd = p.currentWorkspace;
+    const refs: DragRef[] = [];
+    const outside: File[] = [];
+    const items = Array.from(dt.items || []);
+    let outsideDirs = 0;
+    Array.from(dt.files || []).forEach((file, i) => {
+      const entry = (items[i] as any)?.webkitGetAsEntry?.();
+      const isDir = !!entry?.isDirectory;
+      const abs = window.acpStudio?.workbench?.pathForFile?.(file) || "";
+      const rel = cwd && abs ? relativeToWorkspace(cwd, abs) : null;
+      if (rel !== null && rel !== "") refs.push({ path: rel, kind: isDir ? "dir" : "file" });
+      else if (isDir) outsideDirs++;
+      else outside.push(file);
+    });
+    if (refs.length) await addRefs(refs);
+    if (outside.length) await handleFiles(outside);
+    if (outsideDirs) setNotice(`工作区外的文件夹不能直接拖入（${outsideDirs} 个已忽略），请拖入其中的文件。`);
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -328,6 +450,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     const target = p.attachments.find((a) => a.id === id);
     if (target?.preview) URL.revokeObjectURL(target.preview);
     p.setAttachments(p.attachments.filter((x) => x.id !== id));
+    if (target?.mention) aui.composer.setText(stripMentionText(aui.composer.getState().text, target.mention.path));
   };
 
   const modelOpt = pickRole(p.configOptions, "model");
@@ -347,8 +470,8 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
       if (p.sessionLoading) {
         return (
           <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground" title="正在创建会话以加载可用模型">
-            <Cpu className="w-3.5 h-3.5 text-primary animate-pulse shrink-0" />
-            <AnimatedShinyText className="text-[11px]">模型加载中…</AnimatedShinyText>
+            <Cpu className="w-3.5 h-3.5 text-signal animate-pulse shrink-0" />
+            <span className="inline-flex items-center text-muted-foreground text-[11px]">模型加载中…</span>
           </span>
         );
       }
@@ -361,7 +484,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     return (
       <label className="flex items-center gap-1 text-xs text-muted-foreground" title="该 Agent 未提供模型配置项，使用会话模型目录切换">
         <Cpu className="w-3.5 h-3.5 text-primary shrink-0" />
-        <select value={p.fallbackCurrentModel || ""} disabled={p.isStreaming} onChange={(e) => e.target.value && p.onFallbackModel?.(e.target.value)} className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-muted/80">
+        <select value={p.fallbackCurrentModel || ""} disabled={p.isStreaming} onChange={(e) => e.target.value && p.onFallbackModel?.(e.target.value)} className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] @max-md:max-w-[96px] @max-xs:max-w-[52px] truncate disabled:opacity-50 hover:bg-muted/80">
           {list.map((m) => (
             <option key={m.modelId} value={m.modelId} className="bg-card" title={m.description}>{m.name || m.modelId}</option>
           ))}
@@ -388,7 +511,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
   const renderSelect = (opt: ConfigOptionLike, icon: React.ReactNode) => (
     <label key={opt.id} className="flex items-center gap-1 text-xs text-muted-foreground" title={opt.description || opt.name}>
       {icon}
-      <select value={curVal(opt)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.value)} className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-muted/80">
+      <select value={curVal(opt)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.value)} className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] @max-md:max-w-[96px] @max-xs:max-w-[52px] truncate disabled:opacity-50 hover:bg-muted/80">
         {(opt.options || []).map(renderOptionItem)}
       </select>
     </label>
@@ -412,9 +535,30 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
   return (
     <div className="p-4 md:p-6 bg-background shrink-0 select-none">
       <div className="max-w-3xl mx-auto space-y-2">
+        {notice && (
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] text-foreground">
+            <ImagePlus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+            <span className="flex-1">{notice}</span>
+            <button aria-label="关闭提示" onClick={() => setNotice(null)} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+          </div>
+        )}
         {p.attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1">
-            {p.attachments.map((a) => (
+            {p.attachments.map((a) =>
+              a.mention ? (
+                <span
+                  key={a.id}
+                  data-mention-chip
+                  className="inline-flex items-center gap-1 h-6 pl-1.5 pr-1 rounded-full border border-border bg-accent/60 text-[11.5px] font-mono text-foreground"
+                  title={`@${a.mention.path} · ${formatFileSize(a.size)}（引用的文件内容随消息发送）`}
+                >
+                  <AtSign className="w-3 h-3 text-muted-foreground" />
+                  <span className="max-w-[220px] truncate">{a.mention.path}</span>
+                  <button aria-label={`移除引用 ${a.mention.path}`} onClick={() => removeAttachment(a.id)} className="ml-0.5 rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-destructive">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ) : (
               <span key={a.id} className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-md bg-muted/70 border border-border text-[11px] font-mono text-muted-foreground">
                 {a.preview ? (
                   <img src={a.preview} alt={a.name} className="w-6 h-6 rounded object-cover" />
@@ -428,41 +572,73 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                   <X className="w-3 h-3" />
                 </button>
               </span>
-            ))}
+              ),
+            )}
           </div>
         )}
 
-        <ComposerPrimitive.Root>
+        <ComposerPrimitive.Root className="@container">
           <div
-            className={`relative flex flex-col rounded-2xl border bg-card shadow-xs transition-all ${
+            className={`relative flex flex-col rounded-xl border bg-card transition-colors ${
               dragOver
-                ? "border-primary border-dashed ring-1 ring-primary/20"
+                ? "border-ring border-dashed"
                 : canCancel
-                ? "border-primary/50"
-                : "border-border hover:border-border/80 focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-ring/20"
+                ? "border-signal/60"
+                : "border-input focus-within:border-ring/70"
             }`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer?.files); }}
+            onDrop={(e) => void handleDrop(e)}
           >
             {dragOver && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-muted/80 text-xs text-primary pointer-events-none">
-                松开以添加文件 / 图片附件
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-muted/90 text-xs text-foreground pointer-events-none">
+                松开以引用文件（工作区内变为 @ 引用，工作区外作为附件）
               </div>
             )}
             {slashOpen && (
-              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-border bg-popover shadow-lg overflow-hidden z-20">
-                {filtered.slice(0, 8).map((c, i) => (
-                  <div key={c.name} onClick={() => applyCommand(c.name)} className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs ${i === slashIdx ? "bg-muted text-foreground font-medium" : "text-muted-foreground"}`}>
-                    <Command className="w-3 h-3 text-muted-foreground" />
-                    <span className="font-mono font-semibold">/{c.name}</span>
-                    <span className="truncate text-muted-foreground">{c.description || ""}</span>
+              <div data-testid="slash-menu" className="absolute bottom-full mb-1.5 left-2 right-2 rounded-lg border border-border bg-popover shadow-lg overflow-hidden z-20 text-xs">
+                {p.commands.length === 0 && (
+                  <div className="px-3 py-2 text-muted-foreground border-b border-border/60">
+                    该智能体暂未提供命令
+                    <span className="ml-1 text-muted-foreground/70">{p.connected === false ? "（未连接）" : "（会话建立后智能体可能稍后推送）"}</span>
                   </div>
-                ))}
+                )}
+                {filtered.length === 0 ? (
+                  <div className="px-3 py-2 text-muted-foreground">无匹配命令</div>
+                ) : (
+                  <div className="max-h-72 overflow-y-auto">
+                    {filtered.slice(0, 12).map((c, i) => (
+                      <div
+                        key={(c.local ? "local:" : "agent:") + c.name}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => applyCommand(c.name)}
+                        onMouseEnter={() => setSlashIdx(i)}
+                        className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer ${i === slashIdx ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+                      >
+                        <Command className="w-3 h-3 shrink-0 text-muted-foreground" />
+                        <span className="font-mono font-semibold text-foreground">/{c.name}</span>
+                        {c.hint && <span className="font-mono text-muted-foreground/70 shrink-0">&lt;{c.hint}&gt;</span>}
+                        <span className="truncate flex-1 min-w-0">{c.description || ""}</span>
+                        {c.local && (
+                          <span title="由 ACP Studio 本地处理，不发送给智能体" className="shrink-0 rounded border border-border px-1 py-px text-[10px] text-muted-foreground">本地</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="px-3 py-1 border-t border-border/60 text-[10px] text-muted-foreground/80 flex justify-between gap-2">
+                  <span>↑↓ 选择 · Tab/回车 填入 · Esc 关闭</span>
+                  {p.isStreaming ? <span className="text-amber-600 dark:text-amber-400">生成中：仅浏览/填入，不会发送</span> : <span>智能体命令以 /命令 文本发送</span>}
+                </div>
+              </div>
+            )}
+            {!slashOpen && activeHint && (
+              <div className="absolute bottom-full mb-1.5 left-2 rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-muted-foreground shadow z-20">
+                <span className="font-mono text-foreground">/{activeHint.name}</span> 参数：<span className="font-mono">{activeHint.hint}</span>
               </div>
             )}
             {mentionOpen && (
-              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-border bg-popover shadow-lg overflow-hidden z-20">
+              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-lg border border-border bg-popover shadow-lg overflow-hidden z-20">
                 {!p.currentWorkspace ? (
                   <div className="px-3 py-2 text-xs text-muted-foreground">先选择工作区，才能引用其中的文件</div>
                 ) : mentionLoading && mentionItems.length === 0 ? (
@@ -486,91 +662,106 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
               </div>
             )}
             <ComposerPrimitive.Input
-              rows={1}
+              minRows={2}
+              maxRows={8}
               onKeyDown={handleInputKeyDown}
               onPaste={handlePaste}
-              placeholder={p.isStreaming ? `${p.agentTitle} 正在响应中…可继续编辑，发送将排队；或点插队立即打断` : `Ask anything, @ to mention, / for actions (随便问点什么)`}
-              className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none max-h-48 min-h-[46px]"
+              placeholder={p.isStreaming ? `${p.agentTitle} 正在响应中…可继续编辑，发送将排队；或点插队立即打断` : `给 ${p.agentTitle} 描述任务，@ 引用文件，/ 调用命令`}
+              className="w-full resize-none bg-transparent px-3.5 pt-3 pb-1.5 text-sm leading-6 text-foreground placeholder:text-muted-foreground/80 focus:outline-none max-h-48 min-h-[48px]"
             />
             <div className="flex items-center justify-between px-3 pb-2 pt-1 text-xs gap-2">
-              {/* Left actions: + Attachment, Models, Thinking, Settings */}
-              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              {/* Left: only model + thinking stay visible; everything else lives in the "…" popover.
+                  Container query: narrower composer → pills shrink to icon + truncated label. */}
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-nowrap">
                 <input ref={fileRef} type="file" multiple accept={p.supportImage ? undefined : ".txt,.md,.json,.js,.ts,.tsx,.py,.log,.csv"} className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  title={p.supportImage ? "附加文件或图片（可拖拽 / 粘贴）" : "附加文本文件"}
-                  className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors text-base"
-                >
-                  +
-                </button>
-                <button
-                  type="button"
-                  onClick={() => aui.composer.setText("/" + composerText.trimStart())}
-                  title="唤出 Slash 快捷命令菜单"
-                  className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-mono font-bold text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
-                >
-                  /
-                </button>
-
-                {p.connected && (
+                {p.connected ? (
                   <>
-                    <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
+                    <div data-testid="composer-model" className="acp-pill flex items-center gap-1 min-w-0 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
                       {modelOpt ? renderSelect(modelOpt, <Cpu className="w-3 h-3 text-muted-foreground shrink-0" />) : renderFallbackModel()}
                     </div>
                     {thinkOpt ? (
-                      <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
+                      <div data-testid="composer-effort" className="acp-pill flex items-center gap-1 min-w-0 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
                         {renderSelect(thinkOpt, <Brain className="w-3 h-3 text-muted-foreground shrink-0" />)}
                       </div>
                     ) : modelThinking ? (
-                      <span className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground px-1.5 py-0.5" title={`思考: ${modelThinking}`}>
+                      <span className="hidden @sm:flex items-center gap-1 text-[11px] font-mono text-muted-foreground px-1.5 py-0.5 whitespace-nowrap" title={`思考: ${modelThinking}`}>
                         <Brain className="w-3 h-3 text-muted-foreground shrink-0" />
-                        思考: {modelThinking}
+                        {modelThinking}
                       </span>
-                    ) : (
-                      muted("思考：—", "该 Agent 未提供独立思考等级配置")
-                    )}
-                    {permOpt ? (
-                      <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
-                        {renderSelect(permOpt, <ShieldCheck className="w-3 h-3 text-warning shrink-0" />)}
-                      </div>
-                    ) : muted("权限：—", "该 Agent 未提供权限配置")}
-                    {otherOpts.map((opt) =>
-                      opt.type === "boolean" ? (
-                        <label key={opt.id} className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none" title={opt.description || opt.name}>
-                          <input type="checkbox" checked={Boolean(opt.currentValue)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.checked)} className="rounded border-border text-primary focus:ring-primary/20" />
-                          <span className="text-[11px] font-medium">{opt.name || opt.id}</span>
-                        </label>
-                      ) : (
-                        renderSelect(opt, <Settings2 className="w-3 h-3 text-muted-foreground shrink-0" />)
-                      )
-                    )}
+                    ) : null}
                   </>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">未连接</span>
                 )}
 
-                {p.onBrowseModels && (
-                  <button type="button" onClick={p.onBrowseModels} title={p.hasModelCatalog ? "浏览 / 发现模型库" : "发现可用模型"} className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors">
-                    <LayoutGrid className="w-3.5 h-3.5" />
+                {/* "…" popover: attach, /, permission (Auto review), mode, other options, model catalog */}
+                <div className="relative shrink-0" ref={moreRef}>
+                  <button
+                    type="button"
+                    onClick={() => setMoreOpen((v) => !v)}
+                    title="更多：附件、命令、权限、模式与其他选项"
+                    aria-label="更多输入选项"
+                    aria-expanded={moreOpen}
+                    data-testid="composer-more"
+                    className={`w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ${moreOpen ? "bg-accent text-foreground" : ""}`}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
                   </button>
-                )}
+                  {moreOpen && (
+                    <div role="dialog" aria-label="更多输入选项" className="absolute bottom-full mb-2 left-0 w-64 rounded-lg border border-border bg-popover shadow-lg z-30 p-1.5 text-xs space-y-1">
+                      <div className="flex items-center gap-1 pb-1 border-b border-border/60">
+                        <button type="button" onClick={() => { setMoreOpen(false); fileRef.current?.click(); }} title={p.supportImage ? "附加文件或图片（可拖拽 / 粘贴）" : "附加文本文件"} className="flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent">
+                          <Paperclip className="w-3.5 h-3.5" /> 附件
+                        </button>
+                        <button type="button" onClick={() => { setMoreOpen(false); aui.composer.setText("/" + composerText.trimStart()); }} title="打开命令菜单" className="flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent">
+                          <span className="font-mono">/</span> 命令
+                        </button>
+                        {p.onBrowseModels && (
+                          <button type="button" onClick={() => { setMoreOpen(false); p.onBrowseModels?.(); }} title={p.hasModelCatalog ? "浏览 / 发现模型库" : "发现可用模型"} className="flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent">
+                            <LayoutGrid className="w-3.5 h-3.5" /> 模型库
+                          </button>
+                        )}
+                      </div>
+                      {p.connected && (
+                        <div className="space-y-1 pt-0.5">
+                          {permOpt ? (
+                            <div className="flex items-center justify-between gap-2 px-1.5 py-0.5 rounded-md hover:bg-muted/50">
+                              <span className="text-muted-foreground">权限</span>
+                              {renderSelect(permOpt, <ShieldCheck className="w-3 h-3 text-muted-foreground shrink-0" />)}
+                            </div>
+                          ) : (
+                            <div className="px-1.5 py-0.5 text-muted-foreground/70" title="该 Agent 未提供权限配置">权限：—</div>
+                          )}
+                          {otherOpts.map((opt) =>
+                            opt.type === "boolean" ? (
+                              <label key={opt.id} className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-md hover:bg-muted/50 cursor-pointer select-none" title={opt.description || opt.name}>
+                                <span className="text-muted-foreground">{opt.name || opt.id}</span>
+                                <input type="checkbox" checked={Boolean(opt.currentValue)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.checked)} className="rounded border-border text-primary focus:ring-primary/20" />
+                              </label>
+                            ) : (
+                              <div key={opt.id} className="flex items-center justify-between gap-2 px-1.5 py-0.5 rounded-md hover:bg-muted/50">
+                                <span className="text-muted-foreground truncate">{opt.name || opt.id}</span>
+                                {renderSelect(opt, <Settings2 className="w-3 h-3 text-muted-foreground shrink-0" />)}
+                              </div>
+                            )
+                          )}
+                          {!thinkOpt && !modelThinking && <div className="px-1.5 py-0.5 text-muted-foreground/70">思考：该 Agent 未提供独立思考等级</div>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Right actions: Mic, Clear, and Send Arrow */}
+              {/* Right actions: Clear and Send */}
               <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  title="语音输入 / 辅助"
-                  className="p-1 rounded-md text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
-                >
-                  <Mic className="w-3.5 h-3.5" />
-                </button>
-
                 <button
                   type="button"
                   onClick={p.onClear}
                   disabled={p.isStreaming}
                   title="清空聊天记录"
-                  className="p-1 rounded-md text-muted-foreground/60 hover:text-destructive hover:bg-muted/50 transition-colors disabled:opacity-40"
+                  aria-label="清空聊天记录"
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-accent transition-colors disabled:opacity-40"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -582,7 +773,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                         type="button"
                         onClick={handleSteer}
                         title="插队发送：中断当前生成并立即发送（排队中的消息随后继续）"
-                        className="h-7 px-2.5 rounded-full border border-warning/50 text-warning hover:bg-warning/10 flex items-center gap-1 text-xs font-medium cursor-pointer transition-colors"
+                        className="h-7 px-2.5 rounded-md border border-signal/50 text-signal hover:bg-signal/10 flex items-center gap-1 text-xs font-medium cursor-pointer transition-colors"
                       >
                         <Zap className="w-3 h-3" />
                         <span>插队</span>
@@ -592,7 +783,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                       <button
                         type="button"
                         title="停止生成"
-                        className="h-7 px-2.5 rounded-full bg-destructive text-destructive-foreground hover:opacity-90 flex items-center gap-1 text-xs font-medium cursor-pointer"
+                        className="h-7 px-2.5 rounded-md border border-border bg-secondary text-foreground hover:bg-accent flex items-center gap-1.5 text-xs font-medium cursor-pointer"
                       >
                         <Square className="w-3 h-3 fill-current" />
                         <span>停止</span>
@@ -605,13 +796,13 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                     onClick={handleSendClick}
                     disabled={!canSendAny || (p.isStreaming && !canSendText)}
                     title={p.isStreaming ? "发送（将在当前生成结束后排队执行）" : "发送消息"}
-                    className={`h-7 w-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                    className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
                       canSendText || (!p.isStreaming && canSendAny)
-                        ? "bg-foreground text-background hover:opacity-90 shadow-xs"
-                        : "bg-muted text-muted-foreground/50 opacity-60 cursor-not-allowed"
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                        : "bg-muted text-muted-foreground/60 cursor-not-allowed"
                     }`}
                   >
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <ArrowUp className="w-4 h-4" />
                     <span className="sr-only">发送</span>
                   </button>
                 )}
@@ -621,20 +812,20 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
         </ComposerPrimitive.Root>
 
         {/* Antigravity Local Target Tag & Workspace Menu */}
-        <div className="flex items-center justify-between pt-0.5 px-1 text-xs text-muted-foreground select-none relative">
+        <div className="@container flex items-center justify-between gap-2 pt-0.5 px-1 text-xs text-muted-foreground select-none relative whitespace-nowrap">
           <div className="relative" ref={localMenuRef}>
             <button
               type="button"
               onClick={() => setLocalMenuOpen(!localMenuOpen)}
-              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/40 hover:bg-muted border border-border/50 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+              className="inline-flex items-center gap-1.5 h-6 px-1.5 rounded-md hover:bg-accent text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
             >
-              <Laptop className="w-3 h-3 text-muted-foreground/80" />
-              <span>Local</span>
+              <Laptop className="w-3 h-3" />
+              <span>本机</span>
               <ChevronDown className="w-2.5 h-2.5 opacity-60" />
             </button>
 
             {localMenuOpen && (
-              <div className="absolute left-0 bottom-full mb-1.5 w-72 p-1.5 rounded-xl border border-border bg-popover shadow-xl text-xs z-50 animate-in fade-in-50 zoom-in-95 duration-100 space-y-1">
+              <div className="absolute left-0 bottom-full mb-1.5 w-72 p-1 rounded-lg border border-border bg-popover shadow-lg text-xs z-50 space-y-1">
                 {/* Current Workspace Header */}
                 <div className="px-2 py-1.5 border-b border-border/50">
                   <div className="flex items-center justify-between">
@@ -739,14 +930,14 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
 
                 {/* Environment Status info */}
                 <div className="px-2 py-1.5 pt-1 border-t border-border/50 text-[10px] text-muted-foreground/80 flex items-center justify-between">
-                  <span>运行目标: 本地主机 (Local)</span>
+                  <span>运行在本机</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-success" />
                 </div>
               </div>
             )}
           </div>
 
-          <div className="text-[10px] font-mono text-muted-foreground/50 hidden sm:inline">
+          <div className="text-[11px] font-mono text-muted-foreground/70 hidden @md:block truncate min-w-0">
             {p.isStreaming ? "Enter 排队 · 插队立即打断 · Shift+Enter 换行" : "Enter 发送 · Shift+Enter 换行 · / 命令"}
           </div>
         </div>

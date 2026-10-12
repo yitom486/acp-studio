@@ -159,7 +159,12 @@ export function useChatSend({
       st.setAttachments([]);
 
       const assistantId = "asst-" + Date.now();
-      st.appendMessage({ id: "user-" + Date.now(), role: "user", content: display, timestamp: now() });
+      // 发出的图片也显示在用户消息里（与历史回放一致）
+      const sentImages = st.attachments
+        .filter((a) => (a.block as any).type === "image" && typeof (a.block as any).data === "string")
+        .map((a) => ({ src: `data:${(a.block as any).mimeType || a.mimeType};base64,${(a.block as any).data}`, mimeType: String((a.block as any).mimeType || a.mimeType) }))
+        .slice(-8);
+      st.appendMessage({ id: "user-" + Date.now(), role: "user", content: display, timestamp: now(), ...(sentImages.length ? { images: sentImages } : {}) });
       st.appendMessage({
         id: assistantId,
         role: "assistant",
@@ -273,7 +278,7 @@ export function useChatSend({
                 return { ...m, toolCalls: calls };
               }),
             onPlan: (entries) => cur.patchMessage(assistantId, { plan: entries }),
-            onAvailableCommands: (cmds) => cur.setAvailableCommands(cmds),
+            onAvailableCommands: (cmds) => useStudioStore.getState().setAvailableCommands(cmds, sid),
             onModeUpdate: (modeId) => {
               const stNow = useStudioStore.getState();
               if (stNow.modes) stNow.setModes({ ...stNow.modes, currentModeId: modeId });

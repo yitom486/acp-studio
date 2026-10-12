@@ -1,6 +1,7 @@
+import { normalizeAgentCommands, type SlashCommand } from "@/lib/slash-commands";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import type { Message } from "@/components/ChatArea";
+import type { Message } from "@/lib/message-types";
 import type {
   Attachment,
   ModelCatalog,
@@ -67,7 +68,9 @@ interface StudioState {
   modes: ModeState | null;
   models: ModelCatalog | null;
   configOptions: any[] | null;
-  availableCommands: Array<{ name: string; description?: string }>;
+  availableCommands: SlashCommand[];
+  /** Commands per ACP session (agentId:sessionId) — survives thread/session switches. */
+  commandsBySession: Record<string, SlashCommand[]>;
   usage: UsageState | null;
   sessionInfo: any;
   // thread
@@ -123,7 +126,8 @@ interface StudioState {
   setModels: (m: ModelCatalog | null) => void;
   setConfigOptions: (c: any[] | null) => void;
   patchConfigOption: (opt: any) => void;
-  setAvailableCommands: (c: Array<{ name: string; description?: string }>) => void;
+  /** Store commands for a session (defaults to the current one); updates the view when it is current. */
+  setAvailableCommands: (c: unknown, sessionId?: string | null) => void;
   setUsage: (u: UsageState | null) => void;
   setSessionInfo: (info: any) => void;
   setMessages: (m: Message[]) => void;
@@ -175,6 +179,11 @@ interface StudioState {
   resetStudio: () => void;
 }
 
+const cmdKey = (agentId: string | null | undefined, sid: string) => `${agentId || ""}:${sid}`;
+function cmdsFor(s: { commandsBySession: Record<string, SlashCommand[]> }, agentId: string | null | undefined, sid: string | null | undefined): SlashCommand[] {
+  return sid ? s.commandsBySession[cmdKey(agentId, sid)] ?? [] : [];
+}
+
 const initialThread = {
   messages: [] as Message[],
   sessionError: null as string | null,
@@ -182,7 +191,7 @@ const initialThread = {
   modes: null as ModeState | null,
   models: null as ModelCatalog | null,
   configOptions: null as any[] | null,
-  availableCommands: [] as Array<{ name: string; description?: string }>,
+  availableCommands: [] as SlashCommand[],
   usage: null as UsageState | null,
   sessionInfo: null as any,
   pendingPerms: [] as PendingPermission[],
@@ -190,9 +199,16 @@ const initialThread = {
   attachments: [] as Attachment[],
 };
 
+export const WINDOW_WORKSPACE_KEY = "acp_window_workspace";
+
 function loadInitialWorkspaces(): { current: string | null; recents: RecentWorkspace[] } {
   try {
-    const current = localStorage.getItem("acp_current_workspace");
+    // 多窗口：每个窗口的“当前工作区”优先取地址栏 ?cwd=（新窗口打开文件夹）→ 本窗口 sessionStorage
+    // → 全局上次使用（localStorage，仅作新窗口的默认值）。
+    const fromUrl = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("cwd") : null;
+    const fromWindow = typeof sessionStorage !== "undefined" ? sessionStorage.getItem(WINDOW_WORKSPACE_KEY) : null;
+    const current = fromUrl || fromWindow || localStorage.getItem("acp_current_workspace");
+    if (fromUrl && typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, fromUrl);
     const raw = localStorage.getItem("acp_recent_workspaces");
     const recents = raw ? JSON.parse(raw) : [];
     return { current: current || null, recents: Array.isArray(recents) ? recents : [] };
@@ -265,6 +281,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   connectingId: null,
   authOk: {},
   sessionId: null,
+  commandsBySession: {} as Record<string, SlashCommand[]>,
   threads: initialThreads,
   activeThreadId: null,
   autoUpdate: loadAutoUpdate(),
@@ -300,6 +317,8 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
           localStorage.setItem("acp_current_workspace", targetPath);
           localStorage.setItem("acp_recent_workspaces", JSON.stringify(nextRecents));
         }
+        if (typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, targetPath);
+        void window.acpStudio?.workbench?.recentAdd(targetPath)?.catch?.(() => {});
       } catch {
         // ignore storage errors
       }
@@ -312,17 +331,24 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   setActiveAgentId: (id) => set({ activeAgentId: id }),
   setConnectingId: (id) => set({ connectingId: id }),
   setAuthOk: (agentId, ok) => set((s) => ({ authOk: { ...s.authOk, [agentId]: ok } })),
-  setSessionId: (id) => set({ sessionId: id }),
+  setSessionId: (id) =>
+    set((s) => (id === s.sessionId ? { sessionId: id } : { sessionId: id, availableCommands: cmdsFor(s, s.activeAgentId, id) })),
   setSessionError: (e) => set({ sessionError: e }),
   setSessionLoading: (v) => set({ sessionLoading: v }),
   applySessionResult: (res: any) =>
-    set((s) => ({
-      sessionId: res?.sessionId ?? s.sessionId,
+    set((s) => {
+      const sid = res?.sessionId ?? s.sessionId;
+      const fromRes = Array.isArray(res?.availableCommands) ? normalizeAgentCommands(res.availableCommands) : null;
+      const map = fromRes && sid ? { ...s.commandsBySession, [cmdKey(s.activeAgentId, sid)]: fromRes } : s.commandsBySession;
+      return {
+      sessionId: sid,
+      commandsBySession: map,
       modes: res?.modes ?? s.modes,
       models: res?.models ?? s.models,
       configOptions: res?.configOptions ?? s.configOptions,
-      availableCommands: res?.availableCommands ?? s.availableCommands,
-    })),
+      availableCommands: fromRes ?? (sid === s.sessionId && s.availableCommands.length ? s.availableCommands : map[cmdKey(s.activeAgentId, sid)] ?? []),
+      };
+    }),
   setModes: (m) => set({ modes: m }),
   setModels: (m) => set({ models: m }),
   setConfigOptions: (c) => set({ configOptions: c }),
@@ -337,7 +363,14 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       }
       return { configOptions: [...s.configOptions, opt] };
     }),
-  setAvailableCommands: (c) => set({ availableCommands: c }),
+  setAvailableCommands: (c, sessionId) =>
+    set((s) => {
+      const sid = sessionId ?? s.sessionId;
+      const list = normalizeAgentCommands(c);
+      if (!sid) return { availableCommands: list };
+      const map = { ...s.commandsBySession, [cmdKey(s.activeAgentId, sid)]: list };
+      return sid === s.sessionId ? { commandsBySession: map, availableCommands: list } : { commandsBySession: map };
+    }),
   setUsage: (u) => set({ usage: u }),
   setSessionInfo: (info) => set({ sessionInfo: info }),
   setMessages: (m) => set({ messages: m }),
@@ -430,6 +463,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       ...initialThread,
       messages: t.messages.map((m) => ({ ...m })),
       sessionId: t.sessionId,
+      availableCommands: cmdsFor(s, agentId, t.sessionId),
       activeThreadId: t.id,
     });
     return t;
@@ -501,6 +535,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     if (existing) {
       set({
         sessionId,
+        availableCommands: cmdsFor(st, agentId, sessionId),
         activeThreadId: existing.id,
         messages: existing.messages.map((m) => ({ ...m })),
         sessionInfo: {
@@ -531,6 +566,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     set({
       ...initialThread,
       sessionId,
+      availableCommands: cmdsFor(st, agentId, sessionId),
       activeThreadId: newId,
       threads: nextThreads,
       sessionInfo: { ...(st.sessionInfo || {}), title: title || st.sessionInfo?.title },
@@ -547,6 +583,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       connectingId: null,
       authOk: {},
       sessionId: null,
+      commandsBySession: {},
       activeThreadId: null,
       // Persisted thread records survive a full reset (tests clear storage).
       threads: s.threads,
@@ -574,7 +611,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
  * streaming hot path writes `messages` once per token; subscribing to it at
  * shell level made App re-render (and re-render every layout child) on every
  * chunk. `messages` is consumed by the leaves that actually render it
- * (`ChatArea` via `useStudioStore((s) => s.messages)`), while stream callbacks
+ * (`AssistantChatView` via `useStudioStore((s) => s.messages)`), while stream callbacks
  * write through `getState()` actions, which needs no subscription at all.
  *
  * Per .agents/rules/state_management.md: subscribe with selectors, never the

@@ -187,6 +187,7 @@ export function useSessionLifecycle({
         if (result?.models) cur.setModels(result.models);
         if (result?.configOptions) cur.setConfigOptions(result.configOptions);
         const sid = cur.sessionId;
+        if (Array.isArray(result?.availableCommands)) cur.setAvailableCommands(result.availableCommands, sid);
         if (sid) void applyDefaultConfigOptions(agentId, sid);
         ensuredRef.current = agentId;
         return sid;
@@ -379,8 +380,10 @@ export function useSessionLifecycle({
               }
             }
             if (t.usage) useStudioStore.getState().setUsage(t.usage);
-            if (t.availableCommands.length > 0) {
-              useStudioStore.getState().setAvailableCommands(t.availableCommands);
+            {
+              const fromRes = (result as any)?.availableCommands;
+              const cmds = t.availableCommands.length > 0 ? t.availableCommands : Array.isArray(fromRes) ? fromRes : null;
+              if (cmds) useStudioStore.getState().setAvailableCommands(cmds, item.sessionId);
             }
             if (t.currentModeId) {
               const modes = useStudioStore.getState().modes;
@@ -436,6 +439,7 @@ export function useSessionLifecycle({
               if (resumeRes?.modes) cur.setModes(resumeRes.modes);
               if (resumeRes?.models) cur.setModels(resumeRes.models);
               if (resumeRes?.configOptions) cur.setConfigOptions(resumeRes.configOptions);
+              if (Array.isArray(resumeRes?.availableCommands)) cur.setAvailableCommands(resumeRes.availableCommands, item.sessionId);
               if (cur.messages.length === 0) {
                 cur.setMessages([
                   {

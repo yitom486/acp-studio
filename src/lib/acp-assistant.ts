@@ -1,5 +1,5 @@
 import type { ThreadMessageLike } from "@assistant-ui/react";
-import type { Message } from "@/components/ChatArea";
+import type { Message } from "@/lib/message-types";
 import type { PendingPermission } from "@/lib/universal-api";
 
 /**
@@ -30,7 +30,10 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
     return {
       id: msg.id,
       role: "user",
-      content: [{ type: "text", text: msg.content || "" }],
+      content: [
+        { type: "text", text: msg.content || "" },
+        ...(msg.images || []).filter((img) => img && typeof img.src === "string" && img.src).map((img) => ({ type: "image" as const, image: img.src })),
+      ],
       metadata: {
         custom: {
           timestamp: msg.timestamp,

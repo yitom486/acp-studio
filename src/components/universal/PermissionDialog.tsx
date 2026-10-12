@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { ShieldAlert, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BlurFade } from "@/components/magicui/blur-fade";
 import type { PendingPermission } from "@/lib/universal-api";
 
 export interface PermissionDialogProps {
@@ -15,9 +14,9 @@ export const PermissionDialog: React.FC<PermissionDialogProps> = ({ pending, onR
   return (
     <div className="px-4 pt-2 space-y-2">
       {pending.map((p, i) => (
-        <BlurFade key={p.permissionId} delay={0.05 * Math.min(i, 3)}>
+        <div key={p.permissionId}>
           <PermissionCard p={p} onRespond={onRespond} busy={respondingId === p.permissionId} />
-        </BlurFade>
+        </div>
       ))}
     </div>
   );
@@ -26,26 +25,35 @@ export const PermissionDialog: React.FC<PermissionDialogProps> = ({ pending, onR
 function PermissionCard({ p, onRespond, busy }: { p: PendingPermission; onRespond: PermissionDialogProps["onRespond"]; busy: boolean }) {
   const [selected, setSelected] = useState<string>(p.options?.[0]?.optionId || "");
   const tool = p.toolCall as any;
+  // 单色卡片：琥珀只用于左侧细条和盾牌图标（“等你处理”的实时状态），
+  // 选项与按钮走中性色，不再整块填充警告色。
   return (
-    <div className="rounded-xl border border-warning/40 bg-warning/30 p-3 text-xs space-y-2">
-      <div className="flex items-center gap-2 text-warning font-semibold">
-        <ShieldAlert className="w-4 h-4" />
-        <span>需要授权 · {tool?.title || tool?.toolCallId || p.permissionId}</span>
-        <span className="ml-auto font-mono text-[10px] text-warning/70">{p.sessionId.slice(0, 8)}</span>
+    <div className="rounded-lg border border-border border-l-2 border-l-signal bg-card p-3 text-xs space-y-2.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <ShieldAlert className="w-4 h-4 text-signal shrink-0" />
+        <span className="font-medium text-foreground shrink-0">需要授权</span>
+        <span className="text-foreground truncate">{tool?.title || tool?.toolCallId || p.permissionId}</span>
+        <span className="ml-auto font-mono text-[10px] text-muted-foreground shrink-0">
+          {tool?.kind ? `${tool.kind} · ` : ""}
+          {p.sessionId.slice(0, 8)}
+        </span>
       </div>
-      {tool?.kind && <div className="text-warning/70 font-mono text-[11px]">kind: {tool.kind}</div>}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="授权选项">
         {(p.options || []).map((o) => (
           <button
             key={o.optionId}
+            type="button"
+            role="radio"
+            aria-checked={selected === o.optionId}
             onClick={() => setSelected(o.optionId)}
-            className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
+            title={o.kind || o.optionId}
+            className={`h-7 px-2.5 rounded-md border text-[11px] font-medium transition-colors ${
               selected === o.optionId
-                ? "bg-warning text-warning-foreground border-warning"
-                : "border-warning/30 text-warning hover:border-warning"
+                ? "border-foreground text-foreground bg-accent"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
             }`}
           >
-            {o.name} ({o.kind || o.optionId})
+            {o.name}
           </button>
         ))}
       </div>
@@ -55,7 +63,7 @@ function PermissionCard({ p, onRespond, busy }: { p: PendingPermission; onRespon
           {busy ? "提交中..." : "批准所选"}
         </Button>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => onRespond(p, null)} className="h-7 text-xs">
-          拒绝 / 取消
+          拒绝
         </Button>
       </div>
     </div>

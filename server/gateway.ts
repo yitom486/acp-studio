@@ -161,6 +161,8 @@ export function buildApp() {
 
   // Universal ACP gateway (generic stdio agents: codex, gemini, claude, ...)
   app.all("/api/universal/*", async (c) => {
+    // CORS 预检不带凭证、也不执行任何动作：只回 CORS 头（真正的请求照样要 token）。
+    if (c.req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(c.req.raw) });
     // 先鉴权再进路由：401 直接返回（已带 CORS 头），不触及 handleUniversal。
     const denied = requireAuth(c.req.raw);
     if (denied) return denied;

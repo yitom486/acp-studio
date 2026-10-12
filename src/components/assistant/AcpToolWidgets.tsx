@@ -148,18 +148,23 @@ export const InlineApproval: React.FC<{ tc: Pick<WidgetTool, "id" | "title"> }> 
   const { perm, busy, respond } = useInlinePerm(tc);
   if (!perm) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2 pt-0.5 border-t border-warning/30 font-sans">
-      <span className="flex items-center gap-1 text-warning font-semibold text-[11px]">
-        <ShieldAlert className="w-3.5 h-3.5" />
+    <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-2 border-t border-border font-sans">
+      <span className="flex items-center gap-1 text-foreground font-medium text-[11px] mr-1">
+        <ShieldAlert className="w-3.5 h-3.5 text-signal" />
         需要授权
       </span>
-      {(perm.options || []).slice(0, 3).map((o) => (
+      {(perm.options || []).slice(0, 3).map((o, i) => (
         <button
           key={o.optionId}
           type="button"
           disabled={busy}
           onClick={() => respond(o.optionId)}
-          className="px-2 py-0.5 rounded-md border border-warning/40 text-warning text-[11px] font-medium hover:bg-warning hover:text-warning-foreground transition-colors disabled:opacity-40"
+          className={cn(
+            "h-6 px-2 rounded-md border text-[11px] font-medium transition-colors disabled:opacity-40",
+            i === 0
+              ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+              : "border-border text-foreground hover:bg-accent",
+          )}
           title={o.kind || o.optionId}
         >
           {busy ? "提交中..." : o.name}
@@ -304,7 +309,7 @@ export const FileEditCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
   const err = toolText(tc.rawError);
   return (
     <CardShell
-      icon={<PencilLine className="w-3.5 h-3.5 text-warning shrink-0" />}
+      icon={<PencilLine className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
       title={path || resolveToolDisplayTitle(tc)}
       right={
         <>
@@ -368,7 +373,7 @@ export const TerminalCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
       dot={<StatusDot status={tc.status} />}
     >
       {output || err || tc.status === "running" || tc.status === "pending" ? (
-        <div className="mx-1.5 mb-1.5 rounded-md border border-border/60 bg-black/40 overflow-hidden">
+        <div className="mx-1.5 mb-1.5 rounded-md border border-border/60 bg-muted/60 overflow-hidden">
           {output && (
             <pre className="px-2.5 py-2 overflow-x-auto text-[11px] leading-relaxed font-mono text-foreground/90 whitespace-pre-wrap break-words">
               <code>{lastLines(output, 12).shown}</code>

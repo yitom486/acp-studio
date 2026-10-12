@@ -2,9 +2,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
+import pkg from "./package.json" with { type: "json" };
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    "import.meta.env.VITE_APP_VERSION": JSON.stringify(pkg.version),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -70,6 +74,21 @@ export default defineConfig({
           // Integrated terminal (xterm + addons) loads with TerminalDrawer.
           if (norm.includes("@xterm")) {
             return "xterm";
+          }
+          // 编辑器（CodeMirror 6 + 语言包 + merge）随 EditorPane 懒加载
+          // 语言包（@codemirror/lang-* + 对应 @lezer 语法）不并入，保持按扩展名懒加载
+          if (/@codemirror\/(state|view|commands|language|search|autocomplete|merge|lint)\//.test(norm) || /@lezer\/(common|highlight|lr)\//.test(norm)) {
+            return "codemirror";
+          }
+          // 文件树（react-arborist + react-dnd + react-window）
+          if (norm.includes("react-arborist") || norm.includes("react-dnd") || norm.includes("dnd-core") || norm.includes("react-window") || norm.includes("/redux/")) {
+            return "filetree";
+          }
+          // Milkdown / ProseMirror 不手动分组：它们只被懒加载的 MarkdownWysiwyg 引用，交给 Rollup 自动拆分，
+          // 避免和 vendor-ui 共享的 remark/unified 依赖形成循环、被首屏预加载。
+          // 公式（remark-math + rehype-katex + katex），遇到公式才加载
+          if (norm.includes("remark-math") || norm.includes("rehype-katex") || norm.includes("micromark-extension-math") || norm.includes("mdast-util-math") || norm.includes("/katex/") || norm.includes("hast-util-from-html-isomorphic") || norm.includes("hast-util-from-dom") || norm.includes("hast-util-from-html") || norm.includes("hast-util-to-text")) {
+            return "math";
           }
           // Mermaid diagrams load on demand with the first mermaid fence.
           if (norm.includes("/mermaid/") || norm.includes("/dagre") || norm.includes("/d3") || norm.includes("cytoscape") || norm.includes("/elkjs/") || norm.includes("/katex/")) {
