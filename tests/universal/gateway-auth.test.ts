@@ -21,7 +21,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "acp-auth-"));
 
 afterAll(async () => {
   await shutdownBridges();
-  fs.rmSync(tmp, { recursive: true, force: true });
+  // Windows 上刚退出的 PowerShell 子进程可能还短暂占着 cwd，重试几次再删。
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 const isWin = process.platform === "win32";

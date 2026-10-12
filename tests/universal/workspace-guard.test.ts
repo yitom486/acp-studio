@@ -44,7 +44,8 @@ afterAll(async () => {
   }
   universalRegistry.removeProfile(agentId);
   await shutdownBridges();
-  fs.rmSync(base, { recursive: true, force: true });
+  // Windows 上 mock 智能体 / 终端子进程可能还短暂占着目录，重试几次再删。
+  fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 async function newSession(body: Record<string, unknown>): Promise<string> {
