@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { ptyStatus, ptyResize, ptyWsCandidateBases, buildPtyWsUrl } from "@/lib/universal-api";
-import { apiFetch, withTokenQuery } from "@/lib/gateway-auth";
+import { apiFetch, getGatewayBase, withTokenQuery } from "@/lib/gateway-auth";
 
 /** 抽屉传输模式：pty=真交互 shell；oneshot=单次执行（PTY 不可用时回落）。 */
 export type TerminalMode = "probing" | "pty" | "oneshot";
@@ -790,7 +790,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     // 显式杀会话（handleKillPty）会轮转 id，保证下次是全新 shell。
     if (!ptyIdRef.current) ptyIdRef.current = newPtyId();
     const ptyId = ptyIdRef.current;
-    const bases = ptyWsCandidateBases(window.location.host, window.location.protocol);
+    const bases = ptyWsCandidateBases(window.location.host, window.location.protocol, 3004, getGatewayBase());
     setPtyDead(false);
     const attempt = (i: number) => {
       if (i >= bases.length) {

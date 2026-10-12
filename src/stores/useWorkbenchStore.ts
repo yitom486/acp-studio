@@ -25,7 +25,7 @@ export interface EditorTab {
   view?: "source" | "wysiwyg" | "notebook";
 }
 
-export type SettingsTab = "general" | "about";
+export type SettingsTab = "general" | "gateway" | "about";
 
 interface WorkbenchState {
   sidebarOpen: boolean;

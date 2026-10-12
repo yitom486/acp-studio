@@ -6,17 +6,25 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   GATEWAY_TOKEN_STORAGE_KEY,
   apiFetch,
+  apiUrl,
   bootstrapGatewayToken,
   clearGatewayToken,
+  getGatewayBase,
   getGatewayToken,
+  isLoopbackBase,
+  parseGatewayBase,
+  setGatewayBase,
+  setGatewayToken,
   verifyGatewayToken,
   withTokenQuery,
 } from "@/lib/gateway-auth";
+import { ptyWsCandidateBases } from "@/lib/universal-api";
 
 const realFetch = globalThis.fetch;
 
 beforeEach(() => {
   clearGatewayToken();
+  setGatewayBase("");
   delete (window as any).acpStudio;
   window.history.replaceState(null, "", "/");
 });
@@ -85,5 +93,70 @@ describe("verifyGatewayToken", () => {
       throw new TypeError("fetch failed");
     }) as typeof fetch;
     expect(await verifyGatewayToken()).toBe("unreachable");
+  });
+});
+
+describe("gateway base (远端/WSL 网关）", () => {
+  it("parses empty as local, http(s) host as remote, rejects the rest", () => {
+    expect(parseGatewayBase("")).toEqual({ kind: "local" });
+    expect(parseGatewayBase("   ")).toEqual({ kind: "local" });
+    expect(parseGatewayBase("http://127.0.0.1:4004/")).toEqual({ kind: "remote", base: "http://127.0.0.1:4004" });
+    expect(parseGatewayBase("HTTPS://wsl:4004")).toEqual({ kind: "remote", base: "https://wsl:4004" });
+    expect(parseGatewayBase("ws://127.0.0.1:4004").kind).toBe("invalid");
+    expect(parseGatewayBase("http://127.0.0.1:4004/api").kind).toBe("invalid");
+    expect(parseGatewayBase("notaurl").kind).toBe("invalid");
+  });
+
+  it("apiUrl prefixes relative paths only when a remote base is set", () => {
+    expect(getGatewayBase()).toBe("");
+    expect(apiUrl("/api/universal/agents")).toBe("/api/universal/agents");
+    setGatewayBase("http://127.0.0.1:4004");
+    expect(getGatewayBase()).toBe("http://127.0.0.1:4004");
+    expect(apiUrl("/api/universal/agents")).toBe("http://127.0.0.1:4004/api/universal/agents");
+    expect(apiUrl("ws://x/y")).toBe("ws://x/y");
+  });
+
+  it("apiFetch hits the remote base with the token", async () => {
+    setGatewayBase("http://127.0.0.1:4004");
+    setGatewayToken("remote-tkn");
+    const spy = vi.fn(async () => new Response("{}"));
+    globalThis.fetch = spy as unknown as typeof fetch;
+    await apiFetch("/api/universal/agents");
+    const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://127.0.0.1:4004/api/universal/agents");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer remote-tkn");
+  });
+
+  it("isolates tokens per base (no cross-gateway leakage)", () => {
+    setGatewayToken("local-tkn");
+    setGatewayBase("http://127.0.0.1:4004");
+    expect(getGatewayToken()).toBeNull();
+    setGatewayToken("remote-tkn");
+    setGatewayBase("");
+    expect(getGatewayToken()).toBe("local-tkn");
+    setGatewayBase("http://127.0.0.1:4004");
+    expect(getGatewayToken()).toBe("remote-tkn");
+  });
+
+  it("flags non-loopback http bases", () => {
+    expect(isLoopbackBase("")).toBe(true);
+    expect(isLoopbackBase("http://localhost:4004")).toBe(true);
+    expect(isLoopbackBase("http://127.0.0.1:4004")).toBe(true);
+    expect(isLoopbackBase("http://[::1]:4004")).toBe(true);
+    expect(isLoopbackBase("http://192.168.1.10:4004")).toBe(false);
+    expect(isLoopbackBase("http://example.com")).toBe(false);
+  });
+
+  it("puts the custom WS base first for PTY reconnects", () => {
+    expect(ptyWsCandidateBases("localhost:5188", "http:", 3004, "http://127.0.0.1:4004")).toEqual([
+      "ws://127.0.0.1:4004",
+      "ws://localhost:5188",
+      "ws://127.0.0.1:3004",
+    ]);
+    // 与同源重复时去重
+    expect(ptyWsCandidateBases("127.0.0.1:4004", "http:", 3004, "http://127.0.0.1:4004")).toEqual([
+      "ws://127.0.0.1:4004",
+      "ws://127.0.0.1:3004",
+    ]);
   });
 });

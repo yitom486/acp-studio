@@ -64,6 +64,20 @@ electron electron-dist/main.cjs   # main 内起网关并打开窗口
   失败，见 MSB8040）；只有换 node-pty 大版本或缺对应平台 prebuild 时才
   需要开重编（届时配好工具链再开）。
 
+## 远端网关（WSL / SSH，UI 留本机）
+
+前端默认连同源本地网关；设置 → 网关可填自定义基址（如
+`http://127.0.0.1:4004`），HTTP/WS 全链路（`apiFetch` 前缀 + PTY 候选基址优先）
+自动跟过去，令牌按基址隔离保存。切基址自动重载页面（会话状态归属网关）。
+
+- **网关跑进 WSL（原生 Linux agent/工具）**：WSL 内进仓库目录，
+  `PORT=4004 bun run dev:server:node`，基址填 `http://127.0.0.1:4004`，
+  令牌贴 WSL 里 `~/.acp-studio/.gateway-token`，工作区直接用 Linux 路径。
+- **SSH 远端**：远端起网关（只听 127.0.0.1 即可），本地
+  `ssh -L 4004:127.0.0.1:3004 user@host -N`，基址填 `http://127.0.0.1:4004`。
+- 非回环 http 基址设置页会 loud 警告（明文 token 出本机）；跨源能通是因为
+  CORS 只回显可信本地 Origin（`server/universal/security.ts`，端口不限）。
+
 ## GitHub 运维流程
 
 - `.github/workflows/ci.yml`：push/PR 跑类型检查 + universal 单测 + Web 构建 + Electron 打包校验。

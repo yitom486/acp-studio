@@ -371,12 +371,20 @@ export async function ptyResize(ptyId: string, cols: number, rows: number): Prom
   if (!data.ok) throw new Error(data.error || "pty resize 失败");
 }
 
-/** WS 基址候选（纯函数，可测）：同源优先（prod 与 ws 代理环境），直连回环兜底（vite dev 代理不转 WS）。 */
-export function ptyWsCandidateBases(host: string, protocol: string, gatewayPort = 3004): string[] {
+/** WS 基址候选（纯函数，可测）：自定义远端基址优先，同源次之（prod 与 ws 代理环境），直连回环兜底（vite dev 代理不转 WS）。 */
+export function ptyWsCandidateBases(host: string, protocol: string, gatewayPort = 3004, customBase = ""): string[] {
   const wsProto = protocol === "https:" ? "wss:" : "ws:";
+  const out: string[] = [];
+  const push = (u: string) => {
+    if (u && !out.includes(u)) out.push(u);
+  };
+  const cb = customBase.trim().replace(/\/+$/, "");
+  if (cb) push(cb.replace(/^http/i, "ws"));
   const sameOrigin = `${wsProto}//${host}`;
   const loopback = `${wsProto}//127.0.0.1:${gatewayPort}`;
-  return sameOrigin === loopback ? [sameOrigin] : [sameOrigin, loopback];
+  push(sameOrigin);
+  push(loopback);
+  return out;
 }
 
 /** PTY 连接 URL（纯函数，可测）：ptyId 由客户端生成，resize POST 凭它找会话。 */

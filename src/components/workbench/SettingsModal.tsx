@@ -1,9 +1,10 @@
 import React, { useEffect } from "react";
-import { X, Settings2, Info, RefreshCw, Download, RotateCw, ExternalLink, CheckCircle2, AlertTriangle, FolderOpen, Copy } from "lucide-react";
+import { X, Settings2, Info, RefreshCw, Download, RotateCw, ExternalLink, CheckCircle2, AlertTriangle, FolderOpen, Copy, Server } from "lucide-react";
 import { useWorkbenchStore, type SettingsTab } from "@/stores/useWorkbenchStore";
 import { useUpdateStore } from "@/stores/useUpdateStore";
 import { useThemeStore, THEMES, type ThemeId } from "@/stores/useThemeStore";
 import { useStudioStore } from "@/stores/useStudioStore";
+import { getGatewayBase, getGatewayToken, isLoopbackBase, setGatewayBase, setGatewayToken, verifyGatewayToken } from "@/lib/gateway-auth";
 import { cn } from "@/lib/utils";
 
 const CHANGELOG_URL = "https://github.com/yitom486/acp-studio/blob/master/CHANGELOG.md";
@@ -81,6 +82,147 @@ const GeneralPanel: React.FC = () => {
           </button>
         </div>
       </Row>
+    </div>
+  );
+};
+
+const GatewayPanel: React.FC = () => {
+  const [baseInput, setBaseInput] = React.useState(getGatewayBase());
+  const [tokenInput, setTokenInput] = React.useState("");
+  const [msg, setMsg] = React.useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const cur = getGatewayBase();
+  const say = (kind: "ok" | "err", text: string) => setMsg({ kind, text });
+
+  const saveBase = () => {
+    const p = setGatewayBase(baseInput);
+    if (p.kind === "invalid") {
+      say("err", p.error);
+      return;
+    }
+    const next = p.kind === "remote" ? p.base : "";
+    if (next === cur) {
+      say("ok", next ? "基址未变，已是该网关。" : "已是本地同源网关。");
+      return;
+    }
+    // 会话/智能体状态归属网关，不跨网关迁移：切基址即重载，不悄悄混用。
+    window.location.reload();
+  };
+
+  const saveToken = async () => {
+    const t = tokenInput.trim();
+    if (!t) {
+      say("err", "先粘贴该网关的令牌（其本机 ~/.acp-studio/.gateway-token）。");
+      return;
+    }
+    setBusy(true);
+    setGatewayToken(t);
+    setTokenInput("");
+    const st = await verifyGatewayToken();
+    setBusy(false);
+    say(
+      st === "ok" ? "ok" : "err",
+      st === "ok"
+        ? "令牌有效，已连上该网关。"
+        : st === "unauthorized"
+          ? "令牌被拒（401）：确认复制的是该网关自己的完整令牌。"
+          : "连不上该网关：确认它已启动且地址可达。",
+    );
+  };
+
+  const checkNow = async () => {
+    setBusy(true);
+    const st = await verifyGatewayToken();
+    setBusy(false);
+    say(
+      st === "ok" ? "ok" : "err",
+      st === "ok" ? "连接正常。" : st === "unauthorized" ? "已连通但令牌被拒，请重输令牌。" : "不可达：网关没起或地址不通。",
+    );
+  };
+
+  return (
+    <div>
+      <h3 className="text-sm font-semibold mb-1">网关</h3>
+      <Row
+        title="当前网关"
+        desc={
+          <span className="font-mono break-all">
+            {cur || "本地同源（Electron 内置 / 同源网关）"}
+          </span>
+        }
+      >
+        <div className="flex gap-2">
+          <button className={btn} onClick={() => void checkNow()} disabled={busy}>
+            <RefreshCw className={cn("h-3.5 w-3.5", busy && "animate-spin")} /> 验证连接
+          </button>
+          {cur ? (
+            <button
+              className={btn}
+              onClick={() => {
+                setGatewayBase("");
+                window.location.reload();
+              }}
+            >
+              回到本地
+            </button>
+          ) : null}
+        </div>
+      </Row>
+      <Row
+        title="自定义基址"
+        desc="WSL/远端网关地址，如 http://127.0.0.1:4004。留空即本地。保存后自动重载页面。"
+      >
+        <div className="flex gap-2">
+          <input
+            value={baseInput}
+            onChange={(e) => setBaseInput(e.target.value)}
+            placeholder="http://127.0.0.1:4004（空=本地）"
+            spellCheck={false}
+            className="h-8 w-56 rounded-md border border-border bg-background px-2 font-mono text-xs"
+            aria-label="网关基址"
+          />
+          <button className={primary} onClick={saveBase}>
+            保存
+          </button>
+        </div>
+      </Row>
+      <Row
+        title="该网关的令牌"
+        desc={getGatewayToken() ? "已设置（按基址隔离保存，不回显）。" : "未设置：粘贴该网关本机 ~/.acp-studio/.gateway-token。"}
+      >
+        <div className="flex gap-2">
+          <input
+            type="password"
+            autoComplete="off"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            placeholder="粘贴 64 位令牌"
+            spellCheck={false}
+            className="h-8 w-56 rounded-md border border-border bg-background px-2 font-mono text-xs"
+            aria-label="网关令牌"
+          />
+          <button className={btn} onClick={() => void saveToken()} disabled={busy || !tokenInput.trim()}>
+            保存并验证
+          </button>
+        </div>
+      </Row>
+      {msg ? (
+        <div className={cn("mt-3 text-xs", msg.kind === "ok" ? "text-foreground" : "text-destructive")}>{msg.text}</div>
+      ) : null}
+      {cur && !isLoopbackBase(cur) ? (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+          非回环 http 网关：令牌明文出本机，局域网可嗅探。只在可信网络用，公网请走 https 或 SSH 转发。
+        </div>
+      ) : null}
+      <h3 className="text-sm font-semibold mt-5 mb-1">网关跑进 WSL（原生 Linux agent/工具）</h3>
+      <pre className="overflow-x-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+{`# 1. WSL 内（Ubuntu）：进仓库目录，装好 bun，起网关（换个端口，避开本机 3004）
+PORT=4004 bun run dev:server:node
+# 2. 拿 WSL 里 ~/.acp-studio/.gateway-token 的内容
+# 3. 本页基址填 http://127.0.0.1:4004，保存（自动重载），再贴令牌
+# 4. 工作区直接用 Linux 路径，如 /home/you/proj`}
+      </pre>
     </div>
   );
 };
@@ -199,6 +341,7 @@ export const SettingsModal: React.FC = () => {
   if (!open) return null;
   const tabs: Array<{ id: SettingsTab; label: string; icon: React.ReactNode }> = [
     { id: "general", label: "通用", icon: <Settings2 className="h-4 w-4" /> },
+    { id: "gateway", label: "网关", icon: <Server className="h-4 w-4" /> },
     { id: "about", label: "关于与更新", icon: <Info className="h-4 w-4" /> },
   ];
   return (
@@ -225,7 +368,7 @@ export const SettingsModal: React.FC = () => {
             <X className="h-4 w-4" />
           </button>
           <h2 className="mb-4 text-base font-semibold">{tabs.find((t) => t.id === tab)?.label}</h2>
-          {tab === "general" ? <GeneralPanel /> : <AboutPanel />}
+          {tab === "general" ? <GeneralPanel /> : tab === "gateway" ? <GatewayPanel /> : <AboutPanel />}
         </div>
       </div>
     </div>
