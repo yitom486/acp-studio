@@ -113,8 +113,15 @@ export const RemoteButton: React.FC = () => {
                 WSL
               </div>
               {distrosQuery.isPending && <div className="px-2 py-1.5 text-muted-foreground">正在读取发行版…</div>}
-              {distrosQuery.isError && !distro && (
-                <div className="px-2 py-1.5 text-muted-foreground">本机无 WSL（或网关不可达）</div>
+              {distrosQuery.isError && (
+                <div className="px-2 py-1.5 text-destructive break-words" title="点远端网关…可连 WSL 里的网关">
+                  {String((distrosQuery.error as Error)?.message || "读取失败")}
+                </div>
+              )}
+              {distrosQuery.isSuccess && distros.length === 0 && !distro && (
+                <div className="px-2 py-1.5 text-muted-foreground break-words">
+                  已连通但无发行版：在 PowerShell 跑 wsl --install -d Ubuntu
+                </div>
               )}
               {distros.map((d) => (
                 <div key={d}>

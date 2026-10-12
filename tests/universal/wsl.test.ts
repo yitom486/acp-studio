@@ -77,4 +77,13 @@ describe("wsl paths", () => {
     expect(parseWslDistros("Windows Subsystem for Linux Distributions:\r\nUbuntu\r\n")).toEqual(["Ubuntu"]);
     expect(parseWslDistros("")).toEqual([]);
   });
+
+  it("never mistakes the no-distributions help text for distros", () => {
+    const help = [
+      "Windows Subsystem for Linux has no installed distributions.",
+      "Distributions can be installed by visiting the Microsoft Store:",
+      "https://aka.ms/wslstore",
+    ].join("\r\n");
+    expect(parseWslDistros(help)).toEqual([]);
+  });
 });

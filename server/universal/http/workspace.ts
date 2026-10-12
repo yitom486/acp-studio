@@ -14,7 +14,9 @@ export const workspaceRouter = new Hono();
 
 /**
  * `wsl -l -q`（UTF-16 解码后）→ 发行版名（纯函数，可测）。
- * 兼容默认发行版的 `*` / ` (Default)` 后缀，跳过标题行，去重保序。
+ * 兼容默认发行版的 `*` / ` (Default)` 后缀；无发行版时 wsl 吐的是帮助文本
+ *（含 URL/冒号/Microsoft Store 行），一并过滤，绝不把它们当发行版。
+ * 跳过标题行，去重保序。
  */
 export function parseWslDistros(raw: string): string[] {
   const out: string[] = [];
@@ -26,7 +28,10 @@ export function parseWslDistros(raw: string): string[] {
       .replace(/\*$/, "")
       .replace(/\s*\(Default\)$/i, "")
       .trim();
-    if (!line || /windows subsystem for linux/i.test(line)) continue;
+    if (!line) continue;
+    if (/windows subsystem for linux/i.test(line)) continue;
+    if (/^https?:\/\//i.test(line) || /microsoft store/i.test(line)) continue;
+    if (/^distributions can be/i.test(line) || /:$/.test(line)) continue;
     if (!out.includes(line)) out.push(line);
   }
   return out;
@@ -41,7 +46,17 @@ workspaceRouter.get("/wsl-distros", () => {
       timeout: 10000,
       windowsHide: true,
     });
-    if (r.error) return json({ ok: false, error: `wsl 不可用：${r.error.message || r.error}` }, 500);
+    if (r.error) {
+      const msg = String((r.error as any)?.message || r.error);
+      // ENOENT = 本机没装 WSL：给安装指引，不报含糊的“不可用”
+      if (/ENOENT/i.test(msg)) {
+        return json(
+          { ok: false, error: "本机未安装 WSL：请在管理员 PowerShell 跑 wsl --install，装好发行版后重启网关" },
+          500
+        );
+      }
+      return json({ ok: false, error: `wsl 调用失败：${msg}` }, 500);
+    }
     const distros = parseWslDistros(typeof r.stdout === "string" ? r.stdout : "");
     return json({ ok: true, distros });
   } catch (err) {

@@ -114,6 +114,30 @@ describe("StatusBar remote corner", () => {
     qc.clear();
   });
 
+  it("shows the real server error instead of a vague hint", async () => {
+    globalThis.fetch = (async () =>
+      Response.json({ ok: false, error: "本机未安装 WSL：请在管理员 PowerShell 跑 wsl --install" }, { status: 500 })) as typeof fetch;
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(h(QueryClientProvider, { client: qc }, h(StatusBar, null)));
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    await act(async () => {
+      cornerButton(el)?.click();
+      await new Promise((r) => setTimeout(r, 100));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(el.querySelector('[role="menu"]')?.textContent).toContain("wsl --install");
+    root.unmount();
+    el.remove();
+    qc.clear();
+  });
+
   it("does not crash when prompt is cancelled", async () => {
     window.prompt = vi.fn(() => null) as any;
     const { el, root, qc } = await renderBar();
