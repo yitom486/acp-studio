@@ -51,6 +51,7 @@ import {
 import type { Message } from "@/lib/message-types";
 import type { UsageState } from "@/stores/useStudioStore";
 import { useStudioStore } from "@/stores/useStudioStore";
+import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { cn } from "@/lib/utils";
 
 export interface AssistantChatViewProps {
@@ -612,10 +613,11 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
       )}>
         <Bot className="w-4 h-4" />
       </div>
-      <div className="relative overflow-hidden max-w-[85%] rounded-lg p-4 sm:p-5 space-y-3 shadow-xs bg-card border border-border text-foreground">
-        {running && (
-          <span className="pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-signal animate-pulse" />
-        )}
+      <div
+        data-streaming={running ? "true" : "false"}
+        className="acp-stream-ring relative max-w-[85%] rounded-lg"
+      >
+      <div className="relative overflow-hidden rounded-lg p-4 sm:p-5 space-y-3 shadow-xs bg-card border border-border text-foreground">
         <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-foreground">
@@ -697,9 +699,6 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
                 tools: { Fallback: () => null },
               }}
             />
-            {running && (
-              <span className="inline-block w-2 h-4 ml-1 bg-primary align-middle animate-pulse" />
-            )}
           </div>
         </>
 
@@ -742,6 +741,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
             </ActionBarPrimitive.Reload>
           </ActionBarPrimitive.Root>
         </div>
+      </div>
       </div>
       <TurnChanges
         open={turnChangesOpen}
@@ -791,10 +791,13 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
   onEnsureSession,
   cwd,
 }) => {
+  const { viewportRef, contentRef } = useStickToBottom<HTMLDivElement>();
   return (
     <ThreadPrimitive.Root className="flex-1 flex flex-col min-h-0 bg-background">
       <ThreadPrimitive.Viewport
+        ref={viewportRef}
         turnAnchor="top"
+        autoScroll={false}
         className="flex-1 overflow-y-auto p-4 md:p-6"
       >
         <ThreadPrimitive.Empty>
@@ -809,7 +812,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
             cwd={cwd}
           />
         </ThreadPrimitive.Empty>
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div ref={contentRef} className="max-w-4xl mx-auto space-y-6">
           <ThreadLoadEarlier />
           <ThreadPrimitive.Messages>
             {() => <ThreadMessageRouter agentName={agentName} cwd={cwd} />}

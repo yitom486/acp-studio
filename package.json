@@ -50,7 +50,8 @@
       "artifactName": "ACP-Studio-${version}.${ext}"
     },
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "asarUnpack": [
       "**/*.node",
@@ -72,11 +73,18 @@
       "differentialPackage": true,
       "deleteAppDataOnUninstall": false,
       "artifactName": "ACP-Studio-Setup-${version}.${ext}",
-      "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "ACP Studio",
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "installerHeader": "build/installerHeader.bmp",
+      "menuCategory": false,
+      "uninstallDisplayName": "ACP Studio"
     },
     "dmg": {
       "artifactName": "ACP-Studio-${version}-${arch}.${ext}"

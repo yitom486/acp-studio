@@ -160,7 +160,7 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
-      className="text-sm leading-relaxed break-words text-foreground"
+      className="acp-md text-sm leading-relaxed break-words text-foreground"
       components={components}
       componentsByLanguage={byLanguage}
       defer

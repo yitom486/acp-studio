@@ -48,7 +48,7 @@ function renderApp() {
 async function maybeSeedDevFixture() {
   if (!import.meta.env.DEV) return;
   const mode = new URLSearchParams(window.location.search).get("fixture");
-  if (mode !== "conversation" && mode !== "approval") return;
+  if (mode !== "conversation" && mode !== "approval" && mode !== "stream") return;
   const [{ buildConversationFixture }, { useStudioStore }] = await Promise.all([
     import("@/dev/conversation-fixture"),
     import("@/stores/useStudioStore"),
@@ -60,7 +60,45 @@ async function maybeSeedDevFixture() {
   st.setUsage(fx.usage);
   st.setStreaming(true);
   for (const p of fx.pendingPerms) st.addPermission(p);
+  if (mode === "stream") simulateStream(useStudioStore);
   console.info("[dev] conversation fixture loaded");
+}
+
+/** `?fixture=stream`：把最后一条助手消息逐字“流”出来，用于检查跟随滚动 / 光环 / 淡入。 */
+function simulateStream(store: { getState: () => any }) {
+  const text =
+    "README 的示例已经改好。接下来提交这两个文件的改动，然后跑一遍测试确认没有回归。\n\n" +
+    "## 本轮改动\n\n" +
+    "- `src/greet.ts`：空名字回退为 \"there\"，补上参数类型。\n" +
+    "- `tests/greet.test.ts`：覆盖空字符串、纯空格和普通名字三种情况。\n" +
+    "- `README.md`：用法示例的输出改成 `Hello, Ada!`。\n\n" +
+    "测试结果：3 个用例全部通过，类型检查无报错。\n\n" +
+    "## 后续建议\n\n" +
+    "1. 给 `greet` 加一个可选的语言参数，方便以后做本地化。\n" +
+    "2. 在 CI 里加上 `vitest --coverage`，把覆盖率门槛设在 80%。\n" +
+    "3. README 里补一段“常见问题”，说明空名字的行为。\n\n" +
+    "提交信息：`fix(greet): handle empty names`。如果还需要我顺便发一个补丁版本，告诉我即可。";
+  const setText = (content: string, done: boolean) => {
+    const st = store.getState();
+    st.setMessages(
+      st.messages.map((m: any) =>
+        m.id === "fx-a2"
+          ? { ...m, content, isStreaming: !done, completedAt: done ? Date.now() : undefined, toolCalls: (m.toolCalls || []).map((t: any) => ({ ...t, status: "completed" })) }
+          : m,
+      ),
+    );
+    if (done) st.setStreaming(false);
+  };
+  let i = 0;
+  setText("", false);
+  const timer = setInterval(() => {
+    i = Math.min(text.length, i + 3);
+    setText(text.slice(0, i), false);
+    if (i >= text.length) {
+      clearInterval(timer);
+      setTimeout(() => setText(text, true), 600);
+    }
+  }, 60);
 }
 
 function renderGate(reason: "missing" | "rejected" | "error", detail?: string) {
