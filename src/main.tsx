@@ -24,6 +24,7 @@ const queryClient = new QueryClient({
 const root = ReactDOM.createRoot(document.getElementById("root")!);
 
 function renderApp() {
+  if (import.meta.env.DEV) void maybeSeedDevFixture();
   root.render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
@@ -34,6 +35,30 @@ function renderApp() {
       </QueryClientProvider>
     </React.StrictMode>
   );
+}
+
+/**
+ * 开发专用：`?fixture=conversation`（或 `?fixture=approval`，额外带一条顶部
+ * 全局授权卡）时用假数据填充对话界面，方便在没有装
+ * 任何智能体 CLI 的机器上检查消息 / 工具卡 / 计划 / 授权 / 用量的样式。
+ * 整个分支包在 import.meta.env.DEV 里，生产构建会被静态剔除。
+ */
+async function maybeSeedDevFixture() {
+  if (!import.meta.env.DEV) return;
+  const mode = new URLSearchParams(window.location.search).get("fixture");
+  if (mode !== "conversation" && mode !== "approval") return;
+  const [{ buildConversationFixture }, { useStudioStore }] = await Promise.all([
+    import("@/dev/conversation-fixture"),
+    import("@/stores/useStudioStore"),
+  ]);
+  const fx = buildConversationFixture({ globalPermission: mode === "approval" });
+  const st = useStudioStore.getState();
+  st.setSessionId(fx.sessionId);
+  st.setMessages(fx.messages);
+  st.setUsage(fx.usage);
+  st.setStreaming(true);
+  for (const p of fx.pendingPerms) st.addPermission(p);
+  console.info("[dev] conversation fixture loaded");
 }
 
 function renderGate(reason: "missing" | "rejected" | "error", detail?: string) {
