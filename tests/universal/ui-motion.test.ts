@@ -79,8 +79,8 @@ describe("motion primitives (shadcn + magic ui)", () => {
       h(CodeComparison, { beforeCode: "const a = 1;", afterCode: "const a = 2;", language: "typescript", filename: "a.ts" })
     );
     expect(html).toContain("a.ts");
-    expect(html).toContain("before");
-    expect(html).toContain("after");
+    expect(html).toContain("改动前");
+    expect(html).toContain("改动后");
     expect(html).toContain("const a = 1;");
   });
 

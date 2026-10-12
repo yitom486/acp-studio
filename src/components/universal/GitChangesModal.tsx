@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BlurFade } from "@/components/magicui/blur-fade";
 import { CodeComparison } from "@/components/magicui/code-comparison";
+import { useThemeStore, THEMES } from "@/stores/useThemeStore";
 import {
   gitStage,
   gitRestore,
@@ -40,6 +41,7 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({
   const qc = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<"split" | "unified">("split");
+  const themeId = useThemeStore((st) => st.theme);
   const [msg, setMsg] = useState<string | null>(null);
 
   // Server state via TanStack Query (keyed by cwd/file, auto-fetches on open).
@@ -122,7 +124,7 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({
   const lines = parseUnifiedDiff(detail?.unified || null);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80" onClick={onClose}>
       <div className="w-full max-w-4xl h-[82vh] rounded-2xl border border-border bg-card p-4 text-foreground text-xs flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-border pb-2 shrink-0">
           <FileDiff className="w-4 h-4 text-primary" />
@@ -214,6 +216,7 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({
                   afterCode={detail.after}
                   language={guessLanguage(detail.file)}
                   filename={detail.file}
+                  theme={THEMES[themeId]?.isDark === false ? "light" : "dark"}
                 />
               </BlurFade>
             ) : (

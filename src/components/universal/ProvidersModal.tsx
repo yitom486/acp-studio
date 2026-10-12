@@ -92,7 +92,7 @@ export const ProvidersModal: React.FC<ProvidersModalProps> = ({ isOpen, onClose,
   const listError = providersQuery.error ? "providers/list 失败: " + (providersQuery.error as Error).message : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80" onClick={onClose}>
       <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-5 text-foreground space-y-3 text-xs max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border pb-2">
           <h2 className="font-bold text-sm flex items-center gap-2"><Cpu className="w-4 h-4 text-primary" /> Providers · {agentId}</h2>

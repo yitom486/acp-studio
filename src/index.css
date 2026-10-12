@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 /**
  * Tailwind v4 (CSS-first): design tokens live here, not in tailwind.config.js.
@@ -30,8 +32,11 @@
   --color-popover-foreground: hsl(var(--popover-foreground));
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-signal: hsl(var(--signal));
 
-  --radius-xl: 0.75rem;
+  /* 圆角按层级：容器 10px > 控件 6px > 内嵌 4px > 标签 2px，不再全局统一 */
+  --radius-xl: calc(var(--radius) + 4px);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -41,8 +46,9 @@
 }
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* 字体随包打进来（@fontsource），桌面端离线也一致；中文回落到各平台系统黑体 */
+  --font-sans: "Geist Variable", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, "Microsoft YaHei UI", monospace;
 
   --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   --animate-shiny-text: shiny-text 8s infinite;
@@ -119,137 +125,153 @@
     }
   }
 
+  /*
+   * 配色方向「石墨 + 信号琥珀」：一套暖灰中性色（色相 30，饱和度 ≤ 6%），
+   * primary 为高对比中性色（按钮黑白反相），唯一强调色 signal 只给
+   * “智能体在运行 / 需要注意 / 键盘焦点”这类状态。不再使用蓝色作为主色。
+   */
   [data-theme="dark"] {
-    /* 默认：经典蓝灰暗黑 (VS Code Modern Dark) */
-    --background: 222 26% 7%;
-    --foreground: 214 22% 92%;
-    --card: 222 22% 10%;
-    --card-foreground: 214 22% 92%;
-    --popover: 222 22% 11%;
-    --popover-foreground: 214 22% 92%;
-    --primary: 213 76% 62%;
-    --primary-foreground: 222 26% 8%;
-    --secondary: 222 16% 15%;
-    --secondary-foreground: 214 18% 86%;
-    --muted: 222 16% 12%;
-    --muted-foreground: 218 13% 60%;
-    --accent: 222 16% 15%;
-    --accent-foreground: 214 18% 86%;
-    --success: 160 42% 42%;
-    --success-foreground: 222 26% 8%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 222 26% 8%;
-    --destructive: 0 60% 55%;
-    --destructive-foreground: 214 22% 94%;
-    --border: 222 14% 17%;
-    --input: 222 14% 17%;
-    --ring: 213 76% 62%;
-    --radius: 0.5rem;
+    /* 深色（默认）：暖石墨 */
+    --background: 30 4% 7.5%;
+    --foreground: 40 8% 90%;
+    --card: 30 4% 10%;
+    --card-foreground: 40 8% 90%;
+    --popover: 30 4% 11%;
+    --popover-foreground: 40 8% 90%;
+    --primary: 40 10% 91%;
+    --primary-foreground: 30 5% 9%;
+    --secondary: 30 4% 14%;
+    --secondary-foreground: 40 6% 86%;
+    --muted: 30 4% 12.5%;
+    --muted-foreground: 35 5% 58%;
+    --accent: 30 4% 15%;
+    --accent-foreground: 40 6% 88%;
+    --success: 145 30% 50%;
+    --success-foreground: 30 5% 9%;
+    --warning: 36 78% 58%;
+    --warning-foreground: 30 5% 9%;
+    --destructive: 4 62% 58%;
+    --destructive-foreground: 40 8% 96%;
+    --border: 30 4% 16.5%;
+    --input: 30 4% 19%;
+    --ring: 36 70% 58%;
+    --signal: 36 78% 58%;
+    --sidebar: 30 4% 6.5%;
+    --radius: 0.375rem;
 
-    --titlebar-bg: 222 28% 6%;
-    --titlebar-border: 222 14% 14%;
+    --titlebar-bg: 30 4% 5.5%;
+    --titlebar-border: 30 4% 13%;
   }
 
   [data-theme="oled"] {
-    /* 极黑深邃 OLED Pitch Black (纯黑高对比) */
-    --background: 222 30% 3%;
-    --foreground: 214 22% 94%;
-    --card: 222 25% 6%;
-    --card-foreground: 214 22% 94%;
-    --popover: 222 25% 6%;
-    --popover-foreground: 214 22% 94%;
-    --primary: 213 85% 64%;
-    --primary-foreground: 222 30% 4%;
-    --secondary: 222 20% 10%;
-    --secondary-foreground: 214 18% 88%;
-    --muted: 222 20% 9%;
-    --muted-foreground: 218 13% 60%;
-    --accent: 222 20% 11%;
-    --accent-foreground: 214 18% 88%;
-    --success: 160 50% 45%;
-    --success-foreground: 222 30% 4%;
-    --warning: 38 95% 52%;
-    --warning-foreground: 222 30% 4%;
-    --destructive: 0 65% 58%;
-    --destructive-foreground: 214 22% 94%;
-    --border: 222 18% 13%;
-    --input: 222 18% 13%;
-    --ring: 213 85% 64%;
-    --radius: 0.5rem;
+    /* 纯黑：留一点暖色，避免 #000 死黑 */
+    --background: 30 3% 3%;
+    --foreground: 40 8% 92%;
+    --card: 30 3% 6%;
+    --card-foreground: 40 8% 92%;
+    --popover: 30 3% 7%;
+    --popover-foreground: 40 8% 92%;
+    --primary: 40 10% 93%;
+    --primary-foreground: 30 3% 4%;
+    --secondary: 30 3% 10%;
+    --secondary-foreground: 40 6% 88%;
+    --muted: 30 3% 8.5%;
+    --muted-foreground: 35 5% 58%;
+    --accent: 30 3% 11%;
+    --accent-foreground: 40 6% 90%;
+    --success: 145 32% 50%;
+    --success-foreground: 30 3% 4%;
+    --warning: 36 80% 58%;
+    --warning-foreground: 30 3% 4%;
+    --destructive: 4 64% 60%;
+    --destructive-foreground: 40 8% 96%;
+    --border: 30 3% 12.5%;
+    --input: 30 3% 15%;
+    --ring: 36 72% 58%;
+    --signal: 36 80% 58%;
+    --sidebar: 30 3% 2.5%;
+    --radius: 0.375rem;
 
-    --titlebar-bg: 222 35% 2%;
-    --titlebar-border: 222 18% 10%;
+    --titlebar-bg: 30 3% 2%;
+    --titlebar-border: 30 3% 10%;
   }
 
   [data-theme="dim"] {
-    /* 柔和暗色 Charcoal Dim (低对比舒适护眼) */
-    --background: 222 18% 13%;
-    --foreground: 214 20% 90%;
-    --card: 222 16% 17%;
-    --card-foreground: 214 20% 90%;
-    --popover: 222 16% 18%;
-    --popover-foreground: 214 20% 90%;
-    --primary: 213 70% 64%;
-    --primary-foreground: 222 18% 12%;
-    --secondary: 222 14% 22%;
-    --secondary-foreground: 214 16% 84%;
-    --muted: 222 14% 20%;
-    --muted-foreground: 218 12% 64%;
-    --accent: 222 14% 22%;
-    --accent-foreground: 214 16% 84%;
-    --success: 160 40% 46%;
-    --success-foreground: 222 18% 12%;
-    --warning: 38 85% 52%;
-    --warning-foreground: 222 18% 12%;
-    --destructive: 0 55% 58%;
-    --destructive-foreground: 214 20% 92%;
-    --border: 222 12% 24%;
-    --input: 222 12% 24%;
-    --ring: 213 70% 64%;
-    --radius: 0.5rem;
+    /* 暗灰：低对比，长时间使用 */
+    --background: 30 3% 13%;
+    --foreground: 40 6% 88%;
+    --card: 30 3% 16%;
+    --card-foreground: 40 6% 88%;
+    --popover: 30 3% 17%;
+    --popover-foreground: 40 6% 88%;
+    --primary: 40 8% 88%;
+    --primary-foreground: 30 3% 12%;
+    --secondary: 30 3% 20%;
+    --secondary-foreground: 40 5% 84%;
+    --muted: 30 3% 18%;
+    --muted-foreground: 35 4% 62%;
+    --accent: 30 3% 21%;
+    --accent-foreground: 40 5% 86%;
+    --success: 145 28% 52%;
+    --success-foreground: 30 3% 12%;
+    --warning: 36 70% 60%;
+    --warning-foreground: 30 3% 12%;
+    --destructive: 4 55% 60%;
+    --destructive-foreground: 40 6% 94%;
+    --border: 30 3% 22%;
+    --input: 30 3% 25%;
+    --ring: 36 64% 60%;
+    --signal: 36 70% 60%;
+    --sidebar: 30 3% 11.5%;
+    --radius: 0.375rem;
 
-    --titlebar-bg: 222 18% 11%;
-    --titlebar-border: 222 12% 20%;
+    --titlebar-bg: 30 3% 10.5%;
+    --titlebar-border: 30 3% 19%;
   }
 
   [data-theme="light"] {
-    /* 清爽明亮 Light Daylight (透亮白日模式) */
-    --background: 214 32% 98%;
-    --foreground: 222 47% 11%;
+    /* 浅色：暖白纸面，不用纯白大底 */
+    --background: 40 14% 97.5%;
+    --foreground: 30 8% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 30 8% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 213 82% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 210 20% 93%;
-    --secondary-foreground: 222 47% 15%;
-    --muted: 210 20% 92%;
-    --muted-foreground: 215 16% 45%;
-    --accent: 210 20% 92%;
-    --accent-foreground: 222 47% 15%;
-    --success: 160 55% 38%;
+    --popover-foreground: 30 8% 12%;
+    --primary: 30 8% 13%;
+    --primary-foreground: 40 14% 98%;
+    --secondary: 40 9% 93%;
+    --secondary-foreground: 30 8% 16%;
+    --muted: 40 9% 94%;
+    --muted-foreground: 30 5% 40%;
+    --accent: 40 9% 91.5%;
+    --accent-foreground: 30 8% 16%;
+    --success: 145 45% 32%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 95% 42%;
+    --warning: 32 88% 40%;
     --warning-foreground: 0 0% 100%;
-    --destructive: 0 65% 52%;
+    --destructive: 4 68% 48%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 20% 86%;
-    --input: 214 20% 86%;
-    --ring: 213 82% 50%;
-    --radius: 0.5rem;
+    --border: 40 7% 87%;
+    --input: 40 7% 83%;
+    --ring: 32 88% 42%;
+    --signal: 32 88% 42%;
+    --sidebar: 40 12% 95.5%;
+    --radius: 0.375rem;
 
-    --titlebar-bg: 0 0% 100%;
-    --titlebar-border: 214 20% 88%;
+    --titlebar-bg: 40 12% 94.5%;
+    --titlebar-border: 40 7% 87%;
   }
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
 }
 
-code, pre {
-  font-family: 'JetBrains Mono', monospace;
+code, pre, kbd, samp {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Custom modern scrollbars */

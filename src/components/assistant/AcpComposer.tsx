@@ -14,9 +14,8 @@ import {
   Trash2,
   X,
   ChevronDown,
-  ArrowRight,
+  ArrowUp,
   Laptop,
-  Mic,
   FolderOpen,
   FileDiff,
   Terminal,
@@ -347,7 +346,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
       if (p.sessionLoading) {
         return (
           <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground" title="正在创建会话以加载可用模型">
-            <Cpu className="w-3.5 h-3.5 text-primary animate-pulse shrink-0" />
+            <Cpu className="w-3.5 h-3.5 text-signal animate-pulse shrink-0" />
             <AnimatedShinyText className="text-[11px]">模型加载中…</AnimatedShinyText>
           </span>
         );
@@ -434,24 +433,24 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
 
         <ComposerPrimitive.Root>
           <div
-            className={`relative flex flex-col rounded-2xl border bg-card shadow-xs transition-all ${
+            className={`relative flex flex-col rounded-xl border bg-card transition-colors ${
               dragOver
-                ? "border-primary border-dashed ring-1 ring-primary/20"
+                ? "border-ring border-dashed"
                 : canCancel
-                ? "border-primary/50"
-                : "border-border hover:border-border/80 focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-ring/20"
+                ? "border-signal/60"
+                : "border-input focus-within:border-ring/70"
             }`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer?.files); }}
           >
             {dragOver && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-muted/80 text-xs text-primary pointer-events-none">
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-muted/90 text-xs text-foreground pointer-events-none">
                 松开以添加文件 / 图片附件
               </div>
             )}
             {slashOpen && (
-              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-border bg-popover shadow-lg overflow-hidden z-20">
+              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-lg border border-border bg-popover shadow-lg overflow-hidden z-20">
                 {filtered.slice(0, 8).map((c, i) => (
                   <div key={c.name} onClick={() => applyCommand(c.name)} className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs ${i === slashIdx ? "bg-muted text-foreground font-medium" : "text-muted-foreground"}`}>
                     <Command className="w-3 h-3 text-muted-foreground" />
@@ -462,7 +461,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
               </div>
             )}
             {mentionOpen && (
-              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-xl border border-border bg-popover shadow-lg overflow-hidden z-20">
+              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-lg border border-border bg-popover shadow-lg overflow-hidden z-20">
                 {!p.currentWorkspace ? (
                   <div className="px-3 py-2 text-xs text-muted-foreground">先选择工作区，才能引用其中的文件</div>
                 ) : mentionLoading && mentionItems.length === 0 ? (
@@ -489,8 +488,8 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
               rows={1}
               onKeyDown={handleInputKeyDown}
               onPaste={handlePaste}
-              placeholder={p.isStreaming ? `${p.agentTitle} 正在响应中…可继续编辑，发送将排队；或点插队立即打断` : `Ask anything, @ to mention, / for actions (随便问点什么)`}
-              className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none max-h-48 min-h-[46px]"
+              placeholder={p.isStreaming ? `${p.agentTitle} 正在响应中…可继续编辑，发送将排队；或点插队立即打断` : `给 ${p.agentTitle} 描述任务，@ 引用文件，/ 调用命令`}
+              className="w-full resize-none bg-transparent px-3.5 pt-3 pb-1.5 text-sm leading-6 text-foreground placeholder:text-muted-foreground/80 focus:outline-none max-h-48 min-h-[48px]"
             />
             <div className="flex items-center justify-between px-3 pb-2 pt-1 text-xs gap-2">
               {/* Left actions: + Attachment, Models, Thinking, Settings */}
@@ -500,15 +499,17 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                   type="button"
                   onClick={() => fileRef.current?.click()}
                   title={p.supportImage ? "附加文件或图片（可拖拽 / 粘贴）" : "附加文本文件"}
-                  className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors text-base"
+                  aria-label="附加文件"
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
-                  +
+                  <Paperclip className="w-3.5 h-3.5" />
                 </button>
                 <button
                   type="button"
                   onClick={() => aui.composer.setText("/" + composerText.trimStart())}
-                  title="唤出 Slash 快捷命令菜单"
-                  className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-mono font-bold text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+                  title="打开命令菜单"
+                  aria-label="打开命令菜单"
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-[13px] font-mono text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
                   /
                 </button>
@@ -532,7 +533,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                     )}
                     {permOpt ? (
                       <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
-                        {renderSelect(permOpt, <ShieldCheck className="w-3 h-3 text-warning shrink-0" />)}
+                        {renderSelect(permOpt, <ShieldCheck className="w-3 h-3 text-muted-foreground shrink-0" />)}
                       </div>
                     ) : muted("权限：—", "该 Agent 未提供权限配置")}
                     {otherOpts.map((opt) =>
@@ -555,22 +556,15 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                 )}
               </div>
 
-              {/* Right actions: Mic, Clear, and Send Arrow */}
+              {/* Right actions: Clear and Send */}
               <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  title="语音输入 / 辅助"
-                  className="p-1 rounded-md text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
-                >
-                  <Mic className="w-3.5 h-3.5" />
-                </button>
-
                 <button
                   type="button"
                   onClick={p.onClear}
                   disabled={p.isStreaming}
                   title="清空聊天记录"
-                  className="p-1 rounded-md text-muted-foreground/60 hover:text-destructive hover:bg-muted/50 transition-colors disabled:opacity-40"
+                  aria-label="清空聊天记录"
+                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-accent transition-colors disabled:opacity-40"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -582,7 +576,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                         type="button"
                         onClick={handleSteer}
                         title="插队发送：中断当前生成并立即发送（排队中的消息随后继续）"
-                        className="h-7 px-2.5 rounded-full border border-warning/50 text-warning hover:bg-warning/10 flex items-center gap-1 text-xs font-medium cursor-pointer transition-colors"
+                        className="h-7 px-2.5 rounded-md border border-signal/50 text-signal hover:bg-signal/10 flex items-center gap-1 text-xs font-medium cursor-pointer transition-colors"
                       >
                         <Zap className="w-3 h-3" />
                         <span>插队</span>
@@ -592,7 +586,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                       <button
                         type="button"
                         title="停止生成"
-                        className="h-7 px-2.5 rounded-full bg-destructive text-destructive-foreground hover:opacity-90 flex items-center gap-1 text-xs font-medium cursor-pointer"
+                        className="h-7 px-2.5 rounded-md border border-border bg-secondary text-foreground hover:bg-accent flex items-center gap-1.5 text-xs font-medium cursor-pointer"
                       >
                         <Square className="w-3 h-3 fill-current" />
                         <span>停止</span>
@@ -605,13 +599,13 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                     onClick={handleSendClick}
                     disabled={!canSendAny || (p.isStreaming && !canSendText)}
                     title={p.isStreaming ? "发送（将在当前生成结束后排队执行）" : "发送消息"}
-                    className={`h-7 w-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                    className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
                       canSendText || (!p.isStreaming && canSendAny)
-                        ? "bg-foreground text-background hover:opacity-90 shadow-xs"
-                        : "bg-muted text-muted-foreground/50 opacity-60 cursor-not-allowed"
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                        : "bg-muted text-muted-foreground/60 cursor-not-allowed"
                     }`}
                   >
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <ArrowUp className="w-4 h-4" />
                     <span className="sr-only">发送</span>
                   </button>
                 )}
@@ -626,15 +620,15 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
             <button
               type="button"
               onClick={() => setLocalMenuOpen(!localMenuOpen)}
-              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/40 hover:bg-muted border border-border/50 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+              className="inline-flex items-center gap-1.5 h-6 px-1.5 rounded-md hover:bg-accent text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
             >
-              <Laptop className="w-3 h-3 text-muted-foreground/80" />
-              <span>Local</span>
+              <Laptop className="w-3 h-3" />
+              <span>本机</span>
               <ChevronDown className="w-2.5 h-2.5 opacity-60" />
             </button>
 
             {localMenuOpen && (
-              <div className="absolute left-0 bottom-full mb-1.5 w-72 p-1.5 rounded-xl border border-border bg-popover shadow-xl text-xs z-50 animate-in fade-in-50 zoom-in-95 duration-100 space-y-1">
+              <div className="absolute left-0 bottom-full mb-1.5 w-72 p-1 rounded-lg border border-border bg-popover shadow-lg text-xs z-50 space-y-1">
                 {/* Current Workspace Header */}
                 <div className="px-2 py-1.5 border-b border-border/50">
                   <div className="flex items-center justify-between">
@@ -739,14 +733,14 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
 
                 {/* Environment Status info */}
                 <div className="px-2 py-1.5 pt-1 border-t border-border/50 text-[10px] text-muted-foreground/80 flex items-center justify-between">
-                  <span>运行目标: 本地主机 (Local)</span>
+                  <span>运行在本机</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-success" />
                 </div>
               </div>
             )}
           </div>
 
-          <div className="text-[10px] font-mono text-muted-foreground/50 hidden sm:inline">
+          <div className="text-[11px] font-mono text-muted-foreground/70 hidden sm:inline">
             {p.isStreaming ? "Enter 排队 · 插队立即打断 · Shift+Enter 换行" : "Enter 发送 · Shift+Enter 换行 · / 命令"}
           </div>
         </div>

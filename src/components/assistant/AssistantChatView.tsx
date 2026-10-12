@@ -10,6 +10,7 @@ import {
 import {
   ArrowDown,
   ArrowRight,
+  CornerDownLeft,
   Brain,
   Check,
   ChevronDown,
@@ -357,24 +358,24 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = ({ t
 
 const SUGGESTIONS = [
   {
-    title: "查看可用命令",
+    title: "梳理这个仓库的结构",
+    prompt: "请阅读当前工作区，说明关键目录和模块各自负责什么、入口在哪里、模块之间怎么调用。",
+    hint: "只读",
+  },
+  {
+    title: "审查未提交的改动",
+    prompt: "请查看当前工作区未提交的改动（git diff），指出可能的 bug、边界情况和缺少的测试。",
+    hint: "git diff",
+  },
+  {
+    title: "为未提交的改动补测试",
+    prompt: "请为当前工作区未提交的改动补充单元测试，并运行测试确认通过。",
+    hint: "会写文件",
+  },
+  {
+    title: "查看智能体状态与额度",
     prompt: "/status",
-    desc: "调用 Agent 广播的 slash 命令查看状态与配额",
-  },
-  {
-    title: "解释当前目录工程结构",
-    prompt: "请简要分析当前项目目录下有哪些关键文件和模块，架构是如何组织的？",
-    desc: "使用 Agent 读取并解析本地文件系统",
-  },
-  {
-    title: "写一个 ACP 客户端测试用例",
-    prompt: "请使用 TypeScript 写一个轻量级的 ACP stdio client 示例代码",
-    desc: "展示 ACP JSON-RPC 2.0 握手与消息订阅实现",
-  },
-  {
-    title: "设计一个分布式缓存方案 (Plan 模式)",
-    prompt: "请为一个高并发多节点应用设计一个基于 Redis 和内存二级缓存的完整实施方案",
-    desc: "启动规划与推理分析",
+    hint: "/status",
   },
 ];
 
@@ -386,34 +387,34 @@ const AssistantWelcome: React.FC<{
   sessionError?: string | null;
   sessionLoading?: boolean;
   onEnsureSession?: () => void;
-}> = ({ agentName, onSelectSuggestion, connected, sessionId, sessionError, sessionLoading, onEnsureSession }) => (
-  <div className="max-w-2xl mx-auto py-10 md:py-16 space-y-6 animate-in fade-in duration-200">
-    <div className="text-center space-y-1.5 select-none">
-      <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-muted/80 border border-border text-foreground mb-1">
-        <Bot className="w-5 h-5 text-primary" />
-      </div>
-      <h2 className="text-xl font-semibold text-foreground tracking-tight">
+  cwd?: string | null;
+}> = ({ agentName, onSelectSuggestion, connected, sessionId, sessionError, sessionLoading, onEnsureSession, cwd }) => (
+  <div className="max-w-3xl mx-auto pt-[12vh] pb-8 px-1 space-y-6">
+    <div className="space-y-1.5 select-none">
+      <h2 className="text-[22px] leading-tight font-semibold text-foreground tracking-[-0.01em]">
         {agentName}
       </h2>
-      <p className="text-xs text-muted-foreground max-w-md mx-auto leading-normal">
-        Agent Client Protocol (ACP) 工作台 · 对话、代码变更、文件及命令执行
-      </p>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono min-w-0">
+        <span
+          className={cn(
+            "w-1.5 h-1.5 rounded-full shrink-0",
+            connected ? "bg-success" : "bg-muted-foreground/50",
+          )}
+        />
+        <span className="shrink-0">{connected ? "已连接" : "未连接"}</span>
+        <span className="text-border">/</span>
+        <span className="truncate" title={cwd || undefined}>{cwd || "未选择工作区"}</span>
+      </div>
     </div>
 
     {connected && !sessionId && (
       <div
         className={cn(
-          "mx-auto max-w-md rounded-lg border px-3.5 py-2.5 text-xs",
+          "rounded-md border px-3 py-2 text-xs",
           sessionError ? "border-warning/50 bg-warning/10" : "border-border bg-card",
         )}
       >
         <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "w-2 h-2 rounded-full shrink-0",
-              sessionLoading ? "bg-primary animate-pulse" : sessionError ? "bg-warning" : "bg-muted-foreground",
-            )}
-          />
           {sessionLoading ? (
             <AnimatedShinyText className="text-xs">正在建立会话，模型列表马上就来…</AnimatedShinyText>
           ) : sessionError ? (
@@ -425,7 +426,7 @@ const AssistantWelcome: React.FC<{
             <button
               type="button"
               onClick={() => onEnsureSession?.()}
-              className="ml-auto px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-all shrink-0"
+              className="ml-auto h-6 px-2 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:bg-primary/90 transition-colors shrink-0"
             >
               {sessionError ? "重试" : "建立会话"}
             </button>
@@ -434,19 +435,23 @@ const AssistantWelcome: React.FC<{
       </div>
     )}
 
-    <div className="flex flex-wrap items-center justify-center gap-2 pt-2 max-w-xl mx-auto">
-      {SUGGESTIONS.map((item, idx) => (
-        <button
-          key={idx}
-          type="button"
-          onClick={() => onSelectSuggestion(item.prompt)}
-          className="group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-all duration-150 cursor-pointer shadow-xs"
-          title={item.desc}
-        >
-          <span>{item.title}</span>
-          <ArrowRight className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-transform group-hover:translate-x-0.5" />
-        </button>
-      ))}
+    <div className="space-y-1.5">
+      <div className="text-[11px] font-medium text-muted-foreground px-1">常用任务</div>
+      <div className="rounded-lg border border-border divide-y divide-border overflow-hidden">
+        {SUGGESTIONS.map((item, idx) => (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => onSelectSuggestion(item.prompt)}
+            className="group w-full flex items-center gap-3 px-3 h-10 text-left text-[13px] text-foreground bg-card/40 hover:bg-accent transition-colors cursor-pointer"
+            title={item.prompt}
+          >
+            <span className="flex-1 truncate">{item.title}</span>
+            <span className="font-mono text-[11px] text-muted-foreground shrink-0">{item.hint}</span>
+            <CornerDownLeft className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          </button>
+        ))}
+      </div>
     </div>
   </div>
 );
@@ -467,7 +472,7 @@ const UserMessageView: React.FC = () => {
   return (
     <MessagePrimitive.Root className="flex gap-3 justify-end items-start group animate-fade-slide-in">
       <div className="relative max-w-[80%]">
-        <div className="rounded-2xl rounded-tr-xs bg-secondary text-secondary-foreground border border-border/70 px-4 py-2.5 shadow-xs break-words whitespace-pre-wrap text-sm leading-relaxed font-sans">
+        <div className="rounded-lg bg-secondary text-secondary-foreground px-3.5 py-2 break-words whitespace-pre-wrap text-sm leading-relaxed font-sans">
           <MessagePrimitive.Parts components={{ Text: AcpMarkdownText }} />
           {/* 底部 meta 单行：常驻挂载，只换透明度，宽高恒定不挤布局 */}
           <div className="flex items-center justify-end gap-0.5 pt-1.5">
@@ -610,7 +615,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
       </div>
       <div className="relative overflow-hidden max-w-[85%] rounded-lg p-4 sm:p-5 space-y-3 shadow-xs bg-card border border-border text-foreground">
         {running && (
-          <span className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-linear-to-r from-transparent via-primary/80 to-transparent animate-pulse" />
+          <span className="pointer-events-none absolute inset-y-0 left-0 w-[2px] bg-signal animate-pulse" />
         )}
         <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">
           <div className="flex items-center gap-2">
@@ -802,6 +807,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
             sessionError={sessionError}
             sessionLoading={sessionLoading}
             onEnsureSession={onEnsureSession}
+            cwd={cwd}
           />
         </ThreadPrimitive.Empty>
         <div className="max-w-4xl mx-auto space-y-6">
@@ -813,7 +819,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
         <ThreadPrimitive.ViewportFooter className="max-w-4xl mx-auto sticky bottom-0 z-10 flex justify-center pointer-events-none h-0 overflow-visible">
           <ThreadPrimitive.ScrollToBottom asChild>
             <button
-              className="absolute bottom-3 pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card/90 backdrop-blur text-xs text-muted-foreground hover:text-primary hover:border-primary/40 shadow-md transition-colors disabled:invisible"
+              className="absolute bottom-3 pointer-events-auto flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border bg-popover text-xs text-muted-foreground hover:text-foreground shadow-md transition-colors disabled:invisible"
               title="回到底部"
             >
               <ArrowDown className="w-3.5 h-3.5" />

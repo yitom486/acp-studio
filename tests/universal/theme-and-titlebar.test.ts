@@ -51,7 +51,7 @@ describe("Theme Store & Window TitleBar & StudioHeader", () => {
     const html = renderToString(React.createElement(TitleBar));
 
     expect(html).toContain("ACP Studio");
-    expect(html).toContain("经典暗黑");
+    expect(html).toContain("深色");
     // Ensure application action buttons are NOT in the window title bar
     expect(html).not.toContain("变更");
     expect(html).not.toContain("终端");

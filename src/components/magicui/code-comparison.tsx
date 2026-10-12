@@ -286,7 +286,7 @@ export function CodeComparison({
           style={{ "--highlight-color": highlightColor } as React.CSSProperties}
           className={cn(
             "bg-background h-full w-full overflow-auto font-mono text-xs",
-            "[&>pre]:h-full [&>pre]:w-screen! [&>pre]:py-2",
+            "[&>pre]:h-full [&>pre]:w-screen! [&>pre]:py-2 [&>pre]:bg-transparent!",
             "[&>pre>code]:inline-block! [&>pre>code]:w-full!",
             "[&>pre>code>span]:inline-block! [&>pre>code>span]:w-full [&>pre>code>span]:px-4 [&>pre>code>span]:py-0.5",
             "[&>pre>code>.highlighted]:inline-block [&>pre>code>.highlighted]:w-full [&>pre>code>.highlighted]:bg-(--highlight-color)!",
@@ -323,7 +323,7 @@ export function CodeComparison({
             <div className="border-border bg-muted text-foreground flex items-center border-b p-2 text-sm">
               <FileIcon className="mr-2 h-4 w-4" />
               {filename}
-              <span className="ml-auto hidden md:block">before</span>
+              <span className="ml-auto hidden md:block text-xs text-muted-foreground">改动前</span>
             </div>
             {renderCode(beforeCode, highlightedBefore)}
           </div>
@@ -338,13 +338,10 @@ export function CodeComparison({
             <div className="border-border bg-muted text-foreground flex items-center border-b p-2 text-sm">
               <FileIcon className="mr-2 h-4 w-4" />
               {filename}
-              <span className="ml-auto hidden md:block">after</span>
+              <span className="ml-auto hidden md:block text-xs text-muted-foreground">改动后</span>
             </div>
             {renderCode(afterCode, highlightedAfter)}
           </div>
-        </div>
-        <div className="border-border bg-muted text-foreground absolute top-1/2 left-1/2 hidden h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md border text-xs md:flex">
-          VS
         </div>
       </div>
     </div>
