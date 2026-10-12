@@ -35,7 +35,7 @@
   --color-sidebar: hsl(var(--sidebar));
   --color-signal: hsl(var(--signal));
 
-  /* 圆角按层级：容器 10px > 控件 6px > 内嵌 4px > 标签 2px，不再全局统一 */
+  /* 圆角按层级（--radius 0.5rem，取自 vercel）：容器 12px > 控件 8px > 内嵌 6px > 标签 4px，不再全局统一 */
   --radius-xl: calc(var(--radius) + 4px);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
@@ -113,6 +113,19 @@
     transition-timing-function: var(--theme-transition-timing);
   }
 
+  /*
+   * Tailwind v4 的裸 `border` 默认是 currentColor（--default-border-color 并不会被
+   * preflight 读取），导致 outline 徽标等出现黑/白粗框。按官方 v3→v4 兼容写法
+   * 把默认边框色绑回 --border；显式的 border-* 颜色类优先级更高，不受影响。
+   */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: hsl(var(--border));
+  }
+
   /* 尊重系统动效减弱偏好 (Accessibility) */
   @media (prefers-reduced-motion: reduce) {
     :root {
@@ -126,140 +139,144 @@
   }
 
   /*
-   * 配色方向「石墨 + 信号琥珀」：一套暖灰中性色（色相 30，饱和度 ≤ 6%），
-   * primary 为高对比中性色（按钮黑白反相），唯一强调色 signal 只给
-   * “智能体在运行 / 需要注意 / 键盘焦点”这类状态。不再使用蓝色作为主色。
+   * 配色来源：tweakcn「vercel」主题（https://tweakcn.com ，jnsahaj/tweakcn，Apache-2.0），
+   * 由 OKLCH 换算为 HSL 通道。纯中性灰阶（饱和度 0），primary 为黑白反相按钮。
+   * 唯一强调色 signal 取 vercel 自带的琥珀色（chart-1，oklch(0.81 0.17 75.35)），
+   * 只给“键盘焦点 / 智能体运行中 / 当前会话”；浅色下压暗到 32%，作文字用也满足 AA。
+   * 改动：深色底从纯黑抬到 7%，表面/边框同步上移；纯黑档沿用 vercel 原值；
+   * 暗灰档为自定义的 15% 中灰；success/warning 为补充的语义色（vercel 未定义）。
+   * 正文与 muted 文字在四档主题的 background/card/muted 上均满足 WCAG AA（≥4.5:1）。
    */
   [data-theme="dark"] {
-    /* 深色（默认）：暖石墨 */
-    --background: 30 4% 7.5%;
-    --foreground: 40 8% 90%;
-    --card: 30 4% 10%;
-    --card-foreground: 40 8% 90%;
-    --popover: 30 4% 11%;
-    --popover-foreground: 40 8% 90%;
-    --primary: 40 10% 91%;
-    --primary-foreground: 30 5% 9%;
-    --secondary: 30 4% 14%;
-    --secondary-foreground: 40 6% 86%;
-    --muted: 30 4% 12.5%;
-    --muted-foreground: 35 5% 58%;
-    --accent: 30 4% 15%;
-    --accent-foreground: 40 6% 88%;
-    --success: 145 30% 50%;
-    --success-foreground: 30 5% 9%;
-    --warning: 36 78% 58%;
-    --warning-foreground: 30 5% 9%;
-    --destructive: 4 62% 58%;
-    --destructive-foreground: 40 8% 96%;
-    --border: 30 4% 16.5%;
-    --input: 30 4% 19%;
-    --ring: 36 70% 58%;
-    --signal: 36 78% 58%;
-    --sidebar: 30 4% 6.5%;
-    --radius: 0.375rem;
+    /* 深色（默认）：vercel dark，底色抬到 7%，长时间看不刺眼 */
+    --background: 0 0% 7%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 9.5%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 96%;
+    --primary-foreground: 0 0% 7%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 13%;
+    --muted-foreground: 0 0% 64.5%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 98%;
+    --success: 142 55% 50%;
+    --success-foreground: 0 0% 7%;
+    --warning: 40.7 100% 50.9%;
+    --warning-foreground: 0 0% 7%;
+    --destructive: 359.9 100% 67.8%;
+    --destructive-foreground: 0 0% 7%;
+    --border: 0 0% 17%;
+    --input: 0 0% 22%;
+    --ring: 40.7 100% 50.9%;
+    --signal: 40.7 100% 50.9%;
+    --sidebar: 0 0% 9%;
+    --radius: 0.5rem;
 
-    --titlebar-bg: 30 4% 5.5%;
-    --titlebar-border: 30 4% 13%;
+    --titlebar-bg: 0 0% 9%;
+    --titlebar-border: 0 0% 15%;
   }
 
   [data-theme="oled"] {
-    /* 纯黑：留一点暖色，避免 #000 死黑 */
-    --background: 30 3% 3%;
-    --foreground: 40 8% 92%;
-    --card: 30 3% 6%;
-    --card-foreground: 40 8% 92%;
-    --popover: 30 3% 7%;
-    --popover-foreground: 40 8% 92%;
-    --primary: 40 10% 93%;
-    --primary-foreground: 30 3% 4%;
-    --secondary: 30 3% 10%;
-    --secondary-foreground: 40 6% 88%;
-    --muted: 30 3% 8.5%;
-    --muted-foreground: 35 5% 58%;
-    --accent: 30 3% 11%;
-    --accent-foreground: 40 6% 90%;
-    --success: 145 32% 50%;
-    --success-foreground: 30 3% 4%;
-    --warning: 36 80% 58%;
-    --warning-foreground: 30 3% 4%;
-    --destructive: 4 64% 60%;
-    --destructive-foreground: 40 8% 96%;
-    --border: 30 3% 12.5%;
-    --input: 30 3% 15%;
-    --ring: 36 72% 58%;
-    --signal: 36 80% 58%;
-    --sidebar: 30 3% 2.5%;
-    --radius: 0.375rem;
+    /* 纯黑：vercel dark 原值，#000 底 */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 3.5%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 6.9%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 13.1%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 11.3%;
+    --muted-foreground: 0 0% 64.5%;
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 100%;
+    --success: 142 55% 50%;
+    --success-foreground: 0 0% 0%;
+    --warning: 40.7 100% 50.9%;
+    --warning-foreground: 0 0% 0%;
+    --destructive: 359.9 100% 67.8%;
+    --destructive-foreground: 0 0% 0%;
+    --border: 0 0% 14.1%;
+    --input: 0 0% 19.9%;
+    --ring: 40.7 100% 50.9%;
+    --signal: 40.7 100% 50.9%;
+    --sidebar: 0 0% 3%;
+    --radius: 0.5rem;
 
-    --titlebar-bg: 30 3% 2%;
-    --titlebar-border: 30 3% 10%;
+    --titlebar-bg: 0 0% 3%;
+    --titlebar-border: 0 0% 12%;
   }
 
   [data-theme="dim"] {
-    /* 暗灰：低对比，长时间使用 */
-    --background: 30 3% 13%;
-    --foreground: 40 6% 88%;
-    --card: 30 3% 16%;
-    --card-foreground: 40 6% 88%;
-    --popover: 30 3% 17%;
-    --popover-foreground: 40 6% 88%;
-    --primary: 40 8% 88%;
-    --primary-foreground: 30 3% 12%;
-    --secondary: 30 3% 20%;
-    --secondary-foreground: 40 5% 84%;
-    --muted: 30 3% 18%;
-    --muted-foreground: 35 4% 62%;
-    --accent: 30 3% 21%;
-    --accent-foreground: 40 5% 86%;
-    --success: 145 28% 52%;
-    --success-foreground: 30 3% 12%;
-    --warning: 36 70% 60%;
-    --warning-foreground: 30 3% 12%;
-    --destructive: 4 55% 60%;
-    --destructive-foreground: 40 6% 94%;
-    --border: 30 3% 22%;
-    --input: 30 3% 25%;
-    --ring: 36 64% 60%;
-    --signal: 36 70% 60%;
-    --sidebar: 30 3% 11.5%;
-    --radius: 0.375rem;
+    /* 暗灰：vercel 的中性灰阶整体上移到 15% 底，对比更柔和 */
+    --background: 0 0% 15%;
+    --foreground: 0 0% 92%;
+    --card: 0 0% 17.5%;
+    --card-foreground: 0 0% 92%;
+    --popover: 0 0% 19%;
+    --popover-foreground: 0 0% 92%;
+    --primary: 0 0% 92%;
+    --primary-foreground: 0 0% 14%;
+    --secondary: 0 0% 22%;
+    --secondary-foreground: 0 0% 92%;
+    --muted: 0 0% 20%;
+    --muted-foreground: 0 0% 69%;
+    --accent: 0 0% 25%;
+    --accent-foreground: 0 0% 95%;
+    --success: 142 50% 55%;
+    --success-foreground: 0 0% 14%;
+    --warning: 40.7 95% 55%;
+    --warning-foreground: 0 0% 14%;
+    --destructive: 359.9 90% 70%;
+    --destructive-foreground: 0 0% 14%;
+    --border: 0 0% 24.5%;
+    --input: 0 0% 29%;
+    --ring: 40.7 95% 55%;
+    --signal: 40.7 95% 55%;
+    --sidebar: 0 0% 13%;
+    --radius: 0.5rem;
 
-    --titlebar-bg: 30 3% 10.5%;
-    --titlebar-border: 30 3% 19%;
+    --titlebar-bg: 0 0% 12.5%;
+    --titlebar-border: 0 0% 21%;
   }
 
   [data-theme="light"] {
-    /* 浅色：暖白纸面，不用纯白大底 */
-    --background: 40 14% 97.5%;
-    --foreground: 30 8% 12%;
+    /* 浅色：vercel light，近白底 + 纯白卡片 + 黑色主按钮 */
+    --background: 0 0% 98.7%;
+    --foreground: 0 0% 4%;
     --card: 0 0% 100%;
-    --card-foreground: 30 8% 12%;
+    --card-foreground: 0 0% 4%;
     --popover: 0 0% 100%;
-    --popover-foreground: 30 8% 12%;
-    --primary: 30 8% 13%;
-    --primary-foreground: 40 14% 98%;
-    --secondary: 40 9% 93%;
-    --secondary-foreground: 30 8% 16%;
-    --muted: 40 9% 94%;
-    --muted-foreground: 30 5% 40%;
-    --accent: 40 9% 91.5%;
-    --accent-foreground: 30 8% 16%;
-    --success: 145 45% 32%;
+    --popover-foreground: 0 0% 4%;
+    --primary: 0 0% 4%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 92.1%;
+    --secondary-foreground: 0 0% 4%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 32.3%;
+    --accent: 0 0% 92.1%;
+    --accent-foreground: 0 0% 4%;
+    --success: 142 72% 27%;
     --success-foreground: 0 0% 100%;
-    --warning: 32 88% 40%;
+    --warning: 32 100% 34%;
     --warning-foreground: 0 0% 100%;
-    --destructive: 4 68% 48%;
+    --destructive: 358.4 74.9% 47%;
     --destructive-foreground: 0 0% 100%;
-    --border: 40 7% 87%;
-    --input: 40 7% 83%;
-    --ring: 32 88% 42%;
-    --signal: 32 88% 42%;
-    --sidebar: 40 12% 95.5%;
-    --radius: 0.375rem;
+    --border: 0 0% 89.6%;
+    --input: 0 0% 85%;
+    --ring: 32 100% 32%;
+    --signal: 32 100% 32%;
+    --sidebar: 0 0% 98.7%;
+    --radius: 0.5rem;
 
-    --titlebar-bg: 40 12% 94.5%;
-    --titlebar-border: 40 7% 87%;
+    --titlebar-bg: 0 0% 98.7%;
+    --titlebar-border: 0 0% 89.6%;
   }
 }
 
