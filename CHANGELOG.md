@@ -11,6 +11,10 @@
 
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+
+## [0.1.3] - 2026-10-12
+
+### Added
 - 斜杠命令：无命令时显示“该智能体暂未提供命令”；命令名支持 `:` `.` 等字符；显示参数提示（ACP input.hint）；生成中可浏览（回车只填入不发送）；内置本地命令 /clear /mode /help（标注“本地”，不发给智能体）
 - 工作台可拖拽分栏（侧栏/文件树/编辑器/聊天），布局自动持久化，Ctrl+B / Ctrl+Shift+E 折叠同步
 - 文件树或系统文件拖入输入框：工作区内文件/文件夹转为 @ 引用（文件夹最多 20 个文件），外部文件按大小限制作为附件；@ 引用显示为可删除的标签
@@ -28,11 +32,9 @@
 ### Security
 - 新文件接口与其余网关接口同样强制令牌；路径一律相对工作区解析并经 realpath 校验，`..`、绝对路径、指向工作区外的软链接都拒绝（列目录时这类软链接不可展开）；不能写 / 改 / 删 `.git` 内的文件，不能删除或重命名工作区根；工作区本身仍不能是文件系统根或系统目录。
 - 应用内外链一律交给系统浏览器打开，不再在应用里新开窗口。
-
 ### Fixed
 - 斜杠命令列表在 session/new、load、resume 之后到达时丢失、切换会话后串用：网关按会话缓存 available_commands_update 并随会话响应返回，前端按会话保存
 - CI 中 fs watch SSE 测试偶发失败（读取循环会丢弃已到达的数据块）
-
 
 ## [0.1.2] - 2026-10-12
 
@@ -187,7 +189,8 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.3...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
 [0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
 [0.1.2]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.2
+[0.1.3]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.3
