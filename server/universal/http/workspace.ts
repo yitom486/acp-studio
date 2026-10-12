@@ -3,6 +3,7 @@
  * workspace in the UI) and the read-only file browser used by @-mentions.
  */
 import { Hono, type Context } from "hono";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
@@ -10,6 +11,43 @@ import { dangerousRootReason } from "../security";
 import { json, jsonBody, optStr } from "./shared";
 
 export const workspaceRouter = new Hono();
+
+/**
+ * `wsl -l -q`（UTF-16 解码后）→ 发行版名（纯函数，可测）。
+ * 兼容默认发行版的 `*` / ` (Default)` 后缀，跳过标题行，去重保序。
+ */
+export function parseWslDistros(raw: string): string[] {
+  const out: string[] = [];
+  for (let line of String(raw || "").split("\n")) {
+    line = line
+      .replace(/\0/g, "")
+      .replace(/\r/g, "")
+      .trim()
+      .replace(/\*$/, "")
+      .replace(/\s*\(Default\)$/i, "")
+      .trim();
+    if (!line || /windows subsystem for linux/i.test(line)) continue;
+    if (!out.includes(line)) out.push(line);
+  }
+  return out;
+}
+
+workspaceRouter.get("/wsl-distros", () => {
+  if (process.platform !== "win32") return json({ ok: true, distros: [] as string[] });
+  try {
+    // 注意：wsl.exe 列表输出是 UTF-16，必须 utf16le 解码，否则全是 \0 间隔的乱码。
+    const r = spawnSync("wsl.exe", ["-l", "-q"], {
+      encoding: "utf16le",
+      timeout: 10000,
+      windowsHide: true,
+    });
+    if (r.error) return json({ ok: false, error: `wsl 不可用：${r.error.message || r.error}` }, 500);
+    const distros = parseWslDistros(typeof r.stdout === "string" ? r.stdout : "");
+    return json({ ok: true, distros });
+  } catch (err) {
+    return json({ ok: false, error: (err as Error).message || "获取 WSL 发行版失败" }, 500);
+  }
+});
 
 workspaceRouter.get("/default", () => {
   const cwd = process.cwd();

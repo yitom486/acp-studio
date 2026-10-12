@@ -5,6 +5,7 @@ import { AcpComposer } from "@/components/assistant/AcpComposer";
 import { AssistantChatView } from "@/components/assistant/AssistantChatView";
 import { matchPermToToolCalls } from "@/lib/acp-assistant";
 import { StudioHeader } from "@/components/universal/StudioHeader";
+import { StatusBar } from "@/components/universal/StatusBar";
 import { Sidebar, type SessionItem } from "@/components/universal/Sidebar";
 import { PermissionDialog } from "@/components/universal/PermissionDialog";
 import { ElicitationCard } from "@/components/universal/ElicitationCard";
@@ -447,6 +448,9 @@ export default function App() {
         </div>
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      {/* Layer 3: Bottom StatusBar（VSCode 式：左远程角标 + 右网关/工作区速览） */}
+      <StatusBar />
 
       <Suspense fallback={<LazyModalFallback />}>
         <UniversalAuthModal

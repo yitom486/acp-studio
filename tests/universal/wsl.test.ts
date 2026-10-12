@@ -6,6 +6,7 @@ import {
   execSpawnForCwd,
   gitSpawnForCwd,
 } from "../../server/universal/wsl";
+import { parseWslDistros } from "../../server/universal/http/workspace";
 import { parseWslDistro } from "@/components/universal/TerminalDrawer";
 
 const UNC = "\\\\wsl$\\Ubuntu\\home\\u\\proj";
@@ -67,5 +68,13 @@ describe("wsl paths", () => {
   it("frontend badge parses the same distro (drift guard)", () => {
     expect(parseWslDistro(UNC)).toBe("Ubuntu");
     expect(parseWslDistro("D:\\repo")).toBeNull();
+  });
+
+  it("parses wsl -l -q output (utf16 decoded, default marker, header skip)", () => {
+    expect(parseWslDistros("Ubuntu\r\nDebian\r\n")).toEqual(["Ubuntu", "Debian"]);
+    expect(parseWslDistros("Ubuntu*\r\ndocker-desktop\r\n")).toEqual(["Ubuntu", "docker-desktop"]);
+    expect(parseWslDistros("Ubuntu (Default)\r\n")).toEqual(["Ubuntu"]);
+    expect(parseWslDistros("Windows Subsystem for Linux Distributions:\r\nUbuntu\r\n")).toEqual(["Ubuntu"]);
+    expect(parseWslDistros("")).toEqual([]);
   });
 });

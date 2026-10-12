@@ -122,14 +122,9 @@ export function newPtyId(now: number = Date.now(), rand: number = Math.random())
 
 /**
  * 工作区是否在 WSL 里：是则返回 distro 名，否则 null（纯函数，可测）。
- * 与服务端 `server/universal/wsl.ts::parseWslCwd` 同正则，改一处记得改另一处。
+ * 实现在 `@/lib/wsl-distro`（零依赖，状态栏也用它）；这里 re-export，单测路径不变。
  */
-export function parseWslDistro(cwd: string): string | null {
-  const m = /^(?:\\\\|\/\/)(wsl\$|wsl\.localhost)[\\\/]([^\\\/]+)([\\\/].*)?$/i.exec(
-    String(cwd || "").trim()
-  );
-  return m ? m[2] : null;
-}
+export { parseWslDistro } from "@/lib/wsl-distro";
 
 /** 浮动终端几何（纯函数，可测；组件只负责指针事件接线）。 */
 export interface TerminalGeom {

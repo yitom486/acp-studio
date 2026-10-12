@@ -9,6 +9,7 @@ import {
   apiUrl,
   bootstrapGatewayToken,
   clearGatewayToken,
+  gatewayHost,
   getGatewayBase,
   getGatewayToken,
   isLoopbackBase,
@@ -145,6 +146,12 @@ describe("gateway base (远端/WSL 网关）", () => {
     expect(isLoopbackBase("http://[::1]:4004")).toBe(true);
     expect(isLoopbackBase("http://192.168.1.10:4004")).toBe(false);
     expect(isLoopbackBase("http://example.com")).toBe(false);
+  });
+
+  it("strips the scheme for display (gatewayHost)", () => {
+    expect(gatewayHost("http://127.0.0.1:4004")).toBe("127.0.0.1:4004");
+    expect(gatewayHost("https://example.com")).toBe("example.com");
+    expect(gatewayHost("")).toBe("");
   });
 
   it("puts the custom WS base first for PTY reconnects", () => {

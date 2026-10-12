@@ -412,6 +412,14 @@ export function buildPtyWsUrl(base: string, ptyId: string, cwd: string, cols: nu
   return `${base}/api/universal/terminal/pty?ptyId=${encodeURIComponent(ptyId)}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
 }
 
+/** 本机 WSL 发行版列表（非 Windows 为空；供状态栏远程角标）。 */
+export async function listWslDistros(): Promise<string[]> {
+  const res = await apiFetch("/api/universal/workspace/wsl-distros");
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "获取 WSL 发行版失败");
+  return Array.isArray(data.distros) ? data.distros : [];
+}
+
 export interface WorkspaceValidateResult {
   ok: boolean;
   path?: string;

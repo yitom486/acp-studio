@@ -70,6 +70,11 @@ export function isLoopbackBase(base: string): boolean {
   return h === "localhost" || h === "127.0.0.1" || h === "::1";
 }
 
+/** 基址取 host[:port] 展示用（纯函数，可测）：`http://127.0.0.1:4004` → `127.0.0.1:4004`。 */
+export function gatewayHost(base: string): string {
+  return base.replace(/^https?:\/\//i, "");
+}
+
 /** 相对网关路径拼基址（纯函数，可测）：绝对 URL 原样放行。 */
 export function apiUrl(path: string): string {
   if (!path.startsWith("/")) return path;
