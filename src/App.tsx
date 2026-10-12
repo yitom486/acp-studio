@@ -14,6 +14,7 @@ import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { usePanelRef, useDefaultLayout, type PanelSize } from "react-resizable-panels";
 import { useWorkbenchCommands } from "@/hooks/useWorkbenchCommands";
+import { useSlashCommands } from "@/hooks/useSlashCommands";
 const FileTreePanel = lazy(() => import("@/components/workbench/FileTreePanel"));
 const EditorPane = lazy(() => import("@/components/workbench/EditorPane"));
 import { useStudioStore, useStudioShallow } from "@/stores/useStudioStore";
@@ -189,6 +190,7 @@ export default function App() {
   ensureSessionRef.current = ensureSession;
 
   // 4. Chat turn execution & streaming
+  const { runLocal } = useSlashCommands();
   const {
     abortRef,
     handleSend,
@@ -402,9 +404,9 @@ export default function App() {
             </div>
           )}
 
-          <AcpAssistantProvider onSend={(t) => handleSend(t)} onStop={handleStop}>
+          <AcpAssistantProvider onSend={(t) => { if (!runLocal(t ?? "")) void handleSend(t); }} onStop={handleStop}>
             <AssistantChatView
-              onSelectSuggestion={(p) => handleSend(p)}
+              onSelectSuggestion={(p) => { if (!runLocal(p)) void handleSend(p); }}
               agentName={activeAgent?.title || activeAgent?.name || "Agent"}
               onOpenDiff={(file) => s.setGitChangesOpen(true, file)}
               connected={connected}

@@ -53,6 +53,7 @@ async function maybeSeedDevFixture() {
   if (!import.meta.env.DEV) return;
   const mode = new URLSearchParams(window.location.search).get("fixture");
   if (mode === "math") return seedMathFixture();
+  if (mode === "slash" || mode === "slash-empty" || mode === "slash-streaming") return seedSlashFixture(mode);
   if (mode !== "conversation" && mode !== "approval" && mode !== "stream") return;
   const [{ buildConversationFixture }, { useStudioStore }] = await Promise.all([
     import("@/dev/conversation-fixture"),
@@ -95,6 +96,37 @@ async function seedMathFixture() {
   ] as any);
   st.setStreaming(true);
   console.info("[dev] math fixture loaded");
+}
+
+/**
+ * `?fixture=slash`：模拟智能体推送的 available_commands_update（含 input.hint、带 : . 的命令名）；
+ * `?fixture=slash-empty`：智能体未提供命令（空状态提示 + 本地命令）；
+ * `?fixture=slash-streaming`：生成中浏览命令（回车只填入不发送）。
+ */
+async function seedSlashFixture(mode: string) {
+  const [{ buildConversationFixture }, { useStudioStore }] = await Promise.all([
+    import("@/dev/conversation-fixture"),
+    import("@/stores/useStudioStore"),
+  ]);
+  const fx = buildConversationFixture({ globalPermission: false });
+  const st = useStudioStore.getState();
+  st.setSessionId(`fixture-${mode}`);
+  st.setMessages(fx.messages);
+  st.setModes({ currentModeId: "default", availableModes: [{ id: "default", name: "Default" }, { id: "plan", name: "Plan" }, { id: "acceptEdits", name: "Accept Edits" }] } as never);
+  if (mode !== "slash-empty") {
+    st.setAvailableCommands([
+      { name: "review", description: "审查当前分支的改动", input: { hint: "分支名或 PR 号" } },
+      { name: "review:security", description: "只做安全相关审查" },
+      { name: "init", description: "生成 AGENTS.md 项目说明" },
+      { name: "speckit.plan", description: "按规格生成实施计划", input: { hint: "功能描述" } },
+      { name: "compact", description: "压缩上下文" },
+      { name: "test", description: "运行测试并修复失败", input: { hint: "测试过滤条件" } },
+    ]);
+  } else {
+    st.setAvailableCommands([]);
+  }
+  st.setStreaming(mode === "slash-streaming");
+  console.info("[dev] slash fixture loaded");
 }
 
 /** `?fixture=stream`：把最后一条助手消息逐字“流”出来，用于检查跟随滚动 / 光环 / 淡入。 */

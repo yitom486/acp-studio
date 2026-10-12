@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ComposerPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import {
   Brain,
@@ -32,12 +32,14 @@ import { configCurrentValue, findConfigOption, extractModelThinking, searchWorks
 import { matchMentionToken, applyMentionInsert, buildMentionAttachment, formatFileSize } from "@/lib/mention";
 import { ACP_PATH_MIME, decodeDragRefs, relativeToWorkspace, classifyOutsideFile, collectFolderFiles, stripMentionText, FOLDER_FILE_CAP, OUTSIDE_FILE_MAX, type DragRef } from "@/lib/composer-drop";
 import { fsList } from "@/lib/fs-api";
+import { matchSlashToken, replaceSlashToken, mergeCommands, filterCommands, type SlashCommand } from "@/lib/slash-commands";
 
 export interface AcpComposerProps {
   onSendAttachmentOnly: () => void;
   onClear: () => void;
   isStreaming: boolean;
-  commands: Array<{ name: string; description?: string }>;
+  /** Agent-advertised commands (ACP available_commands_update); local built-ins are merged in here. */
+  commands: SlashCommand[];
   supportImage: boolean;
   attachments: Attachment[];
   setAttachments: (a: Attachment[]) => void;
@@ -168,22 +170,28 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     }
   };
 
-  const token = (() => {
-    const m = composerText.match(/(^|\s)(\/[A-Za-z0-9_-]*)$/);
-    return m ? m[2] : null;
+  const token = matchSlashToken(composerText);
+  const allCommands = useMemo(() => mergeCommands(p.commands), [p.commands]);
+  const filtered = filterCommands(allCommands, token);
+  // Open whenever a `/` token is typed — even with no agent commands (empty-state hint)
+  // and while streaming (browse only; Enter fills in, never sends).
+  const showSlash = !!token;
+  // Argument hint for an already-inserted command: "/name " or "/name partial-arg".
+  const activeHint = (() => {
+    const m = composerText.match(/^\s*\/(\S+)\s([\s\S]*)$/);
+    if (!m) return null;
+    const c = allCommands.find((x) => x.name === m[1]);
+    return c?.hint && !m[2].trim() ? c : null;
   })();
-  const filtered = token ? p.commands.filter((c) => (`/${c.name}`.startsWith(token) || c.name.startsWith(token.slice(1)))) : [];
-  const showSlash = !!token && filtered.length > 0 && !p.isStreaming;
 
   useEffect(() => {
     setSlashIdx(0);
     setSlashOpen(showSlash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, p.commands.length]);
+  }, [token, allCommands.length]);
 
   const applyCommand = (name: string) => {
-    const full = name.startsWith("/") ? name : `/${name}`;
-    aui.composer.setText(composerText.replace(/(^|\s)(\/[A-Za-z0-9_-]*)$/, `$1${full} `));
+    aui.composer.setText(replaceSlashToken(composerText, name));
     setSlashOpen(false);
   };
 
@@ -251,15 +259,33 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
         setSlashIdx((i) => (i - 1 + filtered.length) % filtered.length);
         return;
       }
-      if (e.key === "Tab" && token && token.length > 1) {
+      if (e.key === "Tab") {
         e.preventDefault();
         applyCommand(filtered[slashIdx].name);
         return;
+      }
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+        const sel = filtered[slashIdx];
+        if (token !== `/${sel.name}` || p.isStreaming) {
+          // Fill in the command instead of sending (always while streaming).
+          e.preventDefault();
+          applyCommand(sel.name);
+          return;
+        }
       }
       if (e.key === "Escape") {
         setSlashOpen(false);
         return;
       }
+    }
+    if (slashOpen && e.key === "Escape") {
+      setSlashOpen(false);
+      return;
+    }
+    if (slashOpen && p.isStreaming && e.key === "Enter" && !e.shiftKey) {
+      // Browsing the (empty) menu while streaming must never send.
+      e.preventDefault();
+      return;
     }
     if (mentionOpen && mentionItems.length > 0) {
       if (e.key === "ArrowDown") {
@@ -556,14 +582,45 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
               </div>
             )}
             {slashOpen && (
-              <div className="absolute bottom-full mb-1.5 left-2 right-2 rounded-lg border border-border bg-popover shadow-lg overflow-hidden z-20">
-                {filtered.slice(0, 8).map((c, i) => (
-                  <div key={c.name} onClick={() => applyCommand(c.name)} className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer text-xs ${i === slashIdx ? "bg-muted text-foreground font-medium" : "text-muted-foreground"}`}>
-                    <Command className="w-3 h-3 text-muted-foreground" />
-                    <span className="font-mono font-semibold">/{c.name}</span>
-                    <span className="truncate text-muted-foreground">{c.description || ""}</span>
+              <div data-testid="slash-menu" className="absolute bottom-full mb-1.5 left-2 right-2 rounded-lg border border-border bg-popover shadow-lg overflow-hidden z-20 text-xs">
+                {p.commands.length === 0 && (
+                  <div className="px-3 py-2 text-muted-foreground border-b border-border/60">
+                    该智能体暂未提供命令
+                    <span className="ml-1 text-muted-foreground/70">{p.connected === false ? "（未连接）" : "（会话建立后智能体可能稍后推送）"}</span>
                   </div>
-                ))}
+                )}
+                {filtered.length === 0 ? (
+                  <div className="px-3 py-2 text-muted-foreground">无匹配命令</div>
+                ) : (
+                  <div className="max-h-72 overflow-y-auto">
+                    {filtered.slice(0, 12).map((c, i) => (
+                      <div
+                        key={(c.local ? "local:" : "agent:") + c.name}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => applyCommand(c.name)}
+                        onMouseEnter={() => setSlashIdx(i)}
+                        className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer ${i === slashIdx ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+                      >
+                        <Command className="w-3 h-3 shrink-0 text-muted-foreground" />
+                        <span className="font-mono font-semibold text-foreground">/{c.name}</span>
+                        {c.hint && <span className="font-mono text-muted-foreground/70 shrink-0">&lt;{c.hint}&gt;</span>}
+                        <span className="truncate flex-1 min-w-0">{c.description || ""}</span>
+                        {c.local && (
+                          <span title="由 ACP Studio 本地处理，不发送给智能体" className="shrink-0 rounded border border-border px-1 py-px text-[10px] text-muted-foreground">本地</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="px-3 py-1 border-t border-border/60 text-[10px] text-muted-foreground/80 flex justify-between gap-2">
+                  <span>↑↓ 选择 · Tab/回车 填入 · Esc 关闭</span>
+                  {p.isStreaming ? <span className="text-amber-600 dark:text-amber-400">生成中：仅浏览/填入，不会发送</span> : <span>智能体命令以 /命令 文本发送</span>}
+                </div>
+              </div>
+            )}
+            {!slashOpen && activeHint && (
+              <div className="absolute bottom-full mb-1.5 left-2 rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-muted-foreground shadow z-20">
+                <span className="font-mono text-foreground">/{activeHint.name}</span> 参数：<span className="font-mono">{activeHint.hint}</span>
               </div>
             )}
             {mentionOpen && (

@@ -180,6 +180,13 @@ export class UniversalAgentConnection {
 
   private connectInFlight: Promise<unknown> | null = null;
   private sessionSinks = new Map<string, Set<SseSend>>();
+  /**
+   * Latest available_commands_update per session. Agents usually emit it right
+   * after session/new|load|resume returns — before any SSE subscriber exists —
+   * so a pure broadcast loses it. Cache it and hand it out with the session
+   * response / the `commands` route.
+   */
+  private sessionCommands = new Map<string, unknown[]>();
   private pendingPermissions = new Map<string, PendingPermission>();
   private pendingElicitations = new Map<string, PendingElicitation>();
   private permSeq = 1;
@@ -257,6 +264,19 @@ export class UniversalAgentConnection {
       set!.delete(send);
       if (set!.size === 0) this.sessionSinks.delete(sessionId);
     };
+  }
+
+  /** Cached commands for a session (undefined = agent never sent any). */
+  getAvailableCommands(sessionId: string): unknown[] | undefined {
+    return this.sessionCommands.get(sessionId);
+  }
+
+  /** Wait briefly for a trailing available_commands_update after a session RPC. */
+  async awaitAvailableCommands(sessionId: string, maxMs = 150): Promise<unknown[] | undefined> {
+    for (let t = 0; t < maxMs && !this.sessionCommands.has(sessionId); t += 25) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return this.sessionCommands.get(sessionId);
   }
 
   private broadcast(sessionId: string, evt: Record<string, unknown>) {
@@ -441,6 +461,10 @@ export class UniversalAgentConnection {
       })
       .onNotification(acp.methods.client.session.update, async (ctx: unknown) => {
         const params = (ctx as { params: { sessionId: string; update: Record<string, unknown> } }).params;
+        if (params.update?.sessionUpdate === "available_commands_update" && params.sessionId) {
+          const list = (params.update as { availableCommands?: unknown }).availableCommands;
+          self.sessionCommands.set(params.sessionId, Array.isArray(list) ? list : []);
+        }
         self.broadcast(params.sessionId, {
           type: "update",
           agentId: self.profile.id,

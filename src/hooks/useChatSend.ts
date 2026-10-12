@@ -278,7 +278,7 @@ export function useChatSend({
                 return { ...m, toolCalls: calls };
               }),
             onPlan: (entries) => cur.patchMessage(assistantId, { plan: entries }),
-            onAvailableCommands: (cmds) => cur.setAvailableCommands(cmds),
+            onAvailableCommands: (cmds) => useStudioStore.getState().setAvailableCommands(cmds, sid),
             onModeUpdate: (modeId) => {
               const stNow = useStudioStore.getState();
               if (stNow.modes) stNow.setModes({ ...stNow.modes, currentModeId: modeId });

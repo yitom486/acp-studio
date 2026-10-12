@@ -111,10 +111,17 @@ describe("fs routes", () => {
     const reader = res.body!.getReader();
     const dec = new TextDecoder();
     let buf = "";
+    // Keep ONE in-flight read: racing a fresh reader.read() against a timeout
+    // each loop orphans the previous read, and the chunk it later resolves
+    // with (e.g. the watch event) is silently dropped — flaky on slow runners.
+    let pending: Promise<ReadableStreamReadResult<Uint8Array>> | null = null;
     const readUntil = async (pred: (s: string) => boolean, ms: number) => {
       const end = Date.now() + ms;
       while (Date.now() < end && !pred(buf)) {
-        const r = await Promise.race([reader.read(), new Promise<any>((ok) => setTimeout(() => ok({ value: undefined }), 200))]);
+        pending ??= reader.read();
+        const r = await Promise.race([pending, new Promise<null>((ok) => setTimeout(() => ok(null), 200))]);
+        if (!r) continue;
+        pending = null;
         if (r.value) buf += dec.decode(r.value);
         if (r.done) break;
       }

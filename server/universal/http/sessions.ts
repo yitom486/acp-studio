@@ -25,6 +25,7 @@ const ACTIONS: Record<string, string> = {
   set_config: "set_config",
   "set-config": "set_config",
   set_config_option: "set_config",
+  commands: "commands",
 };
 
 /** Known fields are type-checked; everything else is forwarded to the agent untouched. */
@@ -57,10 +58,18 @@ sessionsRouter.post("/:agentId/session/:action", jsonBody(sessionBody), async (c
           mcpServers: body.mcpServers || [],
           additionalDirectories: body.additionalDirectories ?? undefined,
         });
+        result = await withCommands(conn, result);
         break;
       case "load": {
         const loaded = await conn.loadSession(body);
-        return json({ ok: true, result: loaded.result, replayed: loaded.replayed });
+        return json({ ok: true, result: await withCommands(conn, loaded.result, String(body.sessionId || "")), replayed: loaded.replayed });
+      }
+      case "commands": {
+        const sid = String(body.sessionId || "");
+        if (!sid) return json({ ok: false, error: "sessionId is required" }, 400);
+        const cached = conn.getAvailableCommands(sid);
+        result = { sessionId: sid, availableCommands: cached ?? null };
+        break;
       }
       case "fork": {
         // UNSTABLE session/fork: {sessionId, cwd, additionalDirectories?, mcpServers?}
@@ -75,7 +84,7 @@ sessionsRouter.post("/:agentId/session/:action", jsonBody(sessionBody), async (c
         break;
       }
       case "resume":
-        result = await conn.resumeSession(body);
+        result = await withCommands(conn, await conn.resumeSession(body), String(body.sessionId || ""));
         break;
       case "list":
         result = await conn.listSessions(body);
@@ -109,3 +118,16 @@ sessionsRouter.post("/:agentId/session/:action", jsonBody(sessionBody), async (c
     return gatewayError(err);
   }
 });
+
+/** Attach cached availableCommands (if the agent sent any) to a session result. */
+async function withCommands(
+  conn: { awaitAvailableCommands(sid: string, maxMs?: number): Promise<unknown[] | undefined> },
+  result: unknown,
+  sid?: string,
+): Promise<unknown> {
+  const id = sid || String((result as { sessionId?: unknown } | null)?.sessionId || "");
+  if (!id) return result;
+  const cmds = await conn.awaitAvailableCommands(id);
+  if (!cmds) return result;
+  return { ...((result as Record<string, unknown>) || {}), availableCommands: cmds };
+}
