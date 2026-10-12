@@ -11,28 +11,28 @@
 
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+
+## [0.1.1] - 2026-10-12
+
+### Added
 - **自动更新**（类似 VS Code / Zed）：打包版启动 10 秒后及每 4 小时检查 GitHub Releases；发现新版在左下角提示，点“更新”后台差分下载并显示进度，下载完点“重启并更新”静默安装，不点则退出或下次打开时自动装好，不再走安装向导。Windows（NSIS 一键安装）与 Linux AppImage 支持自动安装；macOS（未签名）与 deb 只提示并跳转下载页。
 - 界面采用 tweakcn **vercel** 主题，浅色 / 深色 / 黑 / 白四档；对话区单色化（审批提示、徽标去彩色），“未跟踪”徽标改为中性虚线样式。
 - 开发模式假数据路由 `?fixture=conversation` / `?fixture=approval`，方便截图与调样式，不进生产构建。
 - 发版说明由 CHANGELOG 生成：`bun run release:notes <版本>` 截取对应小节，Release 工作流用它作为 GitHub Release 正文。
 - 浏览器模式的网关令牌页与一次性登录链接（`/?token=...`，网关启动时打印）；Electron 经 preload 自动注入令牌。
-
 ### Security
 - 网关对所有 `/api/universal/*`（含 `terminal/exec`）与 PTY WebSocket 强制访问令牌：不带或带错令牌一律 401，不再因为“没有 Origin 头”放行；Origin / Host 校验保留。
 - 删除 `routes.ts` 里“安全模块导入失败就放行”的可选鉴权代码，改为静态导入、失败即拒绝；路由响应不再返回 `Access-Control-Allow-Origin: *`。
 - 工作区白名单从“只告警”改为强制：智能体经 ACP `fs/write_text_file` 只能写会话工作区（session cwd + additionalDirectories + `ACP_WORKSPACE_ROOTS`）之内，`..` 与软链接逃逸同样拒绝；文件系统根 / 系统目录不能作为工作区（`workspace/validate` 返回 403，`session/new` 拒绝）。
-
 ### Fixed
 - 浅色主题下 diff 注释颜色对比度不足（改为 `#4b535d`，满足 WCAG AA）。
 - 终端工作目录不存在时不再悄悄换成网关当前目录：`terminal/exec` 返回 400 并写明路径（cwd 也必须显式给出），ACP `terminal/create` 把错误回给智能体；终端抽屉显示网关返回的具体原因。
 - 打开集成终端时整个界面崩溃进错误页（`You must set the allowProposedApi option`）：xterm 6 下 Unicode11Addon 用到的 `term.unicode` 属于 proposed API，Terminal 补上 `allowProposedApi: true`。
 - `bun run test` 全绿：`@yitom/acp-client` 集成测试改为等 `session/update` 通知落地再断言（原先与 prompt 响应赛跑）。
 - 测试不再写真实 `~/.acp-studio/agents.json`：全局 setup 把 `ACP_AGENTS_FILE` / `ACP_AGENTS_HOME` / `ACP_GATEWAY_TOKEN` 指向临时目录。
-
 ### Changed
 - `server/universal/routes.ts`（1000+ 行 if 链）拆成按功能划分的 Hono 子路由 `server/universal/http/*`，请求体用 zod 校验；坏 JSON 或字段类型不对返回 400，不再静默当成 `{}` 继续。其余接口行为不变。
 - `@agentclientprotocol/sdk` 升级到 1.8（`^1.8.0`），类型检查与全部测试通过。
-
 ### Removed
 - 去掉对话区入场（BlurFade）与闪光文字动画；删除未使用的 `ChatArea.tsx`、`UniversalComposer.tsx`。
 - 遗留文件 `scripts/stage-my-changes.py`（写死 `D:\` 路径）、空的 `scratch/out.json`、`run-zed-acp.cmd`。
@@ -152,5 +152,6 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.1...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
+[0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
