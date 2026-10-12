@@ -25,6 +25,7 @@
 
 ### Changed
 - `server/universal/routes.ts`（1000+ 行 if 链）拆成按功能划分的 Hono 子路由 `server/universal/http/*`，请求体用 zod 校验；坏 JSON 或字段类型不对返回 400，不再静默当成 `{}` 继续。其余接口行为不变。
+- `@agentclientprotocol/sdk` 升级到 1.8（`^1.8.0`），类型检查与全部测试通过。
 
 ### Removed
 - 遗留文件 `scripts/stage-my-changes.py`（写死 `D:\` 路径）、空的 `scratch/out.json`、`run-zed-acp.cmd`。

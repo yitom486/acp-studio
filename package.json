@@ -79,7 +79,7 @@
     "release:major": "bun scripts/release.ts major"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^1.0.0",
+    "@agentclientprotocol/sdk": "^1.8.0",
     "@assistant-ui/react": "^0.15.27",
     "@assistant-ui/react-markdown": "^0.14.20",
     "@hono/node-server": "^2.1.1",
