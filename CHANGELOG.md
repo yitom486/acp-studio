@@ -20,6 +20,12 @@
 
 ### Fixed
 - 终端工作目录不存在时不再悄悄换成网关当前目录：`terminal/exec` 返回 400 并写明路径（cwd 也必须显式给出），ACP `terminal/create` 把错误回给智能体；终端抽屉显示网关返回的具体原因。
+- `bun run test` 全绿：`@yitom/acp-client` 集成测试改为等 `session/update` 通知落地再断言（原先与 prompt 响应赛跑）。
+- 测试不再写真实 `~/.acp-studio/agents.json`：全局 setup 把 `ACP_AGENTS_FILE` / `ACP_AGENTS_HOME` / `ACP_GATEWAY_TOKEN` 指向临时目录。
+
+### Removed
+- 遗留文件 `scripts/stage-my-changes.py`（写死 `D:\` 路径）、空的 `scratch/out.json`、`run-zed-acp.cmd`。
+- 未使用的依赖 `@bufbuild/protobuf`；`@yitom/acp-client` 只被测试使用，移到 devDependencies 并锁定 `0.1.2`（不再用 `latest`）。
 
 ## [0.1.0] - 2026-10-12
 

@@ -195,7 +195,7 @@ sequenceDiagram
 
 | 使用场景 | 通信渠道 | 入口文件 | 适用客户端 | 优势 |
 | :--- | :--- | :--- | :--- | :--- |
-| **编辑器编码** | **Stdio** (标准输入输出) | `server/acp-stdio.ts` / `run-zed-acp.cmd` | **Zed Editor**, Claude Desktop, Neovim (ACP 插件) | 无需开端口、随编辑器自启自停、零网络开销 |
+| **编辑器编码** | **Stdio** (标准输入输出) | `bunx @yitom/agy-acp-map@latest` | **Zed Editor**, Claude Desktop, Neovim (ACP 插件) | 无需开端口、随编辑器自启自停、零网络开销 |
 | **伴侣应用** | **HTTP / SSE** (默认端口 3004) | `server/index.ts` (`bun run dev` 或 `bun server/index.ts`) | **Inkdown HUD**, Web Studio, 浏览器前端, 手机端 | 支持跨进程访问、RESTful 控制、多客户端共享 |
 
 两个通道共享底层的 **[AgyAcpBridge](file:///d:/project/js/Electron/antigravity-acp/server/bridge/agyBridge.ts)** 与 **Google 本地认证环境**，您在任意一端登录，另一端直接即插即用！

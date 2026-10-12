@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as path from "node:path";
 import {
   AcpClient,
@@ -263,6 +263,8 @@ describe("@yitom/acp-client integration in antigravity-acp", () => {
     const promptRes = await session.prompt("trigger_inspect_session");
     expect(promptRes.ok).toBe(true);
 
+    // session/update 通知是异步派发的，可能晚于 prompt 的响应到达：等它落地再解析。
+    await vi.waitFor(() => expect(sessionReport).not.toBe(""), { timeout: 2000 });
     const parsed = JSON.parse(sessionReport);
     expect(parsed.cwd).toBe(path.resolve(__dirname, ".."));
     expect(Array.isArray(parsed.mcpServers)).toBe(true);
@@ -314,6 +316,8 @@ describe("@yitom/acp-client integration in antigravity-acp", () => {
     const session = sessionRes.value;
     await session.prompt("trigger_inspect_session");
 
+    // session/update 通知是异步派发的，可能晚于 prompt 的响应到达：等它落地再解析。
+    await vi.waitFor(() => expect(sessionReport).not.toBe(""), { timeout: 2000 });
     const parsed = JSON.parse(sessionReport);
     // ACP SDK silently strips non-conforming entries due to vecSkipError
     expect(parsed.mcpServers).toEqual([]);
