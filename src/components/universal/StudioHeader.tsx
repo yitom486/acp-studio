@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import React, { useState, useRef, useEffect } from "react";
 import {
   Bot,
@@ -26,6 +27,8 @@ import { WorkspaceDropdown } from "./WorkspaceDropdown";
 import type { RecentWorkspace } from "@/stores/useStudioStore";
 
 export interface StudioHeaderProps {
+  /** 编辑器打开时聊天栏变窄：隐藏中间的会话标题，避免挤压重叠 */
+  compact?: boolean;
   agents: AgentSummary[];
   activeAgentId: string;
   onSelectAgent: (id: string) => void;
@@ -90,6 +93,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
   onCloseSession,
   onDeleteSession,
   onClearMessages,
+  compact,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -119,7 +123,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
   return (
     <header className="h-12 border-b border-border bg-background px-3 flex items-center justify-between gap-3 shrink-0 z-20 select-none">
       {/* LEFT: Agent Selector + Connection Status + Workspace */}
-      <div className="flex items-center gap-2.5 min-w-0">
+      <div className={cn("flex items-center gap-2.5 min-w-0", compact && "overflow-hidden")}>
         <span className="sr-only">ACP Studio</span>
         {/* Agent Dropdown */}
         <div className="relative flex items-center">
@@ -226,7 +230,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
       </div>
 
       {/* CENTER: Current Session Title & Token Usage */}
-      <div className="flex items-center gap-2 min-w-0 flex-1 justify-center max-w-lg">
+      <div className={cn("flex items-center gap-2 min-w-0 flex-1 justify-center max-w-lg", compact && "hidden")}>
         {sessionId ? (
           <div className="flex items-center gap-2 min-w-0 px-2 py-1">
             <span className="text-[13px] font-medium text-foreground truncate max-w-[160px] sm:max-w-[260px]">

@@ -10,6 +10,10 @@ import { PermissionDialog } from "@/components/universal/PermissionDialog";
 import { ElicitationCard } from "@/components/universal/ElicitationCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TitleBar } from "@/components/universal/TitleBar";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
+import { useWorkbenchCommands } from "@/hooks/useWorkbenchCommands";
+const FileTreePanel = lazy(() => import("@/components/workbench/FileTreePanel"));
+const EditorPane = lazy(() => import("@/components/workbench/EditorPane"));
 import { useStudioStore, useStudioShallow } from "@/stores/useStudioStore";
 import { useAgentsQuery, useSessionsQuery, invalidateAgents, invalidateSessions } from "@/lib/acp-queries";
 import {
@@ -216,13 +220,19 @@ export default function App() {
     setCustomOpen(true);
   }, []);
 
+  const sidebarOpen = useWorkbenchStore((w) => w.sidebarOpen);
+  const fileTreeOpen = useWorkbenchStore((w) => w.fileTreeOpen);
+  const hasTabs = useWorkbenchStore((w) => w.tabs.length > 0);
+  const openNewSessionDialog = useCallback(() => useStudioStore.getState().setSettingsOpen(true), []);
+  useWorkbenchCommands({ onNewSession: openNewSessionDialog });
+
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-text">
       {/* Layer 1: Clean Window TitleBar */}
       <TitleBar />
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        <Sidebar
+        {sidebarOpen && <Sidebar
           agents={agents}
           activeAgentId={s.activeAgentId}
           onSelectAgent={handleSelectAgent}
@@ -248,9 +258,25 @@ export default function App() {
           recentWorkspaces={s.recentWorkspaces}
           onSelectWorkspace={(p, name) => s.setWorkspace(p, name)}
           onOpenSettings={() => s.setSettingsOpen(true)}
-        />
+        />}
 
-        <div className="flex-1 flex flex-col min-w-0">
+        {fileTreeOpen && (
+          <aside className="w-64 shrink-0 border-r border-border bg-sidebar" aria-label="文件树">
+            <Suspense fallback={<div className="p-3"><Skeleton className="h-4 w-32" /></div>}>
+              <FileTreePanel cwd={effectiveCwd} />
+            </Suspense>
+          </aside>
+        )}
+
+        {hasTabs && (
+          <section className="flex-1 min-w-0 border-r border-border" aria-label="编辑器">
+            <Suspense fallback={<div className="p-3"><Skeleton className="h-4 w-48" /></div>}>
+              <EditorPane cwd={effectiveCwd} />
+            </Suspense>
+          </section>
+        )}
+
+        <div className={hasTabs ? "w-[440px] shrink-0 flex flex-col min-w-0" : "flex-1 flex flex-col min-w-0"}>
           {/* Layer 2: Retained Lower Workbench Header */}
           <StudioHeader
             agents={agents}
@@ -302,6 +328,7 @@ export default function App() {
               invalidateSessions(qc, cur.activeAgentId);
             }}
             onClearMessages={() => !s.isStreaming && s.setMessages([])}
+            compact={hasTabs}
           />
 
           <PermissionDialog

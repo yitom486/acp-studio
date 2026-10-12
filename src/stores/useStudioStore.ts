@@ -190,9 +190,16 @@ const initialThread = {
   attachments: [] as Attachment[],
 };
 
+export const WINDOW_WORKSPACE_KEY = "acp_window_workspace";
+
 function loadInitialWorkspaces(): { current: string | null; recents: RecentWorkspace[] } {
   try {
-    const current = localStorage.getItem("acp_current_workspace");
+    // 多窗口：每个窗口的“当前工作区”优先取地址栏 ?cwd=（新窗口打开文件夹）→ 本窗口 sessionStorage
+    // → 全局上次使用（localStorage，仅作新窗口的默认值）。
+    const fromUrl = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("cwd") : null;
+    const fromWindow = typeof sessionStorage !== "undefined" ? sessionStorage.getItem(WINDOW_WORKSPACE_KEY) : null;
+    const current = fromUrl || fromWindow || localStorage.getItem("acp_current_workspace");
+    if (fromUrl && typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, fromUrl);
     const raw = localStorage.getItem("acp_recent_workspaces");
     const recents = raw ? JSON.parse(raw) : [];
     return { current: current || null, recents: Array.isArray(recents) ? recents : [] };
@@ -300,6 +307,8 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
           localStorage.setItem("acp_current_workspace", targetPath);
           localStorage.setItem("acp_recent_workspaces", JSON.stringify(nextRecents));
         }
+        if (typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, targetPath);
+        void window.acpStudio?.workbench?.recentAdd(targetPath)?.catch?.(() => {});
       } catch {
         // ignore storage errors
       }

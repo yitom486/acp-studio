@@ -45,6 +45,21 @@ ACP Studio 是一个**通用 ACP 编码智能体工作台**：把任何支持 AC
 - Git 改动查看：工作区状态、逐文件 diff（左右对照 / 统一 diff）、暂存、还原（`GitChangesModal.tsx`、`/api/universal/git/*`）
 - 本轮改动撤销：每条回复下方显示“改动 N”，可逐个文件查看 diff 或 `git restore` 还原（`src/components/assistant/TurnChanges.tsx`）
 
+**工作台**
+- 文件树（react-arborist）：懒加载、虚拟滚动、键盘导航、拖拽移动、重命名、新建、删除进回收站、git 状态徽标，磁盘变化自动刷新（`src/components/workbench/FileTreePanel.tsx`）
+- 代码编辑器（CodeMirror 6）：预览 / 固定标签、未保存圆点、Ctrl/⌘+S 保存、冲突检测；`@codemirror/merge` 并排 / 统一对比；智能体改了已打开的文件会自动重载并高亮改动行（`src/components/workbench/EditorPane.tsx`）
+- 文件接口 `/api/universal/fs/*`（list / read / write / create / rename / delete / watch），全部限定在工作区内（`server/universal/http/files.ts`）
+- 原生菜单 + 标题栏菜单 + 命令面板（Ctrl/⌘+Shift+P）共用命令注册表（`desktop/menu.ts`、`src/lib/commands.ts`、`src/hooks/useWorkbenchCommands.ts`）；多窗口，每个窗口各自的工作区
+- 设置 → 关于与更新：版本、更新状态 / 进度、自动检查开关（`src/components/workbench/SettingsModal.tsx`）
+
+| 快捷键（mac 上 Ctrl = ⌘） | 作用 |
+| --- | --- |
+| Ctrl+Shift+P | 命令面板 |
+| Ctrl+O / Ctrl+Shift+N | 打开文件夹 / 新建窗口 |
+| Ctrl+B / Ctrl+Shift+E / Ctrl+` | 切换侧栏 / 文件树 / 终端 |
+| Ctrl+S / Ctrl+W | 保存 / 关闭标签页 |
+| Ctrl+, | 设置 |
+
 **外观**
 - 4 套主题：dark / oled / dim / light，终端配色跟随主题（`src/stores/useThemeStore.ts`）
 
@@ -177,7 +192,7 @@ acp-studio/
 - [x] 智能体写文件限制在会话工作区内
 - [ ] 读文件、终端、git 也限制在工作区内；智能体进程沙箱
 - [ ] 会话历史持久化到本地数据库（目前只存 localStorage，且不保存工具调用）
-- [ ] 文件树与代码查看 / 编辑器
+- [x] 文件树与代码查看 / 编辑器
 - [ ] 基于检查点的撤销（不依赖 git）
 - [ ] 提交、分支、PR 等 Git 操作
 - [ ] 多个会话并行运行
@@ -194,9 +209,9 @@ acp-studio/
 
 ## 自动更新与发版
 
-- 打包版启动后自动检查 [GitHub Releases](https://github.com/yitom486/acp-studio/releases)（启动 10 秒后一次，之后每 4 小时）。发现新版时左下角提示，点 **更新** 在后台差分下载，下载完点 **重启并更新** 即静默安装；不点也会在退出或下次打开时自动装好，不走安装向导。
+- 打包版启动后自动检查 [GitHub Releases](https://github.com/yitom486/acp-studio/releases)（启动 10 秒后一次，之后每 4 小时）。发现新版时右下角提示（窗口在后台则发系统通知），点 **更新** 在后台差分下载，下载完点 **重启并更新** 即静默安装；不点也会在退出或下次打开时自动装好，不走安装向导。
 - Windows：首次安装走向导，可选择安装目录；之后的更新在后台静默安装到同一目录（安装器从注册表 `InstallLocation` 读回原目录）。若把它装到需要管理员权限的目录（如 `C:\Program Files`），更新时会弹一次 UAC 确认。
-- 平台支持：Windows ✅；Linux AppImage ✅；Linux deb 与 macOS（暂未签名）只提示新版并打开下载页。设置 `ACP_DISABLE_UPDATES=1` 可关闭检查。
+- 平台支持：Windows ✅；Linux AppImage ✅；Linux deb 与 macOS（暂未签名）只提示新版并打开下载页。设置 `ACP_DISABLE_UPDATES=1` 可关闭检查，或在“设置 → 关于与更新”关掉自动检查；菜单“检查更新…”随时手动检查。
 - 发版：先在 `CHANGELOG.md` 的 `[Unreleased]` 写条目，然后 `bun run release:patch`（默认只升 patch，minor/major 需显式放行）→ 提交 → `git tag vX.Y.Z && git push --tags`。Release 工作流打包三平台，并用 `bun run release:notes X.Y.Z` 截取的 CHANGELOG 小节作为 Release 说明。
 
 ## 许可证

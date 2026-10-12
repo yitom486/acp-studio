@@ -27,6 +27,7 @@ import { interactionsRouter } from "./http/interactions";
 import { chatRouter } from "./http/chat";
 import { workspaceRouter } from "./http/workspace";
 import { terminalRouter } from "./http/terminal";
+import { filesRouter } from "./http/files";
 import { gitRouter } from "./http/git";
 
 export { gatewayErrorBody } from "./http/shared";
@@ -49,6 +50,7 @@ universal.route("/chat", chatRouter);
 universal.route("/workspace", workspaceRouter);
 universal.route("/terminal", terminalRouter);
 universal.route("/git", gitRouter);
+universal.route("/fs", filesRouter);
 
 universal.notFound((c) => json({ ok: false, error: `Unknown universal route ${c.req.method} ${new URL(c.req.url).pathname}` }, 404));
 

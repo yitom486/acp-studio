@@ -4,16 +4,19 @@
  * 不点则退出 / 下次启动时静默安装。
  */
 export type UpdateEvent =
-  | { type: "checking" }
+  | { type: "checking"; manual?: boolean }
   | { type: "available"; version: string; notes?: string; canAutoInstall: boolean }
-  | { type: "not-available" }
+  | { type: "not-available"; manual?: boolean; version?: string }
+  | { type: "disabled"; manual?: boolean }
   | { type: "progress"; percent: number }
   | { type: "downloaded"; version: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; manual?: boolean };
 
 export type UpdateState =
   | { phase: "idle" }
-  | { phase: "checking" }
+  | { phase: "checking"; manual?: boolean }
+  | { phase: "up-to-date"; version?: string; manual: boolean; at: number }
+  | { phase: "disabled" }
   | { phase: "available"; version: string; notes?: string; canAutoInstall: boolean; dismissed: boolean }
   | { phase: "downloading"; version: string; percent: number }
   | { phase: "ready"; version: string; dismissed: boolean }
@@ -31,9 +34,13 @@ export function updateReducer(state: UpdateState, action: UpdateAction): UpdateS
   switch (action.type) {
     case "checking":
       // 已在下载或已就绪时，后台定时检查不应把 UI 打回去
-      return state.phase === "downloading" || state.phase === "ready" ? state : { phase: "checking" };
+      return state.phase === "downloading" || state.phase === "ready" ? state : { phase: "checking", manual: action.manual };
     case "not-available":
-      return state.phase === "checking" ? { phase: "idle" } : state;
+      if (state.phase !== "checking" && state.phase !== "idle" && state.phase !== "up-to-date" && state.phase !== "error") return state;
+      // 手动检查要明确告诉用户“已是最新”；自动检查静默（但关于页仍显示）
+      return { phase: "up-to-date", version: action.version, manual: !!action.manual || (state.phase === "checking" && !!state.manual), at: Date.now() };
+    case "disabled":
+      return { phase: "disabled" };
     case "available":
       if (state.phase === "downloading" || state.phase === "ready") return state;
       return {
@@ -57,7 +64,7 @@ export function updateReducer(state: UpdateState, action: UpdateAction): UpdateS
       return { phase: "error", message: action.message, version: versionOf(state) };
     case "dismiss":
       if (state.phase === "available" || state.phase === "ready") return { ...state, dismissed: true };
-      if (state.phase === "error") return { phase: "idle" };
+      if (state.phase === "error" || state.phase === "up-to-date" || state.phase === "disabled") return { phase: "idle" };
       return state;
   }
 }

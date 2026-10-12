@@ -429,3 +429,12 @@ code, pre, kbd, samp {
     animation: none;
   }
 }
+
+/* 编辑器：AI / 外部修改后自动重载的行短暂高亮 */
+@keyframes acp-ai-flash {
+  0%, 35% { background-color: hsl(var(--warning) / 0.22); }
+  100% { background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-ai-flash { animation: none !important; background-color: hsl(var(--warning) / 0.12); }
+}

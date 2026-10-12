@@ -21,9 +21,9 @@ contextBridge.exposeInMainWorld("acpStudio", {
   close: (): Promise<void> => ipcRenderer.invoke("window:close"),
   isMaximized: (): Promise<boolean> => ipcRenderer.invoke("window:isMaximized"),
   updates: {
-    getInfo: (): Promise<{ version: string; enabled: boolean; canAutoInstall: boolean }> =>
-      ipcRenderer.invoke("update:getInfo"),
+    getInfo: (): Promise<UpdateInfo> => ipcRenderer.invoke("update:getInfo"),
     check: (): Promise<void> => ipcRenderer.invoke("update:check"),
+    setAutoCheck: (v: boolean): Promise<UpdateInfo> => ipcRenderer.invoke("update:setAutoCheck", v),
     download: (): Promise<void> => ipcRenderer.invoke("update:download"),
     install: (): Promise<void> => ipcRenderer.invoke("update:install"),
     openReleases: (): Promise<void> => ipcRenderer.invoke("update:openReleases"),
@@ -33,29 +33,26 @@ contextBridge.exposeInMainWorld("acpStudio", {
       return () => ipcRenderer.removeListener("update:event", h);
     },
   },
+  workbench: {
+    newWindow: (cwd?: string): Promise<void> => ipcRenderer.invoke("window:new", cwd),
+    recentList: (): Promise<string[]> => ipcRenderer.invoke("recent:list"),
+    recentAdd: (p: string): Promise<string[]> => ipcRenderer.invoke("recent:add", p),
+    reveal: (p: string): Promise<void> => ipcRenderer.invoke("shell:reveal", p),
+    copyText: (t: string): Promise<void> => ipcRenderer.invoke("clipboard:writeText", t),
+    onCommand: (cb: (id: string, payload?: unknown) => void): (() => void) => {
+      const h = (_: unknown, id: string, payload?: unknown) => cb(id, payload);
+      ipcRenderer.on("app:command", h);
+      return () => ipcRenderer.removeListener("app:command", h);
+    },
+  },
 });
 
-declare global {
-  interface Window {
-    acpStudio?: {
-      platform: string;
-      versions: Record<string, string | undefined>;
-      getGatewayToken?: () => Promise<string>;
-      openDirectory?: () => Promise<string | null>;
-      openPath?: (p: string) => Promise<void>;
-      setTitleBarOverlay?: (opts: { color?: string; symbolColor?: string; height?: number }) => Promise<void>;
-      minimize?: () => Promise<void>;
-      maximize?: () => Promise<void>;
-      close?: () => Promise<void>;
-      isMaximized?: () => Promise<boolean>;
-      updates?: {
-        getInfo: () => Promise<{ version: string; enabled: boolean; canAutoInstall: boolean }>;
-        check: () => Promise<void>;
-        download: () => Promise<void>;
-        install: () => Promise<void>;
-        openReleases: () => Promise<void>;
-        onEvent: (cb: (e: unknown) => void) => () => void;
-      };
-    };
-  }
-}
+type UpdateInfo = {
+  version: string;
+  enabled: boolean;
+  isDev: boolean;
+  canAutoInstall: boolean;
+  autoCheck: boolean;
+  lastChecked: number | null;
+  platform: string;
+};

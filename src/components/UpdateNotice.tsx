@@ -1,27 +1,28 @@
-import React, { useEffect, useReducer } from "react";
-import { Download, RotateCw, X, ExternalLink } from "lucide-react";
-import { initialUpdateState, updateReducer, type UpdateEvent } from "@/lib/update-state";
+import React, { useEffect } from "react";
+import { Download, RotateCw, X, ExternalLink, CheckCircle2, Info } from "lucide-react";
+import { useUpdateStore, startUpdateBridge } from "@/stores/useUpdateStore";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 
 /**
- * 右下角更新提示（仅 Electron 打包版）：发现新版 → [更新] 后台下载 → [重启并更新]。
- * 关掉提示不影响：已下载的更新会在退出/下次启动时静默安装。
+ * 右下角更新 toast（前台）。窗口在后台时主进程另发系统通知。
+ * 发现新版 → [更新] 后台下载 → [重启并更新]；手动检查无新版 → “已是最新版本”，几秒后自动消失。
  */
 export const UpdateNotice: React.FC = () => {
+  const state = useUpdateStore((s) => s.state);
+  const dispatch = useUpdateStore((s) => s.dispatch);
+  const check = useUpdateStore((s) => s.check);
   const api = typeof window !== "undefined" ? window.acpStudio?.updates : undefined;
-  const [state, dispatch] = useReducer(updateReducer, initialUpdateState);
 
+  useEffect(() => startUpdateBridge(), []);
   useEffect(() => {
-    if (!api) return;
-    return api.onEvent((e) => dispatch(e as UpdateEvent));
-  }, [api]);
-
-  if (!api) return null;
+    if ((state.phase === "up-to-date" && state.manual) || state.phase === "disabled") {
+      const t = setTimeout(() => dispatch({ type: "dismiss" }), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [state, dispatch]);
 
   const card = (children: React.ReactNode) => (
-    <div
-      role="status"
-      className="fixed bottom-4 left-4 z-[90] w-72 rounded-md border border-border bg-popover p-3 text-xs text-popover-foreground shadow-md"
-    >
+    <div role="status" className="fixed bottom-4 right-4 z-[90] w-80 rounded-lg border border-border bg-popover p-3 text-xs text-popover-foreground shadow-lg">
       {children}
     </div>
   );
@@ -30,10 +31,34 @@ export const UpdateNotice: React.FC = () => {
       <X className="h-3.5 w-3.5" />
     </button>
   );
-  const btn = "inline-flex items-center gap-1 rounded border border-border px-2 py-1 hover:bg-accent";
-  const primary = "inline-flex items-center gap-1 rounded bg-primary px-2 py-1 text-primary-foreground hover:opacity-90";
+  const btn = "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-accent transition-colors";
+  const primary = "inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-primary-foreground hover:opacity-90";
+  const openAbout = () => useWorkbenchStore.getState().openSettings("about");
 
   switch (state.phase) {
+    case "up-to-date":
+      if (!state.manual) return null;
+      return card(
+        <div className="flex items-start gap-2">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+          <div className="flex-1">
+            <div className="font-medium">已是最新版本</div>
+            <div className="text-muted-foreground">ACP Studio {state.version} 是当前最新的正式版。</div>
+          </div>
+          {close}
+        </div>,
+      );
+    case "disabled":
+      return card(
+        <div className="flex items-start gap-2">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="flex-1">
+            <div className="font-medium">开发版不检查更新</div>
+            <div className="text-muted-foreground">只有安装包版本会从 GitHub Releases 自动更新。</div>
+          </div>
+          {close}
+        </div>,
+      );
     case "available":
       if (state.dismissed) return null;
       return card(
@@ -44,23 +69,15 @@ export const UpdateNotice: React.FC = () => {
           </div>
           <div className="flex gap-2">
             {state.canAutoInstall ? (
-              <button
-                className={primary}
-                onClick={() => {
-                  dispatch({ type: "download-requested" });
-                  void api.download();
-                }}
-              >
+              <button className={primary} onClick={() => { dispatch({ type: "download-requested" }); void api?.download(); }}>
                 <Download className="h-3.5 w-3.5" /> 更新
               </button>
             ) : (
-              <button className={primary} onClick={() => void api.openReleases()}>
+              <button className={primary} onClick={() => void api?.openReleases()}>
                 <ExternalLink className="h-3.5 w-3.5" /> 前往下载
               </button>
             )}
-            <button className={btn} onClick={() => void api.openReleases()}>
-              更新内容
-            </button>
+            <button className={btn} onClick={openAbout}>详情</button>
           </div>
         </>,
       );
@@ -82,7 +99,7 @@ export const UpdateNotice: React.FC = () => {
             {close}
           </div>
           <div className="mb-2 text-muted-foreground">重启即可完成更新；不重启也会在下次打开时自动安装。</div>
-          <button className={primary} onClick={() => void api.install()}>
+          <button className={primary} onClick={() => void api?.install()}>
             <RotateCw className="h-3.5 w-3.5" /> 重启并更新
           </button>
         </>,
@@ -91,13 +108,13 @@ export const UpdateNotice: React.FC = () => {
       return card(
         <>
           <div className="mb-1 flex items-start justify-between">
-            <span className="font-medium">更新失败</span>
+            <span className="font-medium">检查更新失败</span>
             {close}
           </div>
           <div className="mb-2 break-words text-muted-foreground">{state.message}</div>
           <div className="flex gap-2">
-            <button className={btn} onClick={() => void api.check()}>重试</button>
-            <button className={btn} onClick={() => void api.openReleases()}>手动下载</button>
+            <button className={btn} onClick={() => void check()}>重试</button>
+            <button className={btn} onClick={() => void api?.openReleases()}>手动下载</button>
           </div>
         </>,
       );

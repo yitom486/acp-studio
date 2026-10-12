@@ -1,3 +1,4 @@
+import { AppMenuBar } from "@/components/workbench/AppMenuBar";
 import React, { useState, useRef, useEffect } from "react";
 import {
   Moon,
@@ -85,6 +86,7 @@ export const TitleBar: React.FC = () => {
         <span className="font-medium text-[12px] text-foreground/80">
           ACP Studio
         </span>
+        {!isMac && <AppMenuBar />}
       </div>
 
       {/* CENTER: Clean Draggable Window Area (Double Click to Maximize/Restore) */}

@@ -5,6 +5,8 @@ import App from "@/App";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ErrorToast } from "@/components/ErrorToast";
 import { UpdateNotice } from "@/components/UpdateNotice";
+import { SettingsModal } from "@/components/workbench/SettingsModal";
+import { CommandPalette } from "@/components/workbench/CommandPalette";
 import { GatewayTokenGate } from "@/components/GatewayTokenGate";
 import { installGlobalErrorCapture, reportError } from "@/lib/error-bus";
 import { bootstrapGatewayToken, verifyGatewayToken } from "@/lib/gateway-auth";
@@ -34,6 +36,8 @@ function renderApp() {
         </ErrorBoundary>
         <ErrorToast />
         <UpdateNotice />
+        <SettingsModal />
+        <CommandPalette />
       </QueryClientProvider>
     </React.StrictMode>
   );

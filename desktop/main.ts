@@ -3,14 +3,17 @@
  * Starts the Node gateway in-process, then opens the Studio window on it.
  * Dev: ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:5188 (external vite+gateway).
  */
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "../server/gateway";
 import { ensureGatewayToken, gatewayTokenPreview } from "../server/universal/security";
 import { attachPtyUpgrade } from "../server/universal/pty";
-import { initUpdater } from "./updater";
+import { initUpdater, checkForUpdatesFromMenu } from "./updater";
+import { buildAppMenu, type MenuActions } from "./menu";
+import { addRecent, loadRecent } from "./recent";
+import { setTrashImpl } from "../server/universal/http/files";
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const START_URL = process.env.ELECTRON_START_URL || `http://localhost:${PORT}`;
@@ -30,7 +33,9 @@ try {
   console.warn("[Electron] 无法设置独立 userData 路径:", err);
 }
 
-let win: BrowserWindow | null = null;
+/** 所有窗口；每个窗口一个工作区（渲染端按窗口用 sessionStorage 隔离“当前工作区”）。 */
+const windows = new Set<BrowserWindow>();
+let win: BrowserWindow | null = null; // 最近聚焦的窗口
 let gateway: { close: (cb?: () => void) => void } | null = null;
 
 async function startGateway() {
@@ -62,6 +67,8 @@ async function startGateway() {
   // 真 PTY 的 WS 升级（与 server/node.ts 同源；Bun dev 网关无此挂载）。
   void attachPtyUpgrade(srv as never);
   gateway = srv;
+  // 删除文件走系统回收站
+  setTrashImpl((abs) => shell.trashItem(abs));
 }
 
 async function loadURLWithRetry(targetWin: BrowserWindow, url: string, maxRetries = 30, intervalMs = 500) {
@@ -152,12 +159,25 @@ function getPreloadPath(): string {
   return path.join(app.getAppPath(), "electron-dist", "preload.cjs");
 }
 
-async function createWindow() {
+function windowUrl(cwd?: string): string {
+  if (!cwd) return START_URL;
+  const u = new URL(START_URL);
+  u.searchParams.set("cwd", cwd);
+  return u.toString();
+}
+
+const senderWin = (e: Electron.IpcMainInvokeEvent) => BrowserWindow.fromWebContents(e.sender);
+const isOurWindow = (e: Electron.IpcMainInvokeEvent) => {
+  const w = senderWin(e);
+  return !!w && windows.has(w) && e.senderFrame === w.webContents.mainFrame;
+};
+
+async function createWindow(cwd?: string) {
   const isMac = process.platform === "darwin";
   const appIcon = getAppIcon();
   const initialOverlay = getSavedOverlayConfig();
 
-  win = new BrowserWindow({
+  const w = new BrowserWindow({
     width: 1360,
     height: 900,
     minWidth: 1024,
@@ -179,10 +199,13 @@ async function createWindow() {
       sandbox: false,
     },
   });
+  // 先登记再加载页面：渲染端一启动就会通过 gateway:getToken 校验“是否本应用窗口”
+  windows.add(w);
+  win = w;
 
-  if (appIcon && !win.isDestroyed()) {
+  if (appIcon && !w.isDestroyed()) {
     try {
-      win.setIcon(appIcon);
+      w.setIcon(appIcon);
     } catch {
       // ignore
     }
@@ -190,29 +213,39 @@ async function createWindow() {
 
   if (isDev) {
     // 开发模式快捷键：F12 开启开发者工具，F5 刷新
-    win.webContents.on("before-input-event", (event, input) => {
+    w.webContents.on("before-input-event", (event, input) => {
       if (input.key === "F12" || (input.control && input.shift && input.key.toLowerCase() === "i")) {
-        win?.webContents.toggleDevTools();
+        w.webContents.toggleDevTools();
         event.preventDefault();
       }
       if (input.key === "F5" || (input.control && input.key.toLowerCase() === "r")) {
-        win?.webContents.reload();
+        w.webContents.reload();
         event.preventDefault();
       }
     });
-    await loadURLWithRetry(win, START_URL);
+    await loadURLWithRetry(w, windowUrl(cwd));
   } else {
-    await win.loadURL(START_URL);
+    await w.loadURL(windowUrl(cwd));
   }
 
-  win.on("closed", () => {
-    win = null;
+  // 外链（target=_blank / window.open）一律交给系统浏览器，不在应用里开新窗口
+  w.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) void shell.openExternal(url);
+    return { action: "deny" };
   });
+  w.on("focus", () => {
+    win = w;
+  });
+  w.on("closed", () => {
+    windows.delete(w);
+    if (win === w) win = [...windows][0] || null;
+  });
+  return w;
 }
 
 // Native Desktop IPC Handlers: Folder selection & system explorer reveal
-ipcMain.handle("dialog:openDirectory", async () => {
-  const targetWin = win || BrowserWindow.getFocusedWindow();
+ipcMain.handle("dialog:openDirectory", async (_event) => {
+  const targetWin = senderWin(_event) || win || BrowserWindow.getFocusedWindow();
   const res = await dialog.showOpenDialog(targetWin!, {
     properties: ["openDirectory"],
     title: "选择项目工作区目录",
@@ -229,31 +262,71 @@ ipcMain.handle("shell:openPath", async (_event, targetPath: string) => {
 // Window controls styling (pure React handles 100% of the UI; kept as no-op for IPC compatibility)
 ipcMain.handle("window:setTitleBarOverlay", () => {});
 
-ipcMain.handle("window:minimize", () => {
-  if (win && !win.isDestroyed()) win.minimize();
+ipcMain.handle("window:minimize", (e) => {
+  senderWin(e)?.minimize();
 });
 
-ipcMain.handle("window:maximize", () => {
-  if (win && !win.isDestroyed()) {
-    if (win.isMaximized()) win.unmaximize();
-    else win.maximize();
-  }
+ipcMain.handle("window:maximize", (e) => {
+  const w = senderWin(e);
+  if (!w) return;
+  if (w.isMaximized()) w.unmaximize();
+  else w.maximize();
 });
 
-ipcMain.handle("window:close", () => {
-  if (win && !win.isDestroyed()) win.close();
+ipcMain.handle("window:close", (e) => {
+  senderWin(e)?.close();
 });
 
-ipcMain.handle("window:isMaximized", () => {
-  return win && !win.isDestroyed() ? win.isMaximized() : false;
+ipcMain.handle("window:isMaximized", (e) => {
+  return senderWin(e)?.isMaximized() ?? false;
 });
+
+// ---- 工作台：新窗口 / 最近文件夹 / 在文件管理器中显示 / 复制路径 ----
+ipcMain.handle("window:new", (_e, cwd?: string) => {
+  void createWindow(typeof cwd === "string" && cwd ? cwd : undefined);
+});
+ipcMain.handle("recent:list", () => loadRecent());
+ipcMain.handle("recent:add", (_e, p: string) => {
+  if (typeof p !== "string" || !p || !fs.existsSync(p)) return loadRecent();
+  const list = addRecent(p);
+  buildAppMenu(menuActions, { isDev });
+  return list;
+});
+ipcMain.handle("shell:reveal", (_e, p: string) => {
+  if (typeof p === "string" && p && fs.existsSync(p)) shell.showItemInFolder(p);
+});
+ipcMain.handle("clipboard:writeText", (_e, t: string) => {
+  if (typeof t === "string") clipboard.writeText(t);
+});
+
+/** 打开文件夹：当前窗口已有工作区就开新窗口，否则在当前窗口打开（与 VS Code 相近）。 */
+async function openFolderInto(p: string) {
+  addRecent(p);
+  buildAppMenu(menuActions, { isDev });
+  const target = BrowserWindow.getFocusedWindow() || win;
+  if (target && !target.isDestroyed()) target.webContents.send("app:command", "workspace.open", p);
+  else await createWindow(p);
+}
+
+const menuActions: MenuActions = {
+  openFolder: async () => {
+    const target = BrowserWindow.getFocusedWindow() || win;
+    const res = target
+      ? await dialog.showOpenDialog(target, { properties: ["openDirectory"], title: "打开文件夹" })
+      : await dialog.showOpenDialog({ properties: ["openDirectory"], title: "打开文件夹" });
+    if (!res.canceled && res.filePaths[0]) await openFolderInto(res.filePaths[0]);
+  },
+  openRecent: (p) => void openFolderInto(p),
+  newWindow: () => void createWindow(),
+  checkForUpdates: () => checkForUpdatesFromMenu(),
+};
 
 // 网关 token 交给页面：preload 透出 `acpStudio.getGatewayToken()`，前端
 // （src/lib/gateway-auth.ts）启动时取一次，之后所有 /api/universal/* 请求带
 // `Authorization: Bearer <token>`，PTY WebSocket 带 `?token=`。
 // 只响应本应用自己加载的页面（主窗口），其他 webContents 拿不到。
 ipcMain.handle("gateway:getToken", (event) => {
-  if (!win || win.isDestroyed() || event.sender.id !== win.webContents.id) {
+  if (!isOurWindow(event)) {
     throw new Error("gateway:getToken denied: caller is not the ACP Studio main window");
   }
   return process.env.ACP_GATEWAY_TOKEN || ensureGatewayToken();
@@ -262,7 +335,13 @@ ipcMain.handle("gateway:getToken", (event) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_e, argv) => {
+    // 第二次启动带了目录参数（如 `acp-studio .`）→ 新窗口打开该目录；否则聚焦已有窗口
+    const dir = argv.slice(1).reverse().find((a) => !a.startsWith("-") && fs.existsSync(a) && fs.statSync(a).isDirectory());
+    if (dir) {
+      void createWindow(path.resolve(dir));
+      return;
+    }
     if (win) {
       if (win.isMinimized()) win.restore();
       win.focus();
@@ -271,8 +350,13 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     if (!isDev) await startGateway();
+    buildAppMenu(menuActions, { isDev });
     await createWindow();
-    initUpdater(() => win);
+    initUpdater();
+  });
+
+  app.on("activate", () => {
+    if (windows.size === 0) void createWindow();
   });
 
   app.on("window-all-closed", async () => {
