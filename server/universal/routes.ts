@@ -3,73 +3,19 @@ import { isAuthRequiredError, acpErrorCode } from "./errors";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { corsHeaders as secureCorsHeaders, isPathAllowed, requireAuth } from "./security";
 
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  };
+// 受限 CORS（只回显可信本地 Origin）与鉴权都直接静态导入 security.ts：
+// 模块加载失败 = 网关起不来（fail closed），绝不“导入失败就放行”。
+// 各 handler 只产出业务响应；可信 Origin 回显在 handleUniversal 出口统一补上
+//（并发请求各自用自己的 req，不共享全局状态）。
+function corsHeaders(): Record<string, string> {
+  return {};
 }
 
-/**
- * Optional security wiring (owned by security agent).
- * server/universal/security.ts may or may not exist — never hard-depend.
- * If present, gateway auth (requireGatewayAuth) is enforced; if missing or
- * import fails, requests are allowed through (open) so universal flows and
- * offline tests keep working.
- * TODO(security-agent): tighten to default-deny once token flow is stable.
- */
-async function optionalGatewayAuth(req: Request): Promise<Response | null> {
-  try {
-    // @ts-ignore - optional module; tsc must not fail when missing.
-    const sec = await import("./security");
-    const fn = (sec as { requireGatewayAuth?: unknown; requireAuth?: unknown }).requireGatewayAuth
-      ?? (sec as { requireAuth?: unknown }).requireAuth;
-    if (typeof fn === "function") {
-      try {
-        const denied = (fn as (r: Request) => Response | null)(req);
-        if (denied) return denied;
-      } catch (err) {
-        console.error(`[Universal] security auth check threw: ${(err as Error).message}`);
-      }
-    }
-  } catch (err) {
-    // Missing module => open. Log loudly only for real load errors, not for
-    // "module not found" in dev/test where security agent hasn't landed.
-    const msg = (err as Error).message || String(err);
-    if (!/Cannot find|Failed to resolve|ENOENT/i.test(msg)) {
-      console.error(`[Universal] optional security import failed (open): ${msg}`);
-    }
-  }
-  return null;
-}
-
-/**
- * Optional workspace allowlist check (security agent owned).
- * Returns true/false when security module exists, null when missing (skip).
- * TODO(security-agent): make this default-deny once ACP_WORKSPACE_ROOTS stable.
- */
-async function optionalIsPathAllowed(p: string): Promise<boolean | null> {
-  try {
-    // @ts-ignore - optional module; tsc must not fail when missing.
-    const sec = await import("./security");
-    const fn = (sec as { isPathAllowed?: unknown }).isPathAllowed;
-    if (typeof fn === "function") {
-      try {
-        return (fn as (x: string) => boolean)(p);
-      } catch (err) {
-        console.error(`[Universal] isPathAllowed threw for ${p}: ${(err as Error).message}`);
-        return false;
-      }
-    }
-  } catch (err) {
-    const msg = (err as Error).message || String(err);
-    if (!/Cannot find|Failed to resolve|ENOENT/i.test(msg)) {
-      console.error(`[Universal] optional isPathAllowed import failed (skip): ${msg}`);
-    }
-  }
-  return null;
+function withCors(res: Response, req: Request): Response {
+  for (const [k, v] of Object.entries(secureCorsHeaders(req))) res.headers.set(k, v);
+  return res;
 }
 
 async function readJson(req: Request): Promise<Record<string, unknown>> {
@@ -288,21 +234,23 @@ function normalizePrompt(input: unknown): Array<Record<string, unknown>> {
  * Mount BEFORE legacy catch-all in server/index.ts.
  */
 export async function handleUniversal(req: Request): Promise<Response | null> {
+  const res = await handleUniversalInner(req);
+  return res ? withCors(res, req) : null;
+}
+
+async function handleUniversalInner(req: Request): Promise<Response | null> {
   const url = new URL(req.url);
   const p = url.pathname;
 
   if (req.method === "OPTIONS" && p.startsWith("/api/universal")) {
-    return new Response(null, { headers: corsHeaders() });
+    // CORS 预检不带凭证、也不执行任何动作：只回 CORS 头。
+    return new Response(null, { status: 204, headers: corsHeaders() });
   }
   if (!p.startsWith("/api/universal")) return null;
 
-  // Optional gateway auth (security agent owned; missing => open).
-  try {
-    const denied = await optionalGatewayAuth(req);
-    if (denied) return denied;
-  } catch (err) {
-    console.error(`[Universal] optionalGatewayAuth failed (open): ${(err as Error).message}`);
-  }
+  // 强制鉴权（纵深防御：gateway.ts 入口已校验一次，这里再校验，直接挂载本函数也不会裸奔）。
+  const denied = requireAuth(req);
+  if (denied) return denied;
 
   // ---- agents ----
   if (p === "/api/universal/agents" && req.method === "GET") {
@@ -764,19 +712,9 @@ export async function handleUniversal(req: Request): Promise<Response | null> {
       if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
         return json({ ok: false, error: "指定的路径不存在或不是有效目录" }, 400);
       }
-      // Optional allowlist (security agent owned). Missing module => skip
-      // (permissive) so existing flows keep working.
-      // Even when present, currently advisory-only (warn, still allow) to avoid
-      // breaking existing tmp-dir flows/tests (e.g. os.tmpdir() not under cwd).
-      // TODO(security-agent): flip to default-deny (403) once ACP_WORKSPACE_ROOTS
-      // covers test tmp dirs and UI flows are migrated.
-      try {
-        const allowed = await optionalIsPathAllowed(resolved);
-        if (allowed === false) {
-          console.warn(`[Universal] workspace outside allowlist (advisory, still allowing): ${resolved}`);
-        }
-      } catch (err) {
-        console.error(`[Universal] workspace allowlist check failed: ${(err as Error).message}`);
+      // Advisory only for now (enforcement lands with the write allowlist).
+      if (!isPathAllowed(resolved)) {
+        console.warn(`[Universal] workspace outside allowlist (advisory, still allowing): ${resolved}`);
       }
       const isGit = fs.existsSync(path.join(resolved, ".git"));
       return json({

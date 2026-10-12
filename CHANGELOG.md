@@ -11,6 +11,11 @@
 
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+- 浏览器模式的网关令牌页与一次性登录链接（`/?token=...`，网关启动时打印）；Electron 经 preload 自动注入令牌。
+
+### Security
+- 网关对所有 `/api/universal/*`（含 `terminal/exec`）与 PTY WebSocket 强制访问令牌：不带或带错令牌一律 401，不再因为“没有 Origin 头”放行；Origin / Host 校验保留。
+- 删除 `routes.ts` 里“安全模块导入失败就放行”的可选鉴权代码，改为静态导入、失败即拒绝；路由响应不再返回 `Access-Control-Allow-Origin: *`。
 
 ## [0.1.0] - 2026-10-12
 

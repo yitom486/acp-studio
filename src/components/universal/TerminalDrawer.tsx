@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { ptyStatus, ptyResize, ptyWsCandidateBases, buildPtyWsUrl } from "@/lib/universal-api";
+import { apiFetch, withTokenQuery } from "@/lib/gateway-auth";
 
 /** 抽屉传输模式：pty=真交互 shell；oneshot=单次执行（PTY 不可用时回落）。 */
 export type TerminalMode = "probing" | "pty" | "oneshot";
@@ -559,7 +560,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     term.writeln("");
     let written = 0;
     try {
-      const res = await fetch("/api/universal/terminal/exec", {
+      const res = await apiFetch("/api/universal/terminal/exec", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: activeCwd, command }),
@@ -723,7 +724,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         return;
       }
       let settled = false;
-      const ws = new WebSocket(buildPtyWsUrl(bases[i], ptyId, activeCwd, 80, 24));
+      const ws = new WebSocket(withTokenQuery(buildPtyWsUrl(bases[i], ptyId, activeCwd, 80, 24)));
       ws.onopen = () => {
         settled = true;
         wsRef.current = ws;
