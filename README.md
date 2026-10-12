@@ -195,7 +195,8 @@ acp-studio/
 ## 自动更新与发版
 
 - 打包版启动后自动检查 [GitHub Releases](https://github.com/yitom486/acp-studio/releases)（启动 10 秒后一次，之后每 4 小时）。发现新版时左下角提示，点 **更新** 在后台差分下载，下载完点 **重启并更新** 即静默安装；不点也会在退出或下次打开时自动装好，不走安装向导。
-- 平台支持：Windows（NSIS 一键安装）✅；Linux AppImage ✅；Linux deb 与 macOS（暂未签名）只提示新版并打开下载页。设置 `ACP_DISABLE_UPDATES=1` 可关闭检查。
+- Windows：首次安装走向导，可选择安装目录；之后的更新在后台静默安装到同一目录（安装器从注册表 `InstallLocation` 读回原目录）。若把它装到需要管理员权限的目录（如 `C:\Program Files`），更新时会弹一次 UAC 确认。
+- 平台支持：Windows ✅；Linux AppImage ✅；Linux deb 与 macOS（暂未签名）只提示新版并打开下载页。设置 `ACP_DISABLE_UPDATES=1` 可关闭检查。
 - 发版：先在 `CHANGELOG.md` 的 `[Unreleased]` 写条目，然后 `bun run release:patch`（默认只升 patch，minor/major 需显式放行）→ 提交 → `git tag vX.Y.Z && git push --tags`。Release 工作流打包三平台，并用 `bun run release:notes X.Y.Z` 截取的 CHANGELOG 小节作为 Release 说明。
 
 ## 许可证

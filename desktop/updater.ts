@@ -43,7 +43,7 @@ export function initUpdater(getWin: () => BrowserWindow | null) {
   });
   ipcMain.handle("update:install", () => {
     if (!enabled) return;
-    // isSilent=true：NSIS 静默安装；isForceRunAfter=true：装完重新打开
+    // isSilent=true → 安装器带 /S 静默运行，沿用注册表 InstallLocation 的原目录；isForceRunAfter=true → 装完重新打开
     setImmediate(() => autoUpdater.quitAndInstall(true, true));
   });
   ipcMain.handle("update:openReleases", () => shell.openExternal(RELEASES_URL));

@@ -15,6 +15,7 @@
 - 自动更新：安装包文件名去掉空格（如 `ACP-Studio-Setup-<版本>.exe`），`latest*.yml` 里的文件名与 GitHub Release 附件一致，否则更新会下载 404。
 
 ### Changed
+- Windows 安装改为向导：首次安装可选择安装目录（默认当前用户，不需管理员），创建桌面与开始菜单快捷方式；之后的自动更新仍后台静默安装（`/S`），沿用注册表里记录的安装目录，不再弹向导。
 - CI / Release 工作流的 GitHub Actions 升级到 Node 24 版本（checkout v7、upload-artifact v7、download-artifact v8、action-gh-release v3）。
 
 ## [0.1.1] - 2026-10-12

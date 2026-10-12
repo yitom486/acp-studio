@@ -66,12 +66,17 @@
       }
     ],
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
+      "allowToChangeInstallationDirectory": true,
       "differentialPackage": true,
       "deleteAppDataOnUninstall": false,
-      "artifactName": "ACP-Studio-Setup-${version}.${ext}"
+      "artifactName": "ACP-Studio-Setup-${version}.${ext}",
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ACP Studio",
+      "runAfterFinish": true
     },
     "dmg": {
       "artifactName": "ACP-Studio-${version}-${arch}.${ext}"
