@@ -29,14 +29,16 @@
         "dir"
       ],
       "icon": "public/icon.ico",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "artifactName": "ACP-Studio-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [
         "dmg",
         "zip"
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "artifactName": "ACP-Studio-${version}-${arch}-mac.${ext}"
     },
     "linux": {
       "target": [
@@ -44,7 +46,8 @@
         "deb"
       ],
       "category": "Development",
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "artifactName": "ACP-Studio-${version}.${ext}"
     },
     "directories": {
       "output": "release"
@@ -67,7 +70,14 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
       "differentialPackage": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "ACP-Studio-Setup-${version}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "ACP-Studio-${version}-${arch}.${ext}"
+    },
+    "deb": {
+      "artifactName": "acp-studio_${version}_${arch}.${ext}"
     }
   },
   "scripts": {

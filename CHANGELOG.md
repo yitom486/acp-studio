@@ -9,8 +9,13 @@
 
 ## [Unreleased]
 
-### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+
+### Fixed
+- 自动更新：安装包文件名去掉空格（如 `ACP-Studio-Setup-<版本>.exe`），`latest*.yml` 里的文件名与 GitHub Release 附件一致，否则更新会下载 404。
+
+### Changed
+- CI / Release 工作流的 GitHub Actions 升级到 Node 24 版本（checkout v7、upload-artifact v7、download-artifact v8、action-gh-release v3）。
 
 ## [0.1.1] - 2026-10-12
 
