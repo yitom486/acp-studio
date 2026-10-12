@@ -65,11 +65,21 @@ export function clearErrors() {
   emit();
 }
 
+/** ResizeObserver loop notices are benign (spec: delivered next frame). */
+export function isBenignWindowError(message: unknown): boolean {
+  return typeof message === "string" && /^(Uncaught )?ResizeObserver loop (completed with undelivered notifications|limit exceeded)/.test(message);
+}
+
 /** Capture window errors / unhandled rejections into the bus (call once). */
 export function installGlobalErrorCapture() {
   if (installed || typeof window === "undefined") return;
   installed = true;
   window.addEventListener("error", (ev) => {
+    // Benign browser notice (layout settled one frame later); log only, no toast.
+    if (isBenignWindowError(ev.message)) {
+      console.warn("[window.onerror] (ignored)", ev.message);
+      return;
+    }
     reportError("window.onerror", ev.error || ev.message);
   });
   window.addEventListener("unhandledrejection", (ev) => {

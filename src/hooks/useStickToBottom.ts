@@ -60,7 +60,20 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>() {
     el.addEventListener("wheel", onWheel, { passive: true });
     el.addEventListener("touchmove", release, { passive: true });
     el.addEventListener("keydown", onKey);
-    const ro = new ResizeObserver(follow);
+    // Dedupe on whole-pixel sizes: sub-pixel / no-op notifications (composer
+    // growing, scrollbars, DPI rounding) must not trigger a scroll each time.
+    const lastSize = new WeakMap<Element, string>();
+    const ro = new ResizeObserver((entries) => {
+      let changed = false;
+      for (const e of entries) {
+        const k = `${Math.round(e.contentRect.width)}x${Math.round(e.contentRect.height)}`;
+        if (lastSize.get(e.target) !== k) {
+          lastSize.set(e.target, k);
+          changed = true;
+        }
+      }
+      if (changed) follow();
+    });
     ro.observe(content);
     ro.observe(el);
     return () => {

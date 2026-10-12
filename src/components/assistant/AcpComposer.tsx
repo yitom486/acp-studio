@@ -648,7 +648,8 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
               </div>
             )}
             <ComposerPrimitive.Input
-              rows={1}
+              minRows={2}
+              maxRows={8}
               onKeyDown={handleInputKeyDown}
               onPaste={handlePaste}
               placeholder={p.isStreaming ? `${p.agentTitle} 正在响应中…可继续编辑，发送将排队；或点插队立即打断` : `给 ${p.agentTitle} 描述任务，@ 引用文件，/ 调用命令`}

@@ -266,6 +266,17 @@ code, pre, kbd, samp {
   font-variant-numeric: tabular-nums;
 }
 
+/* File tree: the box never grows from its content, and the tree's scroll
+   container always reserves its scrollbar gutter, so hovering / a scrollbar
+   appearing can't change the measured width (ResizeObserver feedback loop). */
+.acp-tree-box {
+  contain: size layout paint;
+}
+.acp-tree {
+  scrollbar-gutter: stable;
+  overflow-x: hidden !important;
+}
+
 /* Custom modern scrollbars */
 ::-webkit-scrollbar {
   width: 6px;

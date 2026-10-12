@@ -798,7 +798,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
         ref={viewportRef}
         turnAnchor="top"
         autoScroll={false}
-        className="flex-1 overflow-y-auto p-4 md:p-6"
+        className="flex-1 overflow-y-auto [scrollbar-gutter:stable] p-4 md:p-6"
       >
         <ThreadPrimitive.Empty>
           <AssistantWelcome

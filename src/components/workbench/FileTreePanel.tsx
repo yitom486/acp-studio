@@ -117,9 +117,30 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
   useEffect(() => {
     const el = boxRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
+    // Measure the CONTENT box (clientWidth/Height include the py-1 padding, which made
+    // the tree 8px taller than its box), floor to whole px, batch in rAF and skip
+    // no-op updates — otherwise a scrollbar toggling on hover (classic Windows
+    // scrollbars) feeds back into the observer: "ResizeObserver loop completed…".
+    let raf = 0;
+    let last = { w: -1, h: -1 };
+    const measure = () => {
+      raf = 0;
+      const cs = getComputedStyle(el);
+      const w = Math.max(0, Math.floor(el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)));
+      const h = Math.max(0, Math.floor(el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)));
+      if (w === last.w && h === last.h) return;
+      last = { w, h };
+      setSize({ w, h });
+    };
+    const ro = new ResizeObserver(() => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    measure();
+    return () => {
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   const loadDir = useCallback(async (dir: string) => {
@@ -311,7 +332,7 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
       </div>
       <div
         ref={boxRef}
-        className="flex-1 min-h-0 py-1"
+        className="acp-tree-box flex-1 min-h-0 min-w-0 overflow-hidden py-1"
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY, node: null });

@@ -104,3 +104,12 @@ describe("gateway: available_commands_update cache", () => {
     expect(await conn.awaitAvailableCommands("none", 50)).toBeUndefined();
   });
 });
+
+import { isBenignWindowError } from "../../src/lib/error-bus";
+describe("error bus", () => {
+  it("treats ResizeObserver loop notices as benign", () => {
+    expect(isBenignWindowError("ResizeObserver loop completed with undelivered notifications.")).toBe(true);
+    expect(isBenignWindowError("ResizeObserver loop limit exceeded")).toBe(true);
+    expect(isBenignWindowError("TypeError: x is undefined")).toBe(false);
+  });
+});
