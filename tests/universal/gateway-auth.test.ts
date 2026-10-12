@@ -15,6 +15,7 @@ import { handleUniversal } from "../../server/universal/routes";
 import { gatewayAuthHeaders, gatewayBootstrapUrl } from "../../server/universal/security";
 import { attachPtyUpgrade } from "../../server/universal/pty";
 import { TEST_GATEWAY_TOKEN, authedRequest } from "../helpers/gateway-auth";
+import { rmTempDir } from "../helpers/tmp-cleanup";
 
 const app = buildApp();
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "acp-auth-"));
@@ -22,7 +23,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "acp-auth-"));
 afterAll(async () => {
   await shutdownBridges();
   // Windows 上刚退出的 PowerShell 子进程可能还短暂占着 cwd，重试几次再删。
-  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  rmTempDir(tmp);
 });
 
 const isWin = process.platform === "win32";
