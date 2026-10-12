@@ -10,6 +10,7 @@ import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "../server/gateway";
 import { ensureGatewayToken, gatewayTokenPreview } from "../server/universal/security";
 import { attachPtyUpgrade } from "../server/universal/pty";
+import { initUpdater } from "./updater";
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const START_URL = process.env.ELECTRON_START_URL || `http://localhost:${PORT}`;
@@ -271,6 +272,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     if (!isDev) await startGateway();
     await createWindow();
+    initUpdater(() => win);
   });
 
   app.on("window-all-closed", async () => {

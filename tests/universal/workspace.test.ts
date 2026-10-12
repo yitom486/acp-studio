@@ -106,7 +106,7 @@ describe("workspace and terminal routes", () => {
       output += decoder.decode(value);
     }
     expect(output).toContain("acp_terminal_ok");
-  });
+  }, 30_000); // Windows CI 上 PowerShell 冷启动慢
 
   it("manages workspace and terminal state in useStudioStore", () => {
     const s = useStudioStore.getState();

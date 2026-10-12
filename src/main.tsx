@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "@/App";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ErrorToast } from "@/components/ErrorToast";
+import { UpdateNotice } from "@/components/UpdateNotice";
 import { GatewayTokenGate } from "@/components/GatewayTokenGate";
 import { installGlobalErrorCapture, reportError } from "@/lib/error-bus";
 import { bootstrapGatewayToken, verifyGatewayToken } from "@/lib/gateway-auth";
@@ -32,6 +33,7 @@ function renderApp() {
           <App />
         </ErrorBoundary>
         <ErrorToast />
+        <UpdateNotice />
       </QueryClientProvider>
     </React.StrictMode>
   );
