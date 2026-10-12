@@ -3,7 +3,7 @@ import { isAuthRequiredError, acpErrorCode } from "./errors";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { corsHeaders as secureCorsHeaders, isPathAllowed, requireAuth } from "./security";
+import { corsHeaders as secureCorsHeaders, dangerousRootReason, requireAuth } from "./security";
 
 // 受限 CORS（只回显可信本地 Origin）与鉴权都直接静态导入 security.ts：
 // 模块加载失败 = 网关起不来（fail closed），绝不“导入失败就放行”。
@@ -712,10 +712,10 @@ async function handleUniversalInner(req: Request): Promise<Response | null> {
       if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
         return json({ ok: false, error: "指定的路径不存在或不是有效目录" }, 400);
       }
-      // Advisory only for now (enforcement lands with the write allowlist).
-      if (!isPathAllowed(resolved)) {
-        console.warn(`[Universal] workspace outside allowlist (advisory, still allowing): ${resolved}`);
-      }
+      // 用户在 UI 里选的工作区 = 会话 cwd = 智能体允许写入的根（见
+      // AgentConnection.sessionRoots）。这里只拦“选了等于放开整台机器”的根。
+      const bad = dangerousRootReason(resolved);
+      if (bad) return json({ ok: false, error: bad }, 403);
       const isGit = fs.existsSync(path.join(resolved, ".git"));
       return json({
         ok: true,

@@ -16,6 +16,7 @@
 ### Security
 - 网关对所有 `/api/universal/*`（含 `terminal/exec`）与 PTY WebSocket 强制访问令牌：不带或带错令牌一律 401，不再因为“没有 Origin 头”放行；Origin / Host 校验保留。
 - 删除 `routes.ts` 里“安全模块导入失败就放行”的可选鉴权代码，改为静态导入、失败即拒绝；路由响应不再返回 `Access-Control-Allow-Origin: *`。
+- 工作区白名单从“只告警”改为强制：智能体经 ACP `fs/write_text_file` 只能写会话工作区（session cwd + additionalDirectories + `ACP_WORKSPACE_ROOTS`）之内，`..` 与软链接逃逸同样拒绝；文件系统根 / 系统目录不能作为工作区（`workspace/validate` 返回 403，`session/new` 拒绝）。
 
 ## [0.1.0] - 2026-10-12
 

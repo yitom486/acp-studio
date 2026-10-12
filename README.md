@@ -125,7 +125,7 @@ bun run package:win             # 或 package:mac / package:linux，产物在 re
 | `PORT` | 网关端口 | `3004` |
 | `ACP_AGENTS_JSON` | 追加 / 覆盖智能体定义（JSON 数组） | 空 |
 | `ACP_AGENTS_FILE` | 自定义智能体持久化文件 | `~/.acp-studio/agents.json` |
-| `ACP_WORKSPACE_ROOTS` | 工作区白名单（`;` 或 `:` 分隔） | 当前目录 |
+| `ACP_WORKSPACE_ROOTS` | 额外允许智能体写入的目录（`;` 或 `:` 分隔）；会话工作区本身始终允许 | 网关当前目录 |
 | `ACP_GATEWAY_TOKEN` | 网关访问令牌 | 自动生成，存于 `~/.acp-studio/.gateway-token` |
 | `ACP_PUBLIC_DIR` | 网关托管的前端目录 | `./dist` |
 | `ACP_GATEWAY` | `dev:desktop` 使用的网关（`bun` / `node`） | `bun` |

@@ -328,37 +328,85 @@ function splitWorkspaceRoots(raw: string): string[] {
   return out;
 }
 
+const UNIX_SYSTEM_DIRS = ["/etc", "/proc", "/sys", "/dev", "/boot", "/bin", "/sbin", "/lib", "/lib64", "/usr"];
+const WIN_SYSTEM_DIRS = ["c:\\windows", "c:\\program files", "c:\\program files (x86)", "c:\\programdata"];
+
 /**
- * 工作区 allowlist：`ACP_WORKSPACE_ROOTS`（`;` 或 `:` 分隔，Windows/Unix 通用；
- * 盘符冒号不切分，见 splitWorkspaceRoots）追加 `process.cwd()` 默认根；
- * 全部规范化为绝对路径并去重。
+ * 能不能当“允许写入的根”：文件系统根（`/`、`C:\`）和系统目录不行——
+ * 把它们设成根等于放开整台机器。返回拒绝原因，可以时返回 null。
+ */
+export function dangerousRootReason(p: string): string | null {
+  const abs = path.resolve(p);
+  if (path.parse(abs).root === abs) return `不能把文件系统根目录 ${abs} 作为工作区`;
+  const cmp = process.platform === "win32" ? abs.toLowerCase() : abs;
+  const sys = process.platform === "win32" ? WIN_SYSTEM_DIRS : UNIX_SYSTEM_DIRS;
+  for (const d of sys) {
+    if (cmp === d || cmp.startsWith(d + path.sep)) return `不能把系统目录 ${abs} 作为工作区`;
+  }
+  return null;
+}
+
+/**
+ * 解析符号链接后的真实路径；路径（还）不存在时，对最近的已存在祖先取 realpath
+ * 再拼回剩余部分——防止经由工作区内的软链接写到根外面去。
+ */
+export function realPathLoose(p: string): string {
+  let cur = path.resolve(p);
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      const real = fs.realpathSync.native(cur);
+      return rest.length ? path.join(real, ...rest.reverse()) : real;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw err;
+      const parent = path.dirname(cur);
+      if (parent === cur) return path.resolve(p);
+      rest.push(path.basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+/**
+ * 全局工作区根：`ACP_WORKSPACE_ROOTS`（`;` 或 `:` 分隔，Windows/Unix 通用；
+ * 盘符冒号不切分，见 splitWorkspaceRoots）+ 网关 `process.cwd()`；
+ * 全部规范化为绝对路径并去重。文件系统根 / 系统目录会被跳过并 warn
+ * （例如打包后的 Electron 进程 cwd 可能就是 `/` 或 `C:\Windows\System32`）。
+ * 会话级的根（session cwd + additionalDirectories）由 AgentConnection 另行传入。
  */
 export function getWorkspaceRoots(): string[] {
   const parts = splitWorkspaceRoots(process.env.ACP_WORKSPACE_ROOTS || "");
   const roots: string[] = [];
-  const push = (p: string) => {
+  const push = (p: string, source: string) => {
     try {
       const abs = path.resolve(p);
+      const bad = dangerousRootReason(abs);
+      if (bad) {
+        console.warn(`[Security] ${source} 中的工作区根已忽略：${bad}`);
+        return;
+      }
       if (!roots.includes(abs)) roots.push(abs);
     } catch (err) {
       console.warn(`[Security] 非法工作区根已忽略 ${p}：${(err as Error).message}`);
     }
   };
-  for (const p of parts) push(p);
-  push(process.cwd());
+  for (const p of parts) push(p, "ACP_WORKSPACE_ROOTS");
+  push(process.cwd(), "process.cwd()");
   return roots;
 }
 
 function normForCompare(p: string): string {
-  const abs = path.resolve(p);
-  return process.platform === "win32" ? abs.toLowerCase() : abs;
+  const real = realPathLoose(p);
+  return process.platform === "win32" ? real.toLowerCase() : real;
 }
 
 /**
- * 规范化后前缀匹配：等于某根或位于某根之内才允许。
+ * 规范化（含解析软链接）后前缀匹配：等于某根或位于某根之内才允许。
+ * 根 = 全局工作区根 + `extraRoots`（会话 cwd / additionalDirectories）。
  * 空路径 / 规范化失败一律返回 false（默认拒绝，不静默放行）。
  */
-export function isPathAllowed(p: string): boolean {
+export function isPathAllowed(p: string, extraRoots: readonly string[] = []): boolean {
   if (!p || !p.trim()) return false;
   let target: string;
   try {
@@ -367,8 +415,15 @@ export function isPathAllowed(p: string): boolean {
     console.warn(`[Security] 路径规范化失败，默认拒绝 ${p}：${(err as Error).message}`);
     return false;
   }
-  for (const r of getWorkspaceRoots()) {
-    const root = process.platform === "win32" ? r.toLowerCase() : r;
+  for (const r of [...extraRoots, ...getWorkspaceRoots()]) {
+    if (!r || dangerousRootReason(r)) continue;
+    let root: string;
+    try {
+      root = normForCompare(r);
+    } catch (err) {
+      console.warn(`[Security] 工作区根规范化失败，已跳过 ${r}：${(err as Error).message}`);
+      continue;
+    }
     if (target === root || target.startsWith(root + path.sep)) return true;
   }
   return false;
