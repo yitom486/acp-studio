@@ -5,10 +5,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tree, type NodeApi, type NodeRendererProps, type TreeApi } from "react-arborist";
 import {
-  ChevronRight, File, FileCode2, FileJson, FileText, Folder, FolderOpen, FilePlus2, FolderPlus, RefreshCw, ChevronsDownUp, Image as ImageIcon, Link2,
+  ChevronRight, File, FileCode2, FileJson, FileText, Folder, FolderOpen, FilePlus2, FolderPlus, RefreshCw, ChevronsDownUp, Image as ImageIcon, Link2, Search,
 } from "lucide-react";
 import { fsCreate, fsDelete, fsList, fsRename, fsWatch, type FsEntry } from "@/lib/fs-api";
-import { gitStatus } from "@/lib/universal-api";
+import { gitStatus, searchWorkspace, type SearchMatch } from "@/lib/universal-api";
 import { openDiff, openFile, applyWatchEvents } from "@/lib/workbench-actions";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { cn } from "@/lib/utils";
@@ -133,6 +133,12 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
   const [error, setError] = useState<string | null>(null);
   const [git, setGit] = useState(() => buildGitMaps([]));
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  const [results, setResults] = useState<{ engine: string; matches: SearchMatch[]; truncated: boolean; elapsedMs: number } | null>(null);
+  const searchSeq = useRef(0);
   const treeRef = useRef<TreeApi<TreeNode> | undefined>(undefined);
   const boxRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 240, h: 400 });
@@ -171,6 +177,36 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
     };
   }, []);
 
+  // 内容搜索：2 字起查，250ms 防抖，过期响应丢弃（只留最新一次）。
+  useEffect(() => {
+    if (!searchOpen || !cwd) return;
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults(null);
+      setSearchErr(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const seq = ++searchSeq.current;
+    const timer = setTimeout(() => {
+      void searchWorkspace(cwd, q, 100).then(
+        (r) => {
+          if (searchSeq.current !== seq) return;
+          setResults(r);
+          setSearchErr(null);
+          setSearching(false);
+        },
+        (e) => {
+          if (searchSeq.current !== seq) return;
+          setSearchErr((e as Error).message);
+          setSearching(false);
+        }
+      );
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchOpen, cwd, query]);
+
   const loadDir = useCallback(async (dir: string) => {
     if (!cwd) return;
     try {
@@ -206,6 +242,23 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
     }
   }, []);
 
+  const prefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPrefetch = useCallback(() => {
+    if (prefetchTimer.current) {
+      clearTimeout(prefetchTimer.current);
+      prefetchTimer.current = null;
+    }
+  }, []);
+  const schedulePrefetch = useCallback((n: TreeNode) => {
+    cancelPrefetch();
+    if (!shouldPrefetchDir(n)) return;
+    prefetchTimer.current = setTimeout(() => {
+      prefetchTimer.current = null;
+      // 期间已展开（onToggle 加载过）就不用；还停留在未加载态才后台取一层
+      if (shouldPrefetchDir(findNode(dataRef.current, n.id))) void loadDir(n.id);
+    }, HOVER_PREFETCH_MS);
+  }, [cancelPrefetch, loadDir]);
+
   useEffect(() => {
     setData([]);
     if (!cwd) return;
@@ -228,23 +281,6 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
       if (gitTimer) clearTimeout(gitTimer);
     };
   }, [cwd, loadDir, refreshGit, cancelPrefetch]);
-
-  const prefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelPrefetch = useCallback(() => {
-    if (prefetchTimer.current) {
-      clearTimeout(prefetchTimer.current);
-      prefetchTimer.current = null;
-    }
-  }, []);
-  const schedulePrefetch = useCallback((n: TreeNode) => {
-    cancelPrefetch();
-    if (!shouldPrefetchDir(n)) return;
-    prefetchTimer.current = setTimeout(() => {
-      prefetchTimer.current = null;
-      // 期间已展开（onToggle 加载过）就不用；还停留在未加载态才后台取一层
-      if (shouldPrefetchDir(findNode(dataRef.current, n.id))) void loadDir(n.id);
-    }, HOVER_PREFETCH_MS);
-  }, [cancelPrefetch, loadDir]);
 
   const onToggle = useCallback((id: string) => {
     cancelPrefetch();
@@ -388,10 +424,54 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
         <div className="flex items-center gap-0.5 text-muted-foreground">
           <button className="rounded p-1 hover:bg-accent hover:text-foreground" title="新建文件" onClick={() => void createIn("", "file")}><FilePlus2 className="h-3.5 w-3.5" /></button>
           <button className="rounded p-1 hover:bg-accent hover:text-foreground" title="新建文件夹" onClick={() => void createIn("", "dir")}><FolderPlus className="h-3.5 w-3.5" /></button>
+          <button className="rounded p-1 hover:bg-accent hover:text-foreground" title="内容搜索" onClick={() => { setSearchOpen((v) => !v); setQuery(""); setResults(null); setSearchErr(null); }}><Search className="h-3.5 w-3.5" /></button>
           <button className="rounded p-1 hover:bg-accent hover:text-foreground" title="刷新" onClick={() => { void loadDir(""); void refreshGit(); }}><RefreshCw className="h-3.5 w-3.5" /></button>
           <button className="rounded p-1 hover:bg-accent hover:text-foreground" title="全部折叠" onClick={() => treeRef.current?.closeAll()}><ChevronsDownUp className="h-3.5 w-3.5" /></button>
         </div>
       </div>
+      {searchOpen && (
+        <div className="shrink-0 border-b border-border px-2 py-1.5">
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setSearchOpen(false);
+                setQuery("");
+                setResults(null);
+                setSearchErr(null);
+              }
+            }}
+            placeholder="搜工作区内容…（2 字起，Esc 关闭）"
+            spellCheck={false}
+            className="h-7 w-full rounded-md border border-border bg-background px-2 text-xs outline-none placeholder:text-muted-foreground/60"
+            aria-label="工作区内容搜索"
+          />
+          <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+            {searching ? "搜索中…" : searchErr ? <span className="text-destructive">{searchErr}</span> : results ? `${results.matches.length} 命中 · ${results.engine} · ${results.elapsedMs}ms${results.truncated ? " · 已截断" : ""}` : "rg 优先、无则全量扫描"}
+          </div>
+          {results && results.matches.length > 0 && (
+            <div className="mt-1 max-h-64 overflow-y-auto rounded-md border border-border/60">
+              {results.matches.map((m, i) => (
+                <button
+                  key={`${m.file}:${m.line}:${i}`}
+                  type="button"
+                  onClick={() => cwd && void openFile(cwd, m.file, { pin: true, line: m.line })}
+                  className="flex w-full items-baseline gap-2 px-2 py-1 text-left hover:bg-accent"
+                  title={`${m.file}:${m.line}`}
+                >
+                  <span className="shrink-0 font-mono text-[10px] text-primary">
+                    {m.file.split("/").pop()}
+                    <span className="text-muted-foreground">:{m.line}</span>
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">{m.text.trim()}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div
         ref={boxRef}
         className="acp-tree-box flex-1 min-h-0 min-w-0 overflow-hidden py-1"

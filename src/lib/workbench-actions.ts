@@ -5,11 +5,15 @@ import { gitFile } from "@/lib/universal-api";
 
 const st = () => useWorkbenchStore.getState();
 
-export async function openFile(cwd: string, path: string, opts: { pin?: boolean } = {}) {
+export async function openFile(cwd: string, path: string, opts: { pin?: boolean; line?: number } = {}) {
   const id = path;
   const existing = st().tabs.find((t) => t.id === id);
   st().openTab({ id, path, kind: "file", text: existing?.text ?? "", savedText: existing?.savedText ?? "", mtimeMs: existing?.mtimeMs ?? null, loading: !existing, preview: !opts.pin });
-  if (existing && !existing.error) return;
+  if (existing && !existing.error) {
+    // 已打开：只定位（搜索结果跳行用），不重读
+    if (opts.line) st().patchTab(id, { flashLines: [opts.line], flashAt: Date.now() });
+    return;
+  }
   try {
     const f = await fsRead(cwd, path);
     const hasCrlf = f.text.includes("\r\n");
@@ -21,6 +25,7 @@ export async function openFile(cwd: string, path: string, opts: { pin?: boolean 
       mtimeMs: f.mtimeMs,
       loading: false,
       error: undefined,
+      ...(opts.line ? { flashLines: [opts.line], flashAt: Date.now() } : null),
     });
   } catch (e) {
     st().patchTab(id, { loading: false, error: (e as Error).message });

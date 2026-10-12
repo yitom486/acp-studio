@@ -354,6 +354,26 @@ export async function gitRestore(cwd: string, file: string): Promise<void> {
   if (!data.ok) throw new Error(data.error || "git restore 失败");
 }
 
+/** 工作区内容搜索（rg 优先、无则 walk，engine 明示；供文件树搜索条）。 */
+export interface SearchMatch {
+  file: string;
+  line: number;
+  col: number;
+  text: string;
+}
+export async function searchWorkspace(
+  cwd: string,
+  query: string,
+  limit = 100
+): Promise<{ engine: string; matches: SearchMatch[]; truncated: boolean; elapsedMs: number }> {
+  const res = await apiFetch(
+    `/api/universal/search?${new URLSearchParams({ cwd, q: query, limit: String(limit) })}`
+  );
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "搜索失败");
+  return data;
+}
+
 /** 真 PTY 可用性（决定抽屉走 WS 交互模式还是回落 one-shot）。 */
 export async function ptyStatus(): Promise<{ ok: boolean; available: boolean; reason: string | null }> {
   const res = await apiFetch("/api/universal/terminal/pty/status");

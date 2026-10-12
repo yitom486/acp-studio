@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { AgentSummary } from "@/lib/universal-api";
 import { WorkspaceDropdown } from "./WorkspaceDropdown";
+import { GatewayDot } from "./GatewayDot";
 import type { RecentWorkspace } from "@/stores/useStudioStore";
 
 export interface StudioHeaderProps {
@@ -271,6 +272,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           onLogout={onLogout}
           authOk={authOk}
         />
+        <GatewayDot />
         <div className="min-w-0 hidden @lg:block">
           <WorkspaceDropdown
             currentWorkspace={currentWorkspace}

@@ -90,3 +90,16 @@ describe("saveTab saving state", () => {
     expect(t.error).toBe("boom");
   });
 });
+
+describe("openFile line jump (搜索结果定位）", () => {
+  it("patches flashLines on already-open files without refetching", async () => {
+    const wb = useWorkbenchStore.getState();
+    wb.openTab({ id: "j.txt", path: "j.txt", kind: "file", text: "a\nb\n", savedText: "a\nb\n", mtimeMs: 1, loading: false });
+    const spy = vi.fn(async () => new Response("{}"));
+    globalThis.fetch = spy as unknown as typeof fetch;
+    const { openFile } = await import("@/lib/workbench-actions");
+    await openFile("D:/r", "j.txt", { line: 2 });
+    expect(spy).not.toHaveBeenCalled();
+    expect(useWorkbenchStore.getState().tabs[0].flashLines).toEqual([2]);
+  });
+});
