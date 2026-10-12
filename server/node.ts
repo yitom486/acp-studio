@@ -4,7 +4,7 @@
  */
 import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "./gateway";
-import { gatewayTokenPreview } from "./universal/security";
+import { gatewayBootstrapUrl, gatewayTokenPreview } from "./universal/security";
 import { attachPtyUpgrade } from "./universal/pty";
 
 setupEnv();
@@ -20,8 +20,9 @@ const server = serve(
   },
   (info) => {
     console.log(`[Server] Google Antigravity ACP Studio server running at http://127.0.0.1:${info.port} (node)`);
-    // 只打印前8位+掩码，完整 token 仅存 ~/.acp-studio/.gateway-token，不打全量进日志。
     console.log(`[Server] gateway token: ${gatewayTokenPreview()} (full token in ~/.acp-studio/.gateway-token)`);
+    // 所有 /api/universal/* 都要 token：浏览器模式用一次性链接打开 UI（只打到本机终端）。
+    console.log(`[Server] open the UI with:  ${gatewayBootstrapUrl(`http://127.0.0.1:${info.port}`)}`);
   }
 );
 

@@ -5,6 +5,7 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AgentProfile, PendingElicitation, PendingPermission } from "./types";
+import { dangerousRootReason, getWorkspaceRoots, isPathAllowed } from "./security";
 
 export type SseSend = (evt: Record<string, unknown>) => void;
 
@@ -184,6 +185,12 @@ export class UniversalAgentConnection {
   private permSeq = 1;
   private elicSeq = 1;
   private terminals = new Map<string, TerminalRecord>();
+  /**
+   * 每个会话允许写入的根：session/new|load|resume|fork 时的 cwd + additionalDirectories
+   * （就是用户在 UI 里选的工作区）。智能体 fs/write_text_file 只能落在这些根
+   * 或全局 ACP_WORKSPACE_ROOTS 之内。
+   */
+  private sessionRoots = new Map<string, string[]>();
   private termSeq = 1;
   /**
    * Per-session prompt mutex: ACP session/prompt is strictly serial per
@@ -537,11 +544,14 @@ export class UniversalAgentConnection {
   async newSession(args: { cwd?: string; mcpServers?: unknown[]; additionalDirectories?: string[] }): Promise<unknown> {
     const conn = this.ensureConn();
     const cwd = args.cwd || this.profile.defaultCwd || process.cwd();
-    return conn.agent.request(acp.methods.agent.session.new, {
+    const roots = this.sessionRootsFor(cwd, args.additionalDirectories);
+    const result = await conn.agent.request(acp.methods.agent.session.new, {
       cwd,
       mcpServers: (args.mcpServers || []) as never[],
       ...(args.additionalDirectories ? { additionalDirectories: args.additionalDirectories } : {}),
     } as unknown as never);
+    this.rememberSessionRoots((result as { sessionId?: unknown } | null)?.sessionId, roots);
+    return result;
   }
 
   async loadSession(args: Record<string, unknown>): Promise<{ result: unknown; replayed: unknown[] }> {
@@ -550,6 +560,7 @@ export class UniversalAgentConnection {
     const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
     const mcpServers = Array.isArray(args.mcpServers) ? args.mcpServers : [];
     const payload = { ...args, sessionId, cwd, mcpServers };
+    const roots = this.sessionRootsFor(cwd, args.additionalDirectories);
     // session/load replays history via session/update notifications before
     // responding. Collect them so HTTP clients can rebuild the transcript.
     const replayed: unknown[] = [];
@@ -558,6 +569,7 @@ export class UniversalAgentConnection {
     }) : () => undefined;
     try {
       const result = await conn.agent.request(acp.methods.agent.session.load, payload as unknown as never);
+      this.rememberSessionRoots(sessionId, roots);
       // Grace window: session/update notifications are dispatched
       // asynchronously and can lag behind the load response. Unsubscribing
       // immediately drops the tail (e.g. the final assistant chunk). Wait
@@ -576,7 +588,10 @@ export class UniversalAgentConnection {
   /** UNSTABLE session/fork (advertised via sessionCapabilities.fork, e.g. codex). */
   async forkSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
-    return conn.agent.request(acp.methods.agent.session.fork, args as unknown as never);
+    const roots = this.sessionRootsFor(String(args.cwd || this.profile.defaultCwd || process.cwd()), args.additionalDirectories);
+    const result = await conn.agent.request(acp.methods.agent.session.fork, args as unknown as never);
+    this.rememberSessionRoots((result as { sessionId?: unknown } | null)?.sessionId, roots);
+    return result;
   }
 
   /** UNSTABLE providers/* (advertised via providers capability, e.g. codex). */  async providersRpc(action: "list" | "set" | "disable", body: Record<string, unknown>): Promise<unknown> {
@@ -607,7 +622,10 @@ export class UniversalAgentConnection {
     const conn = this.ensureConn();
     const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
     const mcpServers = Array.isArray(args.mcpServers) ? args.mcpServers : [];
-    return conn.agent.request(acp.methods.agent.session.resume, { ...args, cwd, mcpServers } as unknown as never);
+    const roots = this.sessionRootsFor(cwd, args.additionalDirectories);
+    const result = await conn.agent.request(acp.methods.agent.session.resume, { ...args, cwd, mcpServers } as unknown as never);
+    this.rememberSessionRoots(args.sessionId, roots);
+    return result;
   }
 
   async listSessions(args: Record<string, unknown> = {}): Promise<unknown> {
@@ -779,16 +797,39 @@ export class UniversalAgentConnection {
     return { outcome: { outcome: "cancelled" } };
   }
 
+  /** 校验并整理会话根（cwd + additionalDirectories），拒绝文件系统根 / 系统目录。 */
+  private sessionRootsFor(cwd: string, extra: unknown): string[] {
+    const dirs = [cwd, ...(Array.isArray(extra) ? extra.map(String) : [])].filter(Boolean);
+    const roots: string[] = [];
+    for (const d of dirs) {
+      const bad = dangerousRootReason(d);
+      if (bad) throw new Error(`session workspace rejected: ${bad}`);
+      const abs = path.resolve(d);
+      if (!roots.includes(abs)) roots.push(abs);
+    }
+    return roots;
+  }
+
+  private rememberSessionRoots(sessionId: unknown, roots: string[]): void {
+    if (typeof sessionId === "string" && sessionId) this.sessionRoots.set(sessionId, roots);
+  }
+
+  /** 会话允许写入的根（未知会话 → 只剩全局根）。供测试与诊断。 */
+  allowedRootsFor(sessionId: string): string[] {
+    return [...(this.sessionRoots.get(sessionId) || []), ...getWorkspaceRoots()];
+  }
+
   /**
-   * Conservative fs guard: normalize + block obvious system locations.
-   * Full allowlist enforcement lives in server/universal/security.ts
-   * (isPathAllowed + workspace roots) — owned by the security agent.
-   * Here we only: (a) reject empty paths, (b) refuse Windows system dirs
-   * and Unix sensitive mounts, (c) otherwise emitActivity + allow but leave
-   * TODO for security allowlist to tighten. Deliberately permissive so
-   * existing flows/tests keep working.
+   * fs guard for agent-initiated fs/* requests.
+   * - Always: reject empty paths and system locations (/etc /proc /sys, Windows system dirs).
+   * - Writes: must stay inside the session's allowed roots (session cwd +
+   *   additionalDirectories + ACP_WORKSPACE_ROOTS + gateway cwd), symlinks
+   *   resolved. Anything else is denied loudly (activity event + JSON-RPC error),
+   *   e.g. an agent writing ~/.ssh/authorized_keys.
+   * - Reads: not confined to the roots yet (agents legitimately read docs /
+   *   toolchains outside the repo); only the system-path block applies.
    */
-  private checkFsPath(raw: string, sessionId: string, op: string): string {
+  private checkFsPath(raw: string, sessionId: string, op: string, mode: "read" | "write"): string {
     const session = sessionId || "";
     if (!raw || !String(raw).trim()) throw new Error(`fs/${op} failed: path is required`);
     let resolved: string;
@@ -809,21 +850,28 @@ export class UniversalAgentConnection {
         throw new Error(`fs/${op} denied: system path not writable/readable (${resolved})`);
       }
     }
-    // Conservative: if the resolved path escapes to a drive root via `..`
-    // trickery (e.g. `C:\` alone or `/` alone when a file was expected),
-    // still allow directories but log loudly. Real confinement (must be under
-    // profile.defaultCwd / workspace root) is TODO(security-agent) via
-    // isPathAllowed() allowlist — see server/universal/security.ts.
-    // TODO(security-agent): enforce isPathAllowed(resolved) here once
-    // workspace roots are stable; current permissive mode avoids breaking
-    // existing agents/tests that use absolute tmp paths.
+    if (mode === "write") {
+      const roots = this.sessionRoots.get(session) || [];
+      if (!isPathAllowed(resolved, roots)) {
+        const allowed = this.allowedRootsFor(session);
+        this.emitActivity(session, `fs_${op}_blocked`, { path: raw, resolved, allowedRoots: allowed });
+        console.warn(`[UniversalACP:${this.profile.id}] fs/${op} denied outside workspace: ${resolved}`);
+        // RequestError（-32602）让消息原样回到智能体，而不是被 SDK 压成 "Internal error"。
+        throw new acp.RequestError(
+          -32602,
+          `fs/${op} denied: ${resolved} is outside the allowed workspace roots (${allowed.join(", ") || "none"}). ` +
+            `Open that folder as the workspace, pass it in additionalDirectories, or add it to ACP_WORKSPACE_ROOTS.`,
+          { path: raw, resolved, allowedRoots: allowed }
+        );
+      }
+    }
     return resolved;
   }
 
   private async handleReadFile(params: { sessionId?: string; path: string; line?: number; limit?: number }): Promise<unknown> {
     const sid = params.sessionId || "";
     this.emitActivity(sid, "fs_read", { path: params.path, line: params.line, limit: params.limit });
-    const resolved = this.checkFsPath(params.path, sid, "read_text_file");
+    const resolved = this.checkFsPath(params.path, sid, "read_text_file", "read");
     try {
       const content = await fsp.readFile(resolved, "utf8");
       const lines = content.split("\n");
@@ -841,7 +889,7 @@ export class UniversalAgentConnection {
   private async handleWriteFile(params: { sessionId?: string; path: string; content: string }): Promise<unknown> {
     const sid = params.sessionId || "";
     this.emitActivity(sid, "fs_write", { path: params.path, bytes: Buffer.byteLength(params.content || "") });
-    const resolved = this.checkFsPath(params.path, sid, "write_text_file");
+    const resolved = this.checkFsPath(params.path, sid, "write_text_file", "write");
     try {
       await fsp.mkdir(path.dirname(resolved), { recursive: true });
       await fsp.writeFile(resolved, params.content, "utf8");
@@ -855,16 +903,19 @@ export class UniversalAgentConnection {
     const command = String(params.command || "");
     if (!command) throw new Error("terminal/create: command is required");
     const args = Array.isArray(params.args) ? (params.args as unknown[]).map(String) : [];
-    // cwd must exist + be a directory; otherwise fall back to process.cwd().
-    let cwd = typeof params.cwd === "string" && params.cwd ? params.cwd : process.cwd();
+    // cwd 省略 → 用会话工作区（ACP 允许省略）；给了但不存在 / 不是目录 → 明确报错，
+    // 绝不悄悄换成 process.cwd()（.agents/rules/no-silent-fallbacks.md）。
+    const sessionCwd = (this.sessionRoots.get(String(params.sessionId || "")) || [])[0];
+    const requested = typeof params.cwd === "string" && params.cwd ? params.cwd : "";
+    const cwd = requested || sessionCwd || this.profile.defaultCwd || process.cwd();
+    let cwdOk = false;
     try {
-      if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
-        console.warn(`[UniversalACP:${this.profile.id}] terminal cwd ${cwd} missing/not-a-dir, falling back to process.cwd()`);
-        cwd = process.cwd();
-      }
+      cwdOk = fs.existsSync(cwd) && fs.statSync(cwd).isDirectory();
     } catch (err) {
-      console.error(`[UniversalACP:${this.profile.id}] terminal cwd check failed: ${(err as Error).message}`);
-      cwd = process.cwd();
+      throw new acp.RequestError(-32602, `terminal/create: cannot access cwd ${cwd}: ${(err as Error).message}`, { cwd });
+    }
+    if (!cwdOk) {
+      throw new acp.RequestError(-32602, `terminal/create: cwd does not exist or is not a directory: ${cwd}`, { cwd });
     }
     const envList = Array.isArray(params.env) ? (params.env as Array<{ name: string; value: string }>) : [];
     const env: Record<string, string> = { ...process.env } as Record<string, string>;

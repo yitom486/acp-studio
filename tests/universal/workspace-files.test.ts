@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { handleUniversal } from "../../server/universal/routes";
+import { authedRequest } from "../helpers/gateway-auth";
 
 function makeTree(): string {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "acp-wsfiles-"));
@@ -17,7 +18,7 @@ function makeTree(): string {
 }
 
 async function getJson(url: string) {
-  const res = (await handleUniversal(new Request(url, { method: "GET" })))!;
+  const res = (await handleUniversal(authedRequest(url, { method: "GET" })))!;
   return { status: res.status, data: await res.json() };
 }
 

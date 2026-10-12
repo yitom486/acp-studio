@@ -1,7 +1,9 @@
+// @vitest-environment node
 import { describe, it, expect, afterAll } from "vitest";
 import { buildApp, shutdownBridges } from "../../server/gateway";
 import { BUILTIN_AGENTS } from "../../server/universal/presets";
 import { universalRegistry } from "../../server/universal/registry";
+import { authedRequest } from "../helpers/gateway-auth";
 
 describe("Universal ACP Gateway (Decoupled & Zero Model Hardcoding)", () => {
   const app = buildApp();
@@ -11,7 +13,7 @@ describe("Universal ACP Gateway (Decoupled & Zero Model Hardcoding)", () => {
   });
 
   it("exposes all configured agent profiles dynamically without hardcoded models", async () => {
-    const req = new Request("http://localhost:3004/api/universal/agents");
+    const req = authedRequest("http://localhost:3004/api/universal/agents");
     const res = await app.fetch(req);
     expect(res.status).toBe(200);
 
@@ -29,17 +31,24 @@ describe("Universal ACP Gateway (Decoupled & Zero Model Hardcoding)", () => {
   });
 
   it("handles CORS options preflight cleanly across universal endpoints", async () => {
+    // 预检不带凭证：无需 token，只回 CORS 头；只回显可信本地 Origin，不再返回 `*`。
     const req = new Request("http://localhost:3004/api/universal/agents", {
       method: "OPTIONS",
+      headers: { Origin: "http://localhost:5188" },
     });
     const res = await app.fetch(req);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5188");
     expect(res.headers.get("Access-Control-Allow-Methods")).toContain("POST");
+
+    const evil = await app.fetch(
+      new Request("http://localhost:3004/api/universal/agents", { method: "OPTIONS", headers: { Origin: "https://evil.example" } })
+    );
+    expect(evil.headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
 
   it("gracefully rejects actions on nonexistent agent IDs", async () => {
-    const req = new Request("http://localhost:3004/api/universal/agents/non-existent-agent-id/status");
+    const req = authedRequest("http://localhost:3004/api/universal/agents/non-existent-agent-id/status");
     const res = await app.fetch(req);
     expect(res.status).toBe(404);
 
@@ -58,7 +67,7 @@ describe("Universal ACP Gateway (Decoupled & Zero Model Hardcoding)", () => {
     };
 
     // Upsert custom profile
-    const addReq = new Request("http://localhost:3004/api/universal/agents", {
+    const addReq = authedRequest("http://localhost:3004/api/universal/agents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(customProfile),
@@ -71,13 +80,13 @@ describe("Universal ACP Gateway (Decoupled & Zero Model Hardcoding)", () => {
     expect(addData.agent.id).toBe("custom-test-agent");
 
     // Retrieve via list
-    const listReq = new Request("http://localhost:3004/api/universal/agents");
+    const listReq = authedRequest("http://localhost:3004/api/universal/agents");
     const listRes = await app.fetch(listReq);
     const listData = (await listRes.json()) as { agents: Array<{ id: string }> };
     expect(listData.agents.some((p) => p.id === "custom-test-agent")).toBe(true);
 
     // Delete custom profile
-    const delReq = new Request("http://localhost:3004/api/universal/agents/custom-test-agent", {
+    const delReq = authedRequest("http://localhost:3004/api/universal/agents/custom-test-agent", {
       method: "DELETE",
     });
     const delRes = await app.fetch(delReq);

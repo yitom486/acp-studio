@@ -246,11 +246,16 @@ ipcMain.handle("window:isMaximized", () => {
   return win && !win.isDestroyed() ? win.isMaximized() : false;
 });
 
-// 预留给前端接线：renderer（经 preload 透出后）用该 IPC 拿 token，
-// 再在 fetch 头带 `Authorization: Bearer <token>`。
-// 当前前端尚未接入：Electron 经 http://127.0.0.1 同源（或 file:// 无 Origin）
-// 由 universal/security.ts 直接放行；此处不改 loadURL、不破坏现有启动。
-ipcMain.handle("gateway:getToken", () => process.env.ACP_GATEWAY_TOKEN || ensureGatewayToken());
+// 网关 token 交给页面：preload 透出 `acpStudio.getGatewayToken()`，前端
+// （src/lib/gateway-auth.ts）启动时取一次，之后所有 /api/universal/* 请求带
+// `Authorization: Bearer <token>`，PTY WebSocket 带 `?token=`。
+// 只响应本应用自己加载的页面（主窗口），其他 webContents 拿不到。
+ipcMain.handle("gateway:getToken", (event) => {
+  if (!win || win.isDestroyed() || event.sender.id !== win.webContents.id) {
+    throw new Error("gateway:getToken denied: caller is not the ACP Studio main window");
+  }
+  return process.env.ACP_GATEWAY_TOKEN || ensureGatewayToken();
+});
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

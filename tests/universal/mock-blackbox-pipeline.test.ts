@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp, shutdownBridges } from "../../server/gateway";
 import { universalRegistry } from "../../server/universal/registry";
+import { authedRequest } from "../helpers/gateway-auth";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,7 +39,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
     // Issue 5 simultaneous connect requests to simulate StrictMode / multi-caller load
     const connectReqs = Array.from({ length: 5 }, () =>
       app.fetch(
-        new Request(`http://localhost:3004/api/universal/agents/${mockAgentId}/connect`, {
+        authedRequest(`http://localhost:3004/api/universal/agents/${mockAgentId}/connect`, {
           method: "POST",
         })
       )
@@ -70,7 +71,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
   it("executes end-to-end event stream with thoughts, text, tool calls, images, and usage", async () => {
     // 1. Create session
     const sessRes = await app.fetch(
-      new Request(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/new`, {
+      authedRequest(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/new`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -97,7 +98,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
     };
 
     const chatRes = await app.fetch(
-      new Request("http://localhost:3004/api/universal/chat", {
+      authedRequest("http://localhost:3004/api/universal/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(promptPayload),
@@ -193,7 +194,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
   it("handles interactive permission requests via gateway respond endpoint", async () => {
     // 1. Create fresh session
     const sessRes = await app.fetch(
-      new Request(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/new`, {
+      authedRequest(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/new`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -204,7 +205,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
 
     // 2. Send prompt that triggers permission request
     const chatRes = await app.fetch(
-      new Request("http://localhost:3004/api/universal/chat", {
+      authedRequest("http://localhost:3004/api/universal/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -256,7 +257,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
 
     // Respond to permission via Gateway HTTP API
     const respondRes = await app.fetch(
-      new Request(`http://localhost:3004/api/universal/permission/respond`, {
+      authedRequest(`http://localhost:3004/api/universal/permission/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -278,7 +279,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
   it("handles interactive user elicitation via gateway respond endpoint", async () => {
     // 1. Create fresh session
     const sessRes = await app.fetch(
-      new Request(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/new`, {
+      authedRequest(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/new`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -289,7 +290,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
 
     // 2. Send prompt that triggers elicitation
     const chatRes = await app.fetch(
-      new Request("http://localhost:3004/api/universal/chat", {
+      authedRequest("http://localhost:3004/api/universal/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -346,7 +347,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
 
     // Respond to elicitation via Gateway HTTP API
     const respondRes = await app.fetch(
-      new Request(`http://localhost:3004/api/universal/elicitation/respond`, {
+      authedRequest(`http://localhost:3004/api/universal/elicitation/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -366,7 +367,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
   it("handles prompt turn cancellation cleanly without process crash", async () => {
     // 1. Create fresh session
     const sessRes = await app.fetch(
-      new Request(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/new`, {
+      authedRequest(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/new`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -377,7 +378,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
 
     // 2. Start prompt turn that waits for cancellation
     const chatRes = await app.fetch(
-      new Request("http://localhost:3004/api/universal/chat", {
+      authedRequest("http://localhost:3004/api/universal/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -424,7 +425,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
 
     // Issue session/cancel RPC
     const cancelRes = await app.fetch(
-      new Request(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/cancel`, {
+      authedRequest(`http://localhost:3004/api/universal/agents/${mockAgentId}/session/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId }),

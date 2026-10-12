@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { ptyStatus, ptyResize, ptyWsCandidateBases, buildPtyWsUrl } from "@/lib/universal-api";
+import { apiFetch, withTokenQuery } from "@/lib/gateway-auth";
 
 /** 抽屉传输模式：pty=真交互 shell；oneshot=单次执行（PTY 不可用时回落）。 */
 export type TerminalMode = "probing" | "pty" | "oneshot";
@@ -289,6 +290,9 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         lineHeight: 1.25,
         scrollback: 5000,
         theme: buildXtermTheme(vars, isLightTerminalTheme()),
+        // term.unicode（下面的 Unicode11Addon 要用）在 xterm 6 里属于 proposed API，
+        // 不开这个开关会直接抛错，整个界面掉进 ErrorBoundary。
+        allowProposedApi: true,
       });
 
       const fit = new FitAddon();
@@ -559,7 +563,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     term.writeln("");
     let written = 0;
     try {
-      const res = await fetch("/api/universal/terminal/exec", {
+      const res = await apiFetch("/api/universal/terminal/exec", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: activeCwd, command }),
@@ -567,7 +571,15 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
       });
 
       if (!res.ok || !res.body) {
-        term.writeln(`\x1b[31m[执行失败: HTTP ${res.status}]\x1b[0m`);
+        // 网关的 400（如工作目录不存在）带明确原因：原样显示，不只给状态码。
+        const detail = await res
+          .json()
+          .then((b: { error?: string }) => b?.error || "")
+          .catch((err: unknown) => {
+            console.debug("[TerminalDrawer] 错误响应不是 JSON（已忽略，只显示状态码）:", err);
+            return "";
+          });
+        term.writeln(`\x1b[31m[执行失败: HTTP ${res.status}${detail ? ` · ${detail}` : ""}]\x1b[0m`);
       } else {
         const reader = res.body.getReader();
         readerRef.current = reader;
@@ -723,7 +735,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         return;
       }
       let settled = false;
-      const ws = new WebSocket(buildPtyWsUrl(bases[i], ptyId, activeCwd, 80, 24));
+      const ws = new WebSocket(withTokenQuery(buildPtyWsUrl(bases[i], ptyId, activeCwd, 80, 24)));
       ws.onopen = () => {
         settled = true;
         wsRef.current = ws;

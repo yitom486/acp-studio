@@ -100,7 +100,9 @@ bun run dev:desktop    # Electron 桌面开发模式（默认 Bun 网关，终�
 ACP_GATEWAY=node bun run dev:desktop   # 改用 Node 网关，启用真 PTY 终端
 ```
 
-打开 http://localhost:5188 → 选择智能体 → 连接 → 新建会话 → 发送。
+网关启动时会在终端打印一条 `open the UI with: http://localhost:5188/?token=...` 链接，用它打开 → 选择智能体 → 连接 → 新建会话 → 发送。
+
+网关的所有 `/api/universal/*` 接口（包括终端执行）都要求访问令牌：Electron 桌面版自动带上；浏览器模式第一次用上面的链接打开，前端会记住令牌并从地址栏抹掉，也可以在令牌页粘贴 `~/.acp-studio/.gateway-token` 的内容。
 
 ### 检查与构建
 
@@ -123,7 +125,7 @@ bun run package:win             # 或 package:mac / package:linux，产物在 re
 | `PORT` | 网关端口 | `3004` |
 | `ACP_AGENTS_JSON` | 追加 / 覆盖智能体定义（JSON 数组） | 空 |
 | `ACP_AGENTS_FILE` | 自定义智能体持久化文件 | `~/.acp-studio/agents.json` |
-| `ACP_WORKSPACE_ROOTS` | 工作区白名单（`;` 或 `:` 分隔） | 当前目录 |
+| `ACP_WORKSPACE_ROOTS` | 额外允许智能体写入的目录（`;` 或 `:` 分隔）；会话工作区本身始终允许 | 网关当前目录 |
 | `ACP_GATEWAY_TOKEN` | 网关访问令牌 | 自动生成，存于 `~/.acp-studio/.gateway-token` |
 | `ACP_PUBLIC_DIR` | 网关托管的前端目录 | `./dist` |
 | `ACP_GATEWAY` | `dev:desktop` 使用的网关（`bun` / `node`） | `bun` |
@@ -150,7 +152,8 @@ acp-studio/
 │   ├── index.ts / node.ts       # Bun / Node 网关入口
 │   ├── gateway.ts               # Hono 应用：鉴权、/api/universal/*、静态文件
 │   └── universal/
-│       ├── routes.ts            # HTTP / SSE 接口（智能体、会话、聊天、工作区、git、终端）
+│       ├── routes.ts            # /api/universal/* 入口：鉴权 + 组装各子路由
+│       ├── http/                # Hono 子路由（agents、sessions、interactions、chat、workspace、terminal、git）+ 请求校验
 │       ├── AgentConnection.ts   # 单个智能体的 ACP stdio 连接
 │       ├── registry.ts          # 智能体定义与活动连接
 │       ├── presets.ts           # 内置预设
@@ -170,8 +173,9 @@ acp-studio/
 
 ## 路线图
 
-- [ ] 网关令牌真正生效：前端和非浏览器调用都必须带令牌
-- [ ] 工作区白名单默认拒绝（文件读写、终端、git 都受限）
+- [x] 网关令牌真正生效：前端和非浏览器调用都必须带令牌
+- [x] 智能体写文件限制在会话工作区内
+- [ ] 读文件、终端、git 也限制在工作区内；智能体进程沙箱
 - [ ] 会话历史持久化到本地数据库（目前只存 localStorage，且不保存工具调用）
 - [ ] 文件树与代码查看 / 编辑器
 - [ ] 基于检查点的撤销（不依赖 git）

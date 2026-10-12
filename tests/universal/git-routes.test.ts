@@ -4,9 +4,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { handleUniversal } from "../../server/universal/routes";
+import { authedRequest } from "../helpers/gateway-auth";
 
 function req(urlPath: string): Request {
-  return new Request(`http://localhost${urlPath}`, { method: "GET" });
+  return authedRequest(`http://localhost${urlPath}`, { method: "GET" });
 }
 
 describe("git inspection routes", () => {
@@ -60,7 +61,7 @@ describe("git inspection routes", () => {
   it("stages and restores a file change", async () => {
     if (!hasGit || !repo) return;
     // Stage new.txt
-    const stageReq = new Request("http://localhost/api/universal/git/stage", {
+    const stageReq = authedRequest("http://localhost/api/universal/git/stage", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cwd: repo, file: "new.txt" }),
@@ -70,7 +71,7 @@ describe("git inspection routes", () => {
     expect((await stageRes.json()).ok).toBe(true);
 
     // Verify a.txt restore
-    const restoreReq = new Request("http://localhost/api/universal/git/restore", {
+    const restoreReq = authedRequest("http://localhost/api/universal/git/restore", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cwd: repo, file: "a.txt" }),
