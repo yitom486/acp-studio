@@ -20,6 +20,7 @@
 
 ### Fixed
 - 终端工作目录不存在时不再悄悄换成网关当前目录：`terminal/exec` 返回 400 并写明路径（cwd 也必须显式给出），ACP `terminal/create` 把错误回给智能体；终端抽屉显示网关返回的具体原因。
+- 打开集成终端时整个界面崩溃进错误页（`You must set the allowProposedApi option`）：xterm 6 下 Unicode11Addon 用到的 `term.unicode` 属于 proposed API，Terminal 补上 `allowProposedApi: true`。
 - `bun run test` 全绿：`@yitom/acp-client` 集成测试改为等 `session/update` 通知落地再断言（原先与 prompt 响应赛跑）。
 - 测试不再写真实 `~/.acp-studio/agents.json`：全局 setup 把 `ACP_AGENTS_FILE` / `ACP_AGENTS_HOME` / `ACP_GATEWAY_TOKEN` 指向临时目录。
 

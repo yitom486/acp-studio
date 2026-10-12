@@ -290,6 +290,9 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         lineHeight: 1.25,
         scrollback: 5000,
         theme: buildXtermTheme(vars, isLightTerminalTheme()),
+        // term.unicode（下面的 Unicode11Addon 要用）在 xterm 6 里属于 proposed API，
+        // 不开这个开关会直接抛错，整个界面掉进 ErrorBoundary。
+        allowProposedApi: true,
       });
 
       const fit = new FitAddon();
