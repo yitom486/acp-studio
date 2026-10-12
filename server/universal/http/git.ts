@@ -10,13 +10,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
 import { json, jsonBody, optStr, type BodyEnv } from "./shared";
+import { gitSpawnForCwd, parseWslCwd, wslUncFromLinux } from "../wsl";
 
 const GIT_MAX_BYTES = 300_000;
 
 function runGit(cwd: string, args: string[]): { ok: boolean; out: string } {
   try {
-    const r = spawnSync("git", args, {
-      cwd,
+    // WSL 工作区：UNC 做不了子进程 cwd，改走 wsl.exe --cd（仓库语义不变）。
+    const plan = gitSpawnForCwd(process.platform, cwd, args, process.cwd());
+    const r = spawnSync(plan.shell, plan.args, {
+      cwd: plan.spawnCwd,
       encoding: "utf8",
       timeout: 15000,
       maxBuffer: GIT_MAX_BYTES * 2,
@@ -31,11 +34,19 @@ function runGit(cwd: string, args: string[]): { ok: boolean; out: string } {
 }
 
 function resolveRepo(cwd: string): { repo?: string; error?: string } {
-  if (!cwd || !fs.existsSync(cwd)) return { error: "cwd 不存在" };
+  if (!cwd || !fs.existsSync(cwd)) {
+    if (process.platform === "win32" && String(cwd || "").trim().startsWith("/")) {
+      return { error: "cwd 不存在：Windows 网关不认 Linux 路径，WSL 目录请用 \\\\wsl$\\<distro>\\... 形式" };
+    }
+    return { error: "cwd 不存在" };
+  }
+  const wsl = process.platform === "win32" ? parseWslCwd(cwd) : null;
   const top = runGit(cwd, ["rev-parse", "--show-toplevel"]);
   if (!top.ok || !top.out.trim()) return { error: "该目录不是 git 仓库" };
+  // WSL 下 rev-parse 吐的是 Linux 路径：映回 UNC，下游 fs 读盘与 prefix 检查才一致。
+  const root = wsl ? wslUncFromLinux(wsl.distro, top.out.trim()) : top.out.trim();
   // Normalize Windows separators for reliable prefix checks.
-  return { repo: path.normalize(top.out.trim()) };
+  return { repo: path.normalize(root) };
 }
 
 export interface GitFileChange {

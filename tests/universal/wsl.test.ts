@@ -1,0 +1,71 @@
+import { describe, it, expect } from "vitest";
+import {
+  parseWslCwd,
+  wslUncFromLinux,
+  ptySpawnForCwd,
+  execSpawnForCwd,
+  gitSpawnForCwd,
+} from "../../server/universal/wsl";
+import { parseWslDistro } from "@/components/universal/TerminalDrawer";
+
+const UNC = "\\\\wsl$\\Ubuntu\\home\\u\\proj";
+
+describe("wsl paths", () => {
+  it("parses \\\\wsl$\\ and \\\\wsl.localhost\\ prefixes (either slash)", () => {
+    expect(parseWslCwd(UNC)).toEqual({ distro: "Ubuntu", linuxPath: "/home/u/proj" });
+    expect(parseWslCwd("//wsl$/Ubuntu/home/u/proj")).toEqual({ distro: "Ubuntu", linuxPath: "/home/u/proj" });
+    expect(parseWslCwd("\\\\wsl.localhost\\Debian\\root\\app")).toEqual({ distro: "Debian", linuxPath: "/root/app" });
+    // 大小写不敏感 + distro 根
+    expect(parseWslCwd("\\\\WSL$\\Ubuntu")).toEqual({ distro: "Ubuntu", linuxPath: "/" });
+    expect(parseWslCwd("\\\\wsl$\\Ubuntu\\")).toEqual({ distro: "Ubuntu", linuxPath: "/" });
+  });
+
+  it("rejects non-wsl paths", () => {
+    expect(parseWslCwd("D:\\repo\\proj")).toBeNull();
+    expect(parseWslCwd("/home/u/proj")).toBeNull();
+    expect(parseWslCwd("")).toBeNull();
+    expect(parseWslCwd("\\\\server\\share\\x")).toBeNull();
+  });
+
+  it("round-trips linux paths back to UNC", () => {
+    expect(wslUncFromLinux("Ubuntu", "/home/u/proj")).toBe(UNC);
+    expect(wslUncFromLinux("Ubuntu", "/")).toBe("\\\\wsl$\\Ubuntu");
+  });
+
+  it("routes PTY through wsl.exe on win32, keeps platform shells otherwise", () => {
+    expect(ptySpawnForCwd("win32", UNC, "C:\\gw")).toEqual({
+      shell: "wsl.exe",
+      args: ["-d", "Ubuntu", "--cd", "/home/u/proj"],
+      spawnCwd: "C:\\gw",
+    });
+    expect(ptySpawnForCwd("win32", "D:\\repo", "C:\\gw")).toMatchObject({ shell: "powershell.exe" });
+    expect(ptySpawnForCwd("linux", "/home/u", "/srv").spawnCwd).toBe("/home/u");
+  });
+
+  it("routes one-shot exec through wsl sh -c (linux parity)", () => {
+    expect(execSpawnForCwd("win32", UNC, "go build ./...", "C:\\gw")).toEqual({
+      shell: "wsl.exe",
+      args: ["-d", "Ubuntu", "--cd", "/home/u/proj", "--", "sh", "-c", "go build ./..."],
+      spawnCwd: "C:\\gw",
+    });
+    expect(execSpawnForCwd("win32", "D:\\r", "dir", "C:\\gw")).toMatchObject({ shell: "powershell.exe" });
+  });
+
+  it("routes git through wsl git (UNC cannot be a child cwd)", () => {
+    expect(gitSpawnForCwd("win32", UNC, ["status"], "C:\\gw")).toEqual({
+      shell: "wsl.exe",
+      args: ["-d", "Ubuntu", "--cd", "/home/u/proj", "--", "git", "status"],
+      spawnCwd: "C:\\gw",
+    });
+    expect(gitSpawnForCwd("linux", "/r", ["status"], "/srv")).toEqual({
+      shell: "git",
+      args: ["status"],
+      spawnCwd: "/r",
+    });
+  });
+
+  it("frontend badge parses the same distro (drift guard)", () => {
+    expect(parseWslDistro(UNC)).toBe("Ubuntu");
+    expect(parseWslDistro("D:\\repo")).toBeNull();
+  });
+});

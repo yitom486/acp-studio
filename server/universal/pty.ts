@@ -21,6 +21,7 @@ import type * as http from "node:http";
 import type { Socket } from "node:net";
 import type { WebSocket } from "ws";
 import { gatewayAuthHeaders } from "./security";
+import { parseWslCwd, ptySpawnForCwd } from "./wsl";
 
 export const PTY_PATH = "/api/universal/terminal/pty";
 export const PTY_MIN_COLS = 20;
@@ -74,6 +75,10 @@ export function clampPtySize(cols: number, rows: number): PtySize {
 export function resolvePtyCwd(raw: string): { ok: true; cwd: string } | { ok: false; error: string } {
   const cwd = String(raw || "").trim();
   if (!cwd) return { ok: false, error: "cwd is required" };
+  // Windows 网关下直接填 Linux 路径（/home/...）必然不存在：指一条明路，不静默 400。
+  if (process.platform === "win32" && !parseWslCwd(cwd) && cwd.startsWith("/")) {
+    return { ok: false, error: `Windows 网关不认 Linux 路径 ${cwd}：WSL 目录请用 \\\\wsl$\\<distro>\\... 形式` };
+  }
   try {
     const resolved = path.resolve(cwd);
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
@@ -186,11 +191,12 @@ export function createPtySession(
 ): PtySession {
   const spawn = spawnFn ?? defaultSpawner();
   if (!spawn) throw new Error("pty-unavailable");
-  const { shell, args } = shellForPlatform(process.platform);
+  // WSL 工作区（\\wsl$\...）：子进程 cwd 不能是 UNC，改走 wsl.exe --cd（见 wsl.ts）。
+  const plan = ptySpawnForCwd(process.platform, cwd, process.cwd());
   const size0 = clampPtySize(size.cols, size.rows);
-  const child = spawn(shell, args, {
+  const child = spawn(plan.shell, plan.args, {
     name: "xterm-256color",
-    cwd,
+    cwd: plan.spawnCwd,
     cols: size0.cols,
     rows: size0.rows,
     // 全量继承：Windows 丢 SystemRoot 会导致 PowerShell 启动失败（8009001d）。

@@ -120,6 +120,17 @@ export function newPtyId(now: number = Date.now(), rand: number = Math.random())
   return `pty-${now}-${rand.toString(36).slice(2, 8)}`;
 }
 
+/**
+ * 工作区是否在 WSL 里：是则返回 distro 名，否则 null（纯函数，可测）。
+ * 与服务端 `server/universal/wsl.ts::parseWslCwd` 同正则，改一处记得改另一处。
+ */
+export function parseWslDistro(cwd: string): string | null {
+  const m = /^(?:\\\\|\/\/)(wsl\$|wsl\.localhost)[\\\/]([^\\\/]+)([\\\/].*)?$/i.exec(
+    String(cwd || "").trim()
+  );
+  return m ? m[2] : null;
+}
+
 /** 浮动终端几何（纯函数，可测；组件只负责指针事件接线）。 */
 export interface TerminalGeom {
   x: number;
@@ -288,7 +299,9 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
       : "（未选择目录）";
     // 浅色下青色对比不足，改用蓝色；深色保持青色。
     const accent = isLightTerminalTheme() ? "\x1b[34m" : "\x1b[36m";
-    t.write(`\r\n${accent}PS ${short}\x1b[0m\x1b[90m>\x1b[0m `);
+    const wsl = parseWslDistro(activeCwd);
+    const shellTag = wsl ? `WSL ${wsl}` : "PS";
+    t.write(`\r\n${accent}${shellTag} ${short}\x1b[0m\x1b[90m>\x1b[0m `);
   };
 
   useEffect(() => {
@@ -903,6 +916,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   const panelStyle: React.CSSProperties = hidden
     ? { ...basePanelStyle, display: "none" }
     : basePanelStyle;
+  const wslDistro = parseWslDistro(activeCwd);
 
   const resizeHandle = (dir: TerminalResizeDir, className: string, cursor: string) => (
     <div
@@ -942,6 +956,14 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
           >
             {mode === "pty" ? "PTY" : mode === "oneshot" ? "单次" : "…"}
           </span>
+          {wslDistro ? (
+            <span
+              className="font-mono text-[10px] px-1.5 py-0.5 rounded border text-muted-foreground border-border bg-transparent"
+              title={`WSL 发行版 ${wslDistro}：终端/git 经 wsl.exe 执行，文件直读 \\\\wsl$`}
+            >
+              WSL · {wslDistro}
+            </span>
+          ) : null}
           <div className="flex items-center gap-1 text-[11px] text-muted-foreground font-mono px-1 max-w-[300px] truncate">
             <Folder className="w-3 h-3 shrink-0" />
             <span className="truncate" title={hasCwd ? activeCwd : "未选择工作目录，按 Ctrl+O 选择"}>

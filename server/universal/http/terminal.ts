@@ -51,10 +51,8 @@ terminalRouter.post("/exec", jsonBody(execBody), async (c) => {
       return json({ ok: false, error: `command too long (max ${EXEC_MAX_CHARS} chars)` }, 400);
     }
 
-    const shellBin = process.platform === "win32" ? "powershell.exe" : "/bin/sh";
-    const shellArgs = process.platform === "win32" ? ["-NoProfile", "-Command", cmd] : ["-c", cmd];
-
     const { spawn } = await import("node:child_process");
+    const { execSpawnForCwd } = await import("../wsl");
     // cwd 必须显式给出且存在：不再悄悄回落到 process.cwd()（no-silent-fallbacks.md）。
     if (!cwd) return json({ ok: false, error: "cwd is required" }, 400);
     const targetCwd = path.resolve(cwd);
@@ -65,8 +63,10 @@ terminalRouter.post("/exec", jsonBody(execBody), async (c) => {
       return json({ ok: false, error: `无法访问工作目录 ${targetCwd}：${(err as Error).message}` }, 400);
     }
     if (!isDir) return json({ ok: false, error: `工作目录不存在或不是目录：${targetCwd}` }, 400);
-    const proc = spawn(shellBin, shellArgs, {
-      cwd: targetCwd,
+    // WSL 工作区：UNC 不能做子进程 cwd，改走 wsl.exe --cd（shell 真目录不变）。
+    const plan = execSpawnForCwd(process.platform, targetCwd, cmd, process.cwd());
+    const proc = spawn(plan.shell, plan.args, {
+      cwd: plan.spawnCwd,
       env: { ...process.env, TERM: "xterm-256color" },
       windowsHide: true,
     });
