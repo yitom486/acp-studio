@@ -9,16 +9,17 @@
 
 ## [Unreleased]
 
+### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+
+## [0.1.2] - 2026-10-12
 
 ### Added
 - 流式输出体验：在底部时自动跟随新内容（ResizeObserver，80px 阈值），往上翻看时绝不强制滚动，点“回到底部”重新跟随；生成中的回答气泡外有一圈缓慢旋转的细光环与柔光，结束后淡出；新段落轻微淡入，光标改为跟在文字末尾的细竖线；系统开启“减少动态效果”时关闭这些动画。
 - 主题切换改为整页一次交叉淡化（View Transitions，统一 180ms / 同一缓动），切换期间关闭元素自身过渡，各部分同时完成、不再卡顿；去掉对所有元素常驻的全局颜色过渡，8 处 `transition-all` 改为只过渡需要的属性；不支持或开启“减少动态效果”时直接切换。
 - 开发假数据 `?fixture=stream`：模拟逐字流式输出，便于检查上述效果。
-
 ### Fixed
 - 自动更新：安装包文件名去掉空格（如 `ACP-Studio-Setup-<版本>.exe`），`latest*.yml` 里的文件名与 GitHub Release 附件一致，否则更新会下载 404。
-
 ### Changed
 - Windows 安装改为向导：首次安装可选择安装目录（固定为当前用户安装，去掉“为谁安装”选择页；安装器侧边栏 / 页眉换成 ACP Studio 品牌图），创建桌面与开始菜单快捷方式；之后的自动更新仍后台静默安装（`/S`），沿用注册表里记录的安装目录，不再弹向导。
 - CI / Release 工作流的 GitHub Actions 升级到 Node 24 版本（checkout v7、upload-artifact v7、download-artifact v8、action-gh-release v3）。
@@ -164,6 +165,7 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.2...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
 [0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
+[0.1.2]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.2
