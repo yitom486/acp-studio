@@ -13,6 +13,7 @@ import { buildApp, shutdownBridges } from "../../server/gateway";
 import { universalRegistry } from "../../server/universal/registry";
 import { dangerousRootReason, isPathAllowed } from "../../server/universal/security";
 import { authedRequest } from "../helpers/gateway-auth";
+import { rmTempDir } from "../helpers/tmp-cleanup";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.resolve(__dirname, "../fixtures/mock-acp-agent.ts");
@@ -45,7 +46,7 @@ afterAll(async () => {
   universalRegistry.removeProfile(agentId);
   await shutdownBridges();
   // Windows 上 mock 智能体 / 终端子进程可能还短暂占着目录，重试几次再删。
-  fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  rmTempDir(base);
 });
 
 async function newSession(body: Record<string, unknown>): Promise<string> {
