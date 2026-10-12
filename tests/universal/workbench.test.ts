@@ -11,6 +11,7 @@ describe("changedLines", () => {
     expect(changedLines("a\nc", "a\nb\nc")).toEqual([2]);
     expect(changedLines("a\nb\nc", "a\nc")).toEqual([]);
     expect(changedLines("", "x\ny")).toEqual([1, 2]);
+    expect(changedLines("a\r\nb\r\nc", "a\nb\nc")).toEqual([]);
   });
 });
 
@@ -87,6 +88,14 @@ describe("workbench tabs", () => {
     s.setActive("b");
     s.closeTab("b");
     expect(useWorkbenchStore.getState().activeId).toBe("c");
+  });
+  it("does not treat CRLF vs LF differences as dirty", () => {
+    const s = useWorkbenchStore.getState();
+    s.openTab({ ...base, id: "crlf", path: "crlf", text: "line1\nline2\n", savedText: "line1\r\nline2\r\n" });
+    const tab = useWorkbenchStore.getState().tabs[0];
+    expect(isDirty(tab)).toBe(false);
+    s.patchTab("crlf", { text: "line1\nline2_modified\n" });
+    expect(isDirty(useWorkbenchStore.getState().tabs[0])).toBe(true);
   });
 });
 

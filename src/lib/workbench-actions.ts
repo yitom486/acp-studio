@@ -12,7 +12,16 @@ export async function openFile(cwd: string, path: string, opts: { pin?: boolean 
   if (existing && !existing.error) return;
   try {
     const f = await fsRead(cwd, path);
-    st().patchTab(id, { text: f.text, savedText: f.text, mtimeMs: f.mtimeMs, loading: false, error: undefined });
+    const hasCrlf = f.text.includes("\r\n");
+    const normalized = f.text.replace(/\r\n/g, "\n");
+    st().patchTab(id, {
+      text: normalized,
+      savedText: normalized,
+      eol: hasCrlf ? "\r\n" : "\n",
+      mtimeMs: f.mtimeMs,
+      loading: false,
+      error: undefined,
+    });
   } catch (e) {
     st().patchTab(id, { loading: false, error: (e as Error).message });
   }
@@ -25,7 +34,11 @@ export async function openDiff(cwd: string, path: string) {
     const d = await gitFile(cwd, path);
     if (d.binary) throw new Error("二进制文件不支持对比");
     // diff 标签：savedText = HEAD 版本，text = 工作区版本（只读）
-    st().patchTab(id, { savedText: d.before ?? "", text: d.after ?? "", loading: false });
+    st().patchTab(id, {
+      savedText: (d.before ?? "").replace(/\r\n/g, "\n"),
+      text: (d.after ?? "").replace(/\r\n/g, "\n"),
+      loading: false,
+    });
   } catch (e) {
     st().patchTab(id, { loading: false, error: (e as Error).message });
   }
@@ -38,7 +51,8 @@ export async function saveTab(cwd: string, id: string, opts: { force?: boolean }
   if (!tab || tab.kind !== "file" || tab.loading) return "noop";
   if (!isDirty(tab) && !opts.force) return "noop";
   try {
-    const r = await fsWrite(cwd, tab.path, tab.text, tab.mtimeMs, opts.force);
+    const textToWrite = tab.eol === "\r\n" ? tab.text.replace(/\r?\n/g, "\r\n") : tab.text;
+    const r = await fsWrite(cwd, tab.path, textToWrite, tab.mtimeMs, opts.force);
     st().patchTab(id, { savedText: tab.text, mtimeMs: r.mtimeMs, conflict: null, preview: false });
     return "saved";
   } catch (e) {
@@ -55,7 +69,15 @@ export async function saveTab(cwd: string, id: string, opts: { force?: boolean }
 export function acceptDisk(id: string) {
   const tab = st().tabs.find((t) => t.id === id);
   if (!tab?.conflict) return;
-  st().patchTab(id, { text: tab.conflict.text, savedText: tab.conflict.text, mtimeMs: tab.conflict.mtimeMs, conflict: null });
+  const hasCrlf = tab.conflict.text.includes("\r\n");
+  const normalized = tab.conflict.text.replace(/\r\n/g, "\n");
+  st().patchTab(id, {
+    text: normalized,
+    savedText: normalized,
+    eol: hasCrlf ? "\r\n" : "\n",
+    mtimeMs: tab.conflict.mtimeMs,
+    conflict: null,
+  });
 }
 
 /** 文件监听批次 → 已打开的标签：未改动则自动重载并高亮变化行；有未保存改动则进冲突态。 */
@@ -72,19 +94,23 @@ export async function applyWatchEvents(cwd: string, events: FsWatchEvent[]) {
       try {
         const f = await fsRead(cwd, t.path);
         const cur = st().tabs.find((x) => x.id === t.id);
-        if (!cur || f.mtimeMs === cur.mtimeMs || f.text === cur.savedText) {
-          if (cur && f.mtimeMs !== cur.mtimeMs) st().patchTab(t.id, { mtimeMs: f.mtimeMs });
+        if (!cur) return;
+        const hasCrlf = f.text.includes("\r\n");
+        const normalized = f.text.replace(/\r\n/g, "\n");
+        if (f.mtimeMs === cur.mtimeMs || normalized === cur.savedText) {
+          if (f.mtimeMs !== cur.mtimeMs) st().patchTab(t.id, { mtimeMs: f.mtimeMs });
           return;
         }
         if (isDirty(cur)) {
           st().patchTab(t.id, { conflict: { text: f.text, mtimeMs: f.mtimeMs } });
         } else {
           st().patchTab(t.id, {
-            text: f.text,
-            savedText: f.text,
+            text: normalized,
+            savedText: normalized,
+            eol: hasCrlf ? "\r\n" : "\n",
             mtimeMs: f.mtimeMs,
             error: undefined,
-            flashLines: changedLines(cur.savedText, f.text),
+            flashLines: changedLines(cur.savedText, normalized),
             flashAt: Date.now(),
           });
         }

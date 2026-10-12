@@ -23,6 +23,8 @@ export interface EditorTab {
   flashAt?: number;
   /** 视图：源码（默认）/ Markdown 所见即所得 / 笔记本预览（.ipynb 默认） */
   view?: "source" | "wysiwyg" | "notebook";
+  /** 磁盘文件的行尾换行符（Windows 为 \r\n，Linux/macOS 为 \n），保存时恢复原样以防 Git 产生全局 diff */
+  eol?: "\r\n" | "\n";
 }
 
 export type SettingsTab = "general" | "gateway" | "about";
@@ -65,7 +67,10 @@ function savePrefs(p: { sidebarOpen: boolean; fileTreeOpen: boolean }) {
   } catch {}
 }
 
-export const isDirty = (t: EditorTab) => t.kind === "file" && !t.loading && t.text !== t.savedText;
+const normalizeEol = (s: string) => (s ? s.replace(/\r\n/g, "\n") : s);
+
+export const isDirty = (t: EditorTab) =>
+  t.kind === "file" && !t.loading && normalizeEol(t.text) !== normalizeEol(t.savedText);
 
 export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   ...loadPrefs(),

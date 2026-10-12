@@ -27,7 +27,7 @@ const langCompartment = new Compartment();
 
 function buildState(tab: EditorTab, onChange: (text: string) => void): EditorState {
   return EditorState.create({
-    doc: tab.text,
+    doc: tab.text.replace(/\r\n/g, "\n"),
     extensions: [
       baseExtensions(),
       langCompartment.of([]),
@@ -48,7 +48,10 @@ const FileEditor: React.FC<{ tab: EditorTab }> = ({ tab }) => {
     const onChange = (text: string) => {
       const st = useWorkbenchStore.getState();
       const cur = st.tabs.find((t) => t.id === tabId);
-      if (!cur || cur.text === text) return;
+      if (!cur) return;
+      const curNorm = cur.text.replace(/\r\n/g, "\n");
+      const nextNorm = text.replace(/\r\n/g, "\n");
+      if (curNorm === nextNorm) return;
       st.patchTab(tabId, { text, ...(cur.preview ? { preview: false } : {}) }); // 开始编辑 = 固定标签
     };
     const v = new EditorView({ state: states.get(tabId) ?? buildState(tab, onChange), parent: host.current });
@@ -71,7 +74,9 @@ const FileEditor: React.FC<{ tab: EditorTab }> = ({ tab }) => {
     const v = view.current;
     if (!v) return;
     const doc = v.state.doc.toString();
-    if (doc !== tab.text) {
+    const docNorm = doc.replace(/\r\n/g, "\n");
+    const tabNorm = tab.text.replace(/\r\n/g, "\n");
+    if (docNorm !== tabNorm) {
       v.dispatch({ changes: { from: 0, to: doc.length, insert: tab.text } });
     }
   }, [tab.text]);
@@ -96,10 +101,12 @@ const DiffViewer: React.FC<{ tab: EditorTab; mode: "split" | "unified" }> = ({ t
     void languageFor(tab.path).then((lang) => {
       if (cancelled || !host.current) return;
       const ext = [baseExtensions({ readOnly: true }), lang ?? []];
+      const docA = tab.savedText.replace(/\r\n/g, "\n");
+      const docB = tab.text.replace(/\r\n/g, "\n");
       if (mode === "split") {
         const mv = new MergeView({
-          a: { doc: tab.savedText, extensions: ext },
-          b: { doc: tab.text, extensions: ext },
+          a: { doc: docA, extensions: ext },
+          b: { doc: docB, extensions: ext },
           parent: host.current,
           collapseUnchanged: { margin: 3, minSize: 6 },
           gutter: true,
@@ -108,8 +115,8 @@ const DiffViewer: React.FC<{ tab: EditorTab; mode: "split" | "unified" }> = ({ t
       } else {
         const v = new EditorView({
           state: EditorState.create({
-            doc: tab.text,
-            extensions: [ext, unifiedMergeView({ original: tab.savedText, mergeControls: false, collapseUnchanged: { margin: 3, minSize: 6 } })],
+            doc: docB,
+            extensions: [ext, unifiedMergeView({ original: docA, mergeControls: false, collapseUnchanged: { margin: 3, minSize: 6 } })],
           }),
           parent: host.current,
         });
@@ -244,7 +251,11 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
               original={active.savedText}
               onChange={(text) => {
                 const cur = useWorkbenchStore.getState().tabs.find((t) => t.id === active.id);
-                if (cur && cur.text !== text) useWorkbenchStore.getState().patchTab(active.id, { text, preview: false });
+                if (cur) {
+                  const curNorm = cur.text.replace(/\r\n/g, "\n");
+                  const nextNorm = text.replace(/\r\n/g, "\n");
+                  if (curNorm !== nextNorm) useWorkbenchStore.getState().patchTab(active.id, { text, preview: false });
+                }
               }}
             />
           </Suspense>

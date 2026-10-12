@@ -91,8 +91,8 @@ export function fsWatch(cwd: string, onBatch: (events: FsWatchEvent[]) => void):
 
 /** 两段文本的“新增/修改行”（新文本的 1-based 行号），用于 AI 改动高亮。简单 LCS，超大文件退化为整段比较。 */
 export function changedLines(oldText: string, newText: string): number[] {
-  const a = oldText.split("\n");
-  const b = newText.split("\n");
+  const a = oldText.replace(/\r\n/g, "\n").split("\n");
+  const b = newText.replace(/\r\n/g, "\n").split("\n");
   if (a.length * b.length > 4_000_000) {
     const out: number[] = [];
     for (let i = 0; i < b.length; i++) if (a[i] !== b[i]) out.push(i + 1);
