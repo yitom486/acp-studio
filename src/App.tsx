@@ -323,7 +323,7 @@ export default function App() {
           </>
         )}
 
-        <ResizablePanel id="chat" minSize="340px" defaultSize={hasTabs ? "440px" : undefined} className="overflow-hidden">
+        <ResizablePanel id="chat" minSize="360px" defaultSize={hasTabs ? "440px" : undefined} className="overflow-hidden">
         <div className="h-full flex flex-col min-w-0">
           {/* Layer 2: Retained Lower Workbench Header */}
           <StudioHeader

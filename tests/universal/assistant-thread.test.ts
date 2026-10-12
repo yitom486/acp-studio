@@ -136,9 +136,15 @@ describe("assistant-ui ACP thread (client smoke)", () => {
           } as any))
       );
     });
-    const html = el.innerHTML;
+    let html = el.innerHTML;
     expect(html).toContain("GPT-5");
     expect(html).toContain("High");
+    // Permission / mode / extras moved into the "…" popover.
+    expect(html).not.toContain("自动");
+    await act(async () => {
+      (el.querySelector('[data-testid="composer-more"]') as HTMLButtonElement).click();
+    });
+    html = el.innerHTML;
     expect(html).toContain("自动");
     expect(html).not.toContain("点击加载模型");
     expect(html).not.toContain("思考：—");

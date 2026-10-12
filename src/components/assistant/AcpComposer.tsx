@@ -26,6 +26,7 @@ import {
   Check,
   FileText,
   Zap,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { configCurrentValue, findConfigOption, extractModelThinking, searchWorkspaceFiles, readWorkspaceFile, type Attachment, type ConfigOptionLike, type ModelCatalogEntry, type WorkspaceFileEntry } from "@/lib/universal-api";
@@ -126,6 +127,19 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
   const canCancel = useAuiState((s) => s.composer.canCancel);
   const fileRef = useRef<HTMLInputElement>(null);
   const [slashOpen, setSlashOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const h = (e: MouseEvent) => moreRef.current && !moreRef.current.contains(e.target as Node) && setMoreOpen(false);
+    const k = (e: KeyboardEvent) => e.key === "Escape" && setMoreOpen(false);
+    document.addEventListener("mousedown", h);
+    document.addEventListener("keydown", k);
+    return () => {
+      document.removeEventListener("mousedown", h);
+      document.removeEventListener("keydown", k);
+    };
+  }, [moreOpen]);
   const [slashIdx, setSlashIdx] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   // @-mention workspace files (gateway search, debounced)
@@ -470,7 +484,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     return (
       <label className="flex items-center gap-1 text-xs text-muted-foreground" title="该 Agent 未提供模型配置项，使用会话模型目录切换">
         <Cpu className="w-3.5 h-3.5 text-primary shrink-0" />
-        <select value={p.fallbackCurrentModel || ""} disabled={p.isStreaming} onChange={(e) => e.target.value && p.onFallbackModel?.(e.target.value)} className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-muted/80">
+        <select value={p.fallbackCurrentModel || ""} disabled={p.isStreaming} onChange={(e) => e.target.value && p.onFallbackModel?.(e.target.value)} className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] @max-md:max-w-[96px] @max-xs:max-w-[52px] truncate disabled:opacity-50 hover:bg-muted/80">
           {list.map((m) => (
             <option key={m.modelId} value={m.modelId} className="bg-card" title={m.description}>{m.name || m.modelId}</option>
           ))}
@@ -497,7 +511,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
   const renderSelect = (opt: ConfigOptionLike, icon: React.ReactNode) => (
     <label key={opt.id} className="flex items-center gap-1 text-xs text-muted-foreground" title={opt.description || opt.name}>
       {icon}
-      <select value={curVal(opt)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.value)} className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] disabled:opacity-50 hover:bg-muted/80">
+      <select value={curVal(opt)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.value)} className="bg-transparent border-0 rounded-lg px-1 py-1 text-xs font-medium text-foreground outline-none cursor-pointer max-w-[170px] @max-md:max-w-[96px] @max-xs:max-w-[52px] truncate disabled:opacity-50 hover:bg-muted/80">
         {(opt.options || []).map(renderOptionItem)}
       </select>
     </label>
@@ -563,7 +577,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
           </div>
         )}
 
-        <ComposerPrimitive.Root>
+        <ComposerPrimitive.Root className="@container">
           <div
             className={`relative flex flex-col rounded-xl border bg-card transition-colors ${
               dragOver
@@ -656,68 +670,87 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
               className="w-full resize-none bg-transparent px-3.5 pt-3 pb-1.5 text-sm leading-6 text-foreground placeholder:text-muted-foreground/80 focus:outline-none max-h-48 min-h-[48px]"
             />
             <div className="flex items-center justify-between px-3 pb-2 pt-1 text-xs gap-2">
-              {/* Left actions: + Attachment, Models, Thinking, Settings */}
-              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              {/* Left: only model + thinking stay visible; everything else lives in the "…" popover.
+                  Container query: narrower composer → pills shrink to icon + truncated label. */}
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-nowrap">
                 <input ref={fileRef} type="file" multiple accept={p.supportImage ? undefined : ".txt,.md,.json,.js,.ts,.tsx,.py,.log,.csv"} className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  title={p.supportImage ? "附加文件或图片（可拖拽 / 粘贴）" : "附加文本文件"}
-                  aria-label="附加文件"
-                  className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                >
-                  <Paperclip className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => aui.composer.setText("/" + composerText.trimStart())}
-                  title="打开命令菜单"
-                  aria-label="打开命令菜单"
-                  className="w-7 h-7 rounded-md flex items-center justify-center text-[13px] font-mono text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                >
-                  /
-                </button>
-
-                {p.connected && (
+                {p.connected ? (
                   <>
-                    <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
+                    <div data-testid="composer-model" className="acp-pill flex items-center gap-1 min-w-0 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
                       {modelOpt ? renderSelect(modelOpt, <Cpu className="w-3 h-3 text-muted-foreground shrink-0" />) : renderFallbackModel()}
                     </div>
                     {thinkOpt ? (
-                      <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
+                      <div data-testid="composer-effort" className="acp-pill flex items-center gap-1 min-w-0 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
                         {renderSelect(thinkOpt, <Brain className="w-3 h-3 text-muted-foreground shrink-0" />)}
                       </div>
                     ) : modelThinking ? (
-                      <span className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground px-1.5 py-0.5" title={`思考: ${modelThinking}`}>
+                      <span className="hidden @sm:flex items-center gap-1 text-[11px] font-mono text-muted-foreground px-1.5 py-0.5 whitespace-nowrap" title={`思考: ${modelThinking}`}>
                         <Brain className="w-3 h-3 text-muted-foreground shrink-0" />
-                        思考: {modelThinking}
+                        {modelThinking}
                       </span>
-                    ) : (
-                      muted("思考：—", "该 Agent 未提供独立思考等级配置")
-                    )}
-                    {permOpt ? (
-                      <div className="flex items-center gap-1 bg-muted/40 hover:bg-muted/70 px-2 py-0.5 rounded-md border border-border/60 transition-colors">
-                        {renderSelect(permOpt, <ShieldCheck className="w-3 h-3 text-muted-foreground shrink-0" />)}
-                      </div>
-                    ) : muted("权限：—", "该 Agent 未提供权限配置")}
-                    {otherOpts.map((opt) =>
-                      opt.type === "boolean" ? (
-                        <label key={opt.id} className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none" title={opt.description || opt.name}>
-                          <input type="checkbox" checked={Boolean(opt.currentValue)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.checked)} className="rounded border-border text-primary focus:ring-primary/20" />
-                          <span className="text-[11px] font-medium">{opt.name || opt.id}</span>
-                        </label>
-                      ) : (
-                        renderSelect(opt, <Settings2 className="w-3 h-3 text-muted-foreground shrink-0" />)
-                      )
-                    )}
+                    ) : null}
                   </>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">未连接</span>
                 )}
 
-                {p.onBrowseModels && (
-                  <button type="button" onClick={p.onBrowseModels} title={p.hasModelCatalog ? "浏览 / 发现模型库" : "发现可用模型"} className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors">
-                    <LayoutGrid className="w-3.5 h-3.5" />
+                {/* "…" popover: attach, /, permission (Auto review), mode, other options, model catalog */}
+                <div className="relative shrink-0" ref={moreRef}>
+                  <button
+                    type="button"
+                    onClick={() => setMoreOpen((v) => !v)}
+                    title="更多：附件、命令、权限、模式与其他选项"
+                    aria-label="更多输入选项"
+                    aria-expanded={moreOpen}
+                    data-testid="composer-more"
+                    className={`w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ${moreOpen ? "bg-accent text-foreground" : ""}`}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
                   </button>
-                )}
+                  {moreOpen && (
+                    <div role="dialog" aria-label="更多输入选项" className="absolute bottom-full mb-2 left-0 w-64 rounded-lg border border-border bg-popover shadow-lg z-30 p-1.5 text-xs space-y-1">
+                      <div className="flex items-center gap-1 pb-1 border-b border-border/60">
+                        <button type="button" onClick={() => { setMoreOpen(false); fileRef.current?.click(); }} title={p.supportImage ? "附加文件或图片（可拖拽 / 粘贴）" : "附加文本文件"} className="flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent">
+                          <Paperclip className="w-3.5 h-3.5" /> 附件
+                        </button>
+                        <button type="button" onClick={() => { setMoreOpen(false); aui.composer.setText("/" + composerText.trimStart()); }} title="打开命令菜单" className="flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent">
+                          <span className="font-mono">/</span> 命令
+                        </button>
+                        {p.onBrowseModels && (
+                          <button type="button" onClick={() => { setMoreOpen(false); p.onBrowseModels?.(); }} title={p.hasModelCatalog ? "浏览 / 发现模型库" : "发现可用模型"} className="flex-1 h-7 rounded-md flex items-center justify-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent">
+                            <LayoutGrid className="w-3.5 h-3.5" /> 模型库
+                          </button>
+                        )}
+                      </div>
+                      {p.connected && (
+                        <div className="space-y-1 pt-0.5">
+                          {permOpt ? (
+                            <div className="flex items-center justify-between gap-2 px-1.5 py-0.5 rounded-md hover:bg-muted/50">
+                              <span className="text-muted-foreground">权限</span>
+                              {renderSelect(permOpt, <ShieldCheck className="w-3 h-3 text-muted-foreground shrink-0" />)}
+                            </div>
+                          ) : (
+                            <div className="px-1.5 py-0.5 text-muted-foreground/70" title="该 Agent 未提供权限配置">权限：—</div>
+                          )}
+                          {otherOpts.map((opt) =>
+                            opt.type === "boolean" ? (
+                              <label key={opt.id} className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-md hover:bg-muted/50 cursor-pointer select-none" title={opt.description || opt.name}>
+                                <span className="text-muted-foreground">{opt.name || opt.id}</span>
+                                <input type="checkbox" checked={Boolean(opt.currentValue)} disabled={p.isStreaming} onChange={(e) => p.onSetConfig?.(opt.id, e.target.checked)} className="rounded border-border text-primary focus:ring-primary/20" />
+                              </label>
+                            ) : (
+                              <div key={opt.id} className="flex items-center justify-between gap-2 px-1.5 py-0.5 rounded-md hover:bg-muted/50">
+                                <span className="text-muted-foreground truncate">{opt.name || opt.id}</span>
+                                {renderSelect(opt, <Settings2 className="w-3 h-3 text-muted-foreground shrink-0" />)}
+                              </div>
+                            )
+                          )}
+                          {!thinkOpt && !modelThinking && <div className="px-1.5 py-0.5 text-muted-foreground/70">思考：该 Agent 未提供独立思考等级</div>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Right actions: Clear and Send */}
@@ -779,7 +812,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
         </ComposerPrimitive.Root>
 
         {/* Antigravity Local Target Tag & Workspace Menu */}
-        <div className="flex items-center justify-between pt-0.5 px-1 text-xs text-muted-foreground select-none relative">
+        <div className="@container flex items-center justify-between gap-2 pt-0.5 px-1 text-xs text-muted-foreground select-none relative whitespace-nowrap">
           <div className="relative" ref={localMenuRef}>
             <button
               type="button"
@@ -904,7 +937,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
             )}
           </div>
 
-          <div className="text-[11px] font-mono text-muted-foreground/70 hidden sm:inline">
+          <div className="text-[11px] font-mono text-muted-foreground/70 hidden @md:block truncate min-w-0">
             {p.isStreaming ? "Enter 排队 · 插队立即打断 · Shift+Enter 换行" : "Enter 发送 · Shift+Enter 换行 · / 命令"}
           </div>
         </div>

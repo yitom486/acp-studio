@@ -64,6 +64,142 @@ export interface StudioHeaderProps {
   onClearMessages: () => void;
 }
 
+const MenuItem: React.FC<{ icon: React.ComponentType<{ className?: string }>; label: string; onClick: () => void; disabled?: boolean }> = ({ icon: I, label, onClick, disabled }) => (
+  <button type="button" onClick={onClick} disabled={disabled} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 transition-colors">
+    <I className="w-3.5 h-3.5" />
+    <span>{label}</span>
+  </button>
+);
+
+/**
+ * Compact agent chip: dot + agent name (+ shield). Click → popover with agent
+ * picker, connect, pid / protocol / version / capabilities and auth actions.
+ * Keeps the header to one non-wrapping line at any width.
+ */
+export const AgentStatusChip: React.FC<{
+  agents: AgentSummary[];
+  activeAgentId: string;
+  onSelectAgent: (id: string) => void;
+  onConnect: () => void;
+  connecting: boolean;
+  onOpenAuth: () => void;
+  onLogout: () => void;
+  authOk?: boolean | null;
+}> = ({ agents, activeAgentId, onSelectAgent, onConnect, connecting, onOpenAuth, onLogout, authOk }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    const k = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", h);
+    document.addEventListener("keydown", k);
+    return () => {
+      document.removeEventListener("mousedown", h);
+      document.removeEventListener("keydown", k);
+    };
+  }, [open]);
+  const active = agents.find((a) => a.id === activeAgentId);
+  const connected = Boolean(active?.status?.connected);
+  const caps = active?.status?.agentCapabilities as any;
+  const proto = active?.status?.protocolVersion;
+  const agentInfo = active?.status?.agentInfo as any;
+  const pid = active?.status?.pid;
+  const dot = connecting ? "bg-warning animate-pulse" : connected ? "bg-success" : "bg-muted-foreground/40";
+  return (
+    <div ref={ref} className="relative flex items-center gap-1.5 min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        data-testid="agent-chip"
+        title={`${active?.title || activeAgentId} · ${connecting ? "连接中" : connected ? "已连接" : "未连接"}${connected && authOk === true ? " · 已认证" : ""}`}
+        className="h-7 min-w-0 max-w-[220px] flex items-center gap-1.5 rounded-md border border-transparent hover:border-border hover:bg-muted pl-2 pr-1.5 text-[13px] font-medium text-foreground"
+      >
+        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
+        <span className="truncate">{active?.title || activeAgentId}</span>
+        {connected && authOk === true && <ShieldCheck className="w-3 h-3 text-success shrink-0" aria-label="已认证" />}
+        {connected && authOk === false && <ShieldAlert className="w-3 h-3 text-warning shrink-0" aria-label="需认证" />}
+        <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+      </button>
+      {!connected && (
+        <Button size="sm" variant="default" onClick={onConnect} disabled={connecting} className="h-7 px-2.5 text-xs gap-1.5 font-medium shadow-none shrink-0">
+          {connecting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Plug className="w-3 h-3" />}
+          <span>{connecting ? "连接中" : "连接"}</span>
+        </Button>
+      )}
+      {open && (
+        <div role="dialog" aria-label="智能体状态" className="absolute left-0 top-full mt-1.5 w-72 rounded-lg border border-border bg-popover shadow-lg text-xs z-50 whitespace-normal">
+          <div className="p-1 max-h-56 overflow-y-auto border-b border-border/60">
+            {agents.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => { onSelectAgent(a.id); }}
+                className={cn("w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left hover:bg-accent", a.id === activeAgentId ? "text-foreground font-medium bg-accent/60" : "text-muted-foreground")}
+              >
+                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", a.status?.connected ? "bg-success" : "bg-muted-foreground/30")} />
+                <span className="truncate flex-1">{a.title}</span>
+                {a.status?.connected && <span className="text-[10px] text-success">已连接</span>}
+              </button>
+            ))}
+          </div>
+          <div className="p-3 space-y-1.5 text-[11px] text-muted-foreground">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold text-foreground truncate">{agentInfo?.title || active?.title}</span>
+              {connected && <span className="font-mono text-[10px]">ACP v{proto ?? "1"}</span>}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <PlugZap className={cn("w-3 h-3", connected ? "text-success" : "text-muted-foreground")} />
+              <span>{connecting ? "连接中…" : connected ? "已连接" : "未连接"}</span>
+              {connected && pid ? <span className="font-mono">· pid {pid}</span> : null}
+              {agentInfo?.version && <span className="font-mono">· v{agentInfo.version}</span>}
+            </div>
+            {connected && (
+              <div className="flex items-center gap-1.5">
+                {authOk === true ? (
+                  <><ShieldCheck className="w-3 h-3 text-success" /><span>已认证（复用本地登录凭据）</span></>
+                ) : authOk === false ? (
+                  <><ShieldAlert className="w-3 h-3 text-warning" /><span>需要登录认证</span></>
+                ) : (
+                  <><ShieldCheck className="w-3 h-3" /><span>认证状态未知</span></>
+                )}
+              </div>
+            )}
+            {caps?.sessionCapabilities && (
+              <div className="pt-1.5 border-t border-border/60">
+                <div className="text-[10px] text-foreground font-medium mb-1">会话能力</div>
+                <div className="flex flex-wrap gap-1">
+                  {Object.keys(caps.sessionCapabilities).map((k) => (
+                    <span key={k} className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">{k}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="pt-2 flex items-center gap-1.5">
+              {!connected ? (
+                <Button size="sm" onClick={() => { onConnect(); }} disabled={connecting} className="h-7 px-2.5 text-xs gap-1.5">
+                  <Plug className="w-3 h-3" /> {connecting ? "连接中" : "连接"}
+                </Button>
+              ) : authOk === false ? (
+                <Button size="sm" variant="outline" onClick={() => { setOpen(false); onOpenAuth(); }} className="h-7 px-2.5 text-xs gap-1.5 border-warning/40 text-warning hover:bg-warning/10">
+                  <ShieldAlert className="w-3 h-3" /> 去认证
+                </Button>
+              ) : null}
+              {connected && (
+                <Button size="sm" variant="ghost" onClick={() => { setOpen(false); onLogout(); }} className="h-7 px-2.5 text-xs gap-1.5 text-muted-foreground hover:text-destructive">
+                  <LogOut className="w-3 h-3" /> 退出登录
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const StudioHeader: React.FC<StudioHeaderProps> = ({
   agents,
   activeAgentId,
@@ -121,116 +257,31 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
   }, [menuOpen]);
 
   return (
-    <header className="h-12 border-b border-border bg-background px-3 flex items-center justify-between gap-3 shrink-0 z-20 select-none">
-      {/* LEFT: Agent Selector + Connection Status + Workspace */}
-      <div className={cn("flex items-center gap-2.5 min-w-0", compact && "overflow-hidden")}>
+    <header className="@container h-12 border-b border-border bg-background px-3 flex items-center justify-between gap-2 shrink-0 z-20 select-none whitespace-nowrap overflow-visible">
+      {/* LEFT: compact agent status chip (agent / connection / pid / auth in a popover) + workspace */}
+      <div className="flex items-center gap-2 min-w-0 shrink">
         <span className="sr-only">ACP Studio</span>
-        {/* Agent Dropdown */}
-        <div className="relative flex items-center">
-          <select
-            value={activeAgentId}
-            onChange={(e) => onSelectAgent(e.target.value)}
-            className="h-7 [field-sizing:content] bg-transparent hover:bg-muted border border-transparent hover:border-border rounded-md pl-2 pr-7 text-[13px] text-foreground outline-none font-medium cursor-pointer transition-colors max-w-[180px] sm:max-w-[210px] appearance-none focus-visible:border-ring"
-          >
-            {agents.map((a) => (
-              <option key={a.id} value={a.id} className="bg-card text-foreground">
-                {a.title}{a.status?.connected ? "  · 已连接" : ""}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground absolute right-2 pointer-events-none" />
-        </div>
-
-        {/* Connection status / Connect button */}
-        {!connected ? (
-          <Button
-            size="sm"
-            variant="default"
-            onClick={onConnect}
-            disabled={connecting}
-            className="h-7 px-2.5 text-xs gap-1.5 font-medium shadow-none"
-          >
-            {connecting ? (
-              <RefreshCw className="w-3 h-3 animate-spin" />
-            ) : (
-              <Plug className="w-3 h-3" />
-            )}
-            <span>{connecting ? "连接中" : "连接"}</span>
-          </Button>
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
-            <span className="text-[11px] font-mono text-muted-foreground hidden md:inline-flex items-center gap-1">
-              <PlugZap className="w-3 h-3 text-success" />
-              <span>{pid ? `pid ${pid}` : "已连接"}</span>
-            </span>
-          </div>
-        )}
-
-        {/* Capability Info Tooltip */}
-        {connected && (
-          <div className="relative group hidden lg:flex items-center">
-            <button
-              type="button"
-              className="text-muted-foreground/60 hover:text-foreground p-1 transition-colors rounded-md hover:bg-muted/80"
-              title="智能体协议与能力详情"
-            >
-              <Info className="w-3.5 h-3.5" />
-            </button>
-            <div className="absolute left-0 top-full mt-1.5 hidden group-hover:block w-72 p-3 rounded-lg border border-border bg-popover shadow-lg text-[11px] text-muted-foreground space-y-1.5 z-50 pointer-events-none">
-              <div className="font-semibold text-foreground flex items-center justify-between">
-                <span>{agentInfo?.title || active?.title}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">ACP v{proto ?? "1"}</span>
-              </div>
-              {agentInfo?.version && (
-                <div className="text-[10px]">版本: {agentInfo.version}</div>
-              )}
-              {caps?.sessionCapabilities && (
-                <div className="pt-1 border-t border-border/60">
-                  <div className="text-[10px] text-foreground font-medium mb-1">支持的会话能力:</div>
-                  <div className="flex flex-wrap gap-1">
-                    {Object.keys(caps.sessionCapabilities).map((k) => (
-                      <span key={k} className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">
-                        {k}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Auth status */}
-        {connected && authOk === true && (
-          <Badge variant="success" className="h-6 text-[10px] gap-1 hidden sm:inline-flex" title="本地登录凭据已复用">
-            <ShieldCheck className="w-3 h-3" />
-            <span>已认证</span>
-          </Badge>
-        )}
-        {connected && authOk === false && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onOpenAuth}
-            className="h-6 text-[10px] px-2 gap-1 border-warning/40 text-warning hover:bg-warning/10"
-            title="需要完成登录认证"
-          >
-            <ShieldAlert className="w-3 h-3" />
-            <span>需认证</span>
-          </Button>
-        )}
-
-        {/* Workspace Dropdown */}
-        <WorkspaceDropdown
-          currentWorkspace={currentWorkspace}
-          recentWorkspaces={recentWorkspaces}
-          onSelectWorkspace={onSelectWorkspace}
+        <AgentStatusChip
+          agents={agents}
+          activeAgentId={activeAgentId}
+          onSelectAgent={onSelectAgent}
+          onConnect={onConnect}
+          connecting={connecting}
+          onOpenAuth={onOpenAuth}
+          onLogout={onLogout}
+          authOk={authOk}
         />
+        <div className="min-w-0 hidden @lg:block">
+          <WorkspaceDropdown
+            currentWorkspace={currentWorkspace}
+            recentWorkspaces={recentWorkspaces}
+            onSelectWorkspace={onSelectWorkspace}
+          />
+        </div>
       </div>
 
       {/* CENTER: Current Session Title & Token Usage */}
-      <div className={cn("flex items-center gap-2 min-w-0 flex-1 justify-center max-w-lg", compact && "hidden")}>
+      <div className={cn("hidden @3xl:flex items-center gap-2 min-w-0 flex-1 justify-center max-w-lg", compact && "!hidden")}>
         {sessionId ? (
           <div className="flex items-center gap-2 min-w-0 px-2 py-1">
             <span className="text-[13px] font-medium text-foreground truncate max-w-[160px] sm:max-w-[260px]">
@@ -248,7 +299,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
             )}
           </div>
         ) : (
-          <span className="text-xs text-muted-foreground hidden sm:inline">尚未开始会话 · 发送第一条消息即新建</span>
+          <span className="text-xs text-muted-foreground truncate">尚未开始会话 · 发送第一条消息即新建</span>
         )}
       </div>
 
@@ -261,12 +312,12 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           onClick={onOpenChanges}
           disabled={busy || !hasChangesCwd}
           title={hasChangesCwd ? "查看本地代码变更 (Ctrl+Shift+D)" : "未选择工作区"}
-          className={`h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border bg-transparent shadow-none hover:bg-muted transition-colors ${
+          className={`hidden @lg:inline-flex h-7 px-2 text-xs gap-1.5 rounded-md border border-border bg-transparent shadow-none hover:bg-muted transition-colors ${
             hasChangesCwd ? "text-foreground" : "text-muted-foreground opacity-60"
           }`}
         >
           <FileDiff className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">变更</span>
+          <span className="hidden @2xl:inline">变更</span>
           
         </Button>
 
@@ -277,12 +328,12 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           onClick={onToggleTerminal}
           title="集成终端 (Ctrl+`)"
           aria-pressed={terminalOpen}
-          className={`h-7 px-2.5 text-xs gap-1.5 rounded-md border shadow-none transition-colors ${
+          className={`hidden @lg:inline-flex h-7 px-2 text-xs gap-1.5 rounded-md border shadow-none transition-colors ${
             terminalOpen ? "border-border bg-accent text-foreground" : "border-border bg-transparent text-foreground hover:bg-muted"
           }`}
         >
           <Terminal className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">终端</span>
+          <span className="hidden @2xl:inline">终端</span>
         </Button>
 
         {/* Providers */}
@@ -293,10 +344,10 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
             onClick={onOpenProviders}
             disabled={busy}
             title="Providers（模型通道与网关配置）"
-            className="h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border bg-transparent shadow-none text-foreground hover:bg-muted hidden sm:inline-flex"
+            className="h-7 px-2 text-xs gap-1.5 rounded-md border border-border bg-transparent shadow-none text-foreground hover:bg-muted hidden @lg:inline-flex"
           >
             <Cpu className="w-3.5 h-3.5" />
-            <span>通道</span>
+            <span className="hidden @2xl:inline">通道</span>
           </Button>
         )}
 
@@ -311,7 +362,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           }`}
         >
           <Plus className="w-3.5 h-3.5" />
-          <span>新会话</span>
+          <span className="hidden @md:inline">新会话</span>
         </button>
 
         {/* More Actions Menu (...) */}
@@ -327,7 +378,14 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           </Button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1.5 w-44 p-1 rounded-lg border border-border bg-popover shadow-lg text-xs z-50">
+            <div className="absolute right-0 top-full mt-1.5 w-48 p-1 rounded-lg border border-border bg-popover shadow-lg text-xs z-50">
+              <div className="@lg:hidden">
+                <div className="px-2.5 py-1.5"><WorkspaceDropdown currentWorkspace={currentWorkspace} recentWorkspaces={recentWorkspaces} onSelectWorkspace={onSelectWorkspace} /></div>
+                <MenuItem icon={FileDiff} label="变更" disabled={busy || !hasChangesCwd} onClick={() => { setMenuOpen(false); onOpenChanges(); }} />
+                <MenuItem icon={Terminal} label={terminalOpen ? "关闭终端" : "终端"} onClick={() => { setMenuOpen(false); onToggleTerminal(); }} />
+                {supportsProviders && <MenuItem icon={Cpu} label="通道" disabled={busy} onClick={() => { setMenuOpen(false); onOpenProviders(); }} />}
+                <div className="my-1 border-t border-border/60" />
+              </div>
               {supportsFork && (
                 <button
                   type="button"
