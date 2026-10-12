@@ -268,7 +268,7 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
         <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border px-3 font-mono text-[11px] text-muted-foreground">
           <span className="truncate">{active.path}</span>
           <span className="flex-1" />
-          {active.kind === "file" && (isDirty(active) ? <span className="text-warning">● 未保存 · Ctrl/⌘+S 保存</span> : <span>已保存</span>)}
+          {active.kind === "file" && (active.saving ? <span className="text-primary animate-pulse">保存中…</span> : isDirty(active) ? <span className="text-warning">● 未保存 · Ctrl/⌘+S 保存</span> : <span>已保存</span>)}
           {active.kind === "diff" && <span>HEAD ↔ 工作区（只读）</span>}
         </div>
       )}

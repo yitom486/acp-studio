@@ -59,6 +59,34 @@ function findNode(nodes: TreeNode[], id: string): TreeNode | undefined {
   }
 }
 
+/** git status 并发合并（纯逻辑，可测）：进行中再调只记 queued，finish 返回是否需补跑一次。 */
+export class RefreshCoalescer {
+  private busy = false;
+  private queued = false;
+  begin(): boolean {
+    if (this.busy) {
+      this.queued = true;
+      return false;
+    }
+    this.busy = true;
+    return true;
+  }
+  finish(): boolean {
+    const q = this.queued;
+    this.busy = false;
+    this.queued = false;
+    return q;
+  }
+}
+
+/** 悬停预取延时：鼠标停留目录这么久未展开，后台悄悄加载一层（命中即省一次 RTT）。 */
+export const HOVER_PREFETCH_MS = 250;
+
+/** 该节点值得悬停预取？（未加载过的目录；根目录由挂载加载，不走这里） */
+export function shouldPrefetchDir(node: { type: string; loaded?: boolean } | null | undefined): boolean {
+  return !!node && node.type === "dir" && !node.loaded;
+}
+
 export const STATUS_LABEL: Record<string, string> = { M: "已修改", A: "已添加", D: "已删除", R: "已重命名", "?": "未跟踪", U: "冲突", C: "已复制" };
 export function statusClass(s: string): string {
   if (s === "D" || s === "U") return "text-destructive";
@@ -154,18 +182,29 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
     }
   }, [cwd]);
 
+  const gitCoal = useRef(new RefreshCoalescer());
   const refreshGit = useCallback(async () => {
-    if (!cwd) return;
+    // 进行中再调只排队，跑完补一次（watch 风暴 + 远端 RTT 下不叠请求）。
+    if (!gitCoal.current.begin()) return;
     try {
-      const r = await gitStatus(cwd);
-      const repo = (r.repo || "").replace(/\\/g, "/");
-      const here = cwd.replace(/\\/g, "/");
-      const prefix = here.startsWith(repo + "/") ? here.slice(repo.length + 1) + "/" : "";
-      setGit(buildGitMaps(r.files, prefix));
-    } catch {
-      setGit(buildGitMaps([])); // 不是 git 仓库
+      do {
+        const c = cwdRef.current;
+        if (!c) return;
+        try {
+          const r = await gitStatus(c);
+          const repo = (r.repo || "").replace(/\\/g, "/");
+          const here = c.replace(/\\/g, "/");
+          const prefix = here.startsWith(repo + "/") ? here.slice(repo.length + 1) + "/" : "";
+          setGit(buildGitMaps(r.files, prefix));
+        } catch {
+          setGit(buildGitMaps([])); // 不是 git 仓库
+        }
+      } while (gitCoal.current.finish());
+    } finally {
+      // begin 成功即 busy，finish 已在循环里清零；异常穿透时强制复位防卡死
+      gitCoal.current.finish();
     }
-  }, [cwd]);
+  }, []);
 
   useEffect(() => {
     setData([]);
@@ -185,14 +224,33 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
     });
     return () => {
       stop();
+      cancelPrefetch();
       if (gitTimer) clearTimeout(gitTimer);
     };
-  }, [cwd, loadDir, refreshGit]);
+  }, [cwd, loadDir, refreshGit, cancelPrefetch]);
+
+  const prefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPrefetch = useCallback(() => {
+    if (prefetchTimer.current) {
+      clearTimeout(prefetchTimer.current);
+      prefetchTimer.current = null;
+    }
+  }, []);
+  const schedulePrefetch = useCallback((n: TreeNode) => {
+    cancelPrefetch();
+    if (!shouldPrefetchDir(n)) return;
+    prefetchTimer.current = setTimeout(() => {
+      prefetchTimer.current = null;
+      // 期间已展开（onToggle 加载过）就不用；还停留在未加载态才后台取一层
+      if (shouldPrefetchDir(findNode(dataRef.current, n.id))) void loadDir(n.id);
+    }, HOVER_PREFETCH_MS);
+  }, [cancelPrefetch, loadDir]);
 
   const onToggle = useCallback((id: string) => {
+    cancelPrefetch();
     const n = findNode(dataRef.current, id);
     if (n && n.type === "dir" && !n.loaded) void loadDir(id);
-  }, [loadDir]);
+  }, [cancelPrefetch, loadDir]);
 
   const parentOf = (id: string) => (id.includes("/") ? id.slice(0, id.lastIndexOf("/")) : "");
 
@@ -276,6 +334,10 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
             if (isDir) node.toggle();
             else if (cwdRef.current && d.type === "file") void openFile(cwdRef.current, d.id, { pin: false });
           }}
+          onMouseEnter={() => {
+            if (isDir) schedulePrefetch(d);
+          }}
+          onMouseLeave={cancelPrefetch}
           onDoubleClick={() => {
             if (!isDir && cwdRef.current && d.type === "file") void openFile(cwdRef.current, d.id, { pin: true });
           }}
@@ -312,7 +374,7 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
       );
     };
     return Comp;
-  }, [git, activeId]);
+  }, [git, activeId, schedulePrefetch, cancelPrefetch]);
 
   if (!cwd) {
     return <div className="p-4 text-xs text-muted-foreground">先在左侧选择一个工作区，或用“文件 → 打开文件夹”。</div>;

@@ -25,6 +25,8 @@ export interface EditorTab {
   view?: "source" | "wysiwyg" | "notebook";
   /** 磁盘文件的行尾换行符（Windows 为 \r\n，Linux/macOS 为 \n），保存时恢复原样以防 Git 产生全局 diff */
   eol?: "\r\n" | "\n";
+  /** 保存请求在途（RTT 内 UI 转“保存中”，同 tab 并发保存合并，不静默吞） */
+  saving?: boolean;
 }
 
 export type SettingsTab = "general" | "gateway" | "about";

@@ -49,18 +49,21 @@ export type SaveResult = "saved" | "conflict" | "error" | "noop";
 export async function saveTab(cwd: string, id: string, opts: { force?: boolean } = {}): Promise<SaveResult> {
   const tab = st().tabs.find((t) => t.id === id);
   if (!tab || tab.kind !== "file" || tab.loading) return "noop";
+  // 与进行中的保存合并：UI 有 saving 态，不静默吞第二次保存
+  if (tab.saving) return "noop";
   if (!isDirty(tab) && !opts.force) return "noop";
+  st().patchTab(id, { saving: true, error: undefined });
   try {
     const textToWrite = tab.eol === "\r\n" ? tab.text.replace(/\r?\n/g, "\r\n") : tab.text;
     const r = await fsWrite(cwd, tab.path, textToWrite, tab.mtimeMs, opts.force);
-    st().patchTab(id, { savedText: tab.text, mtimeMs: r.mtimeMs, conflict: null, preview: false });
+    st().patchTab(id, { savedText: tab.text, mtimeMs: r.mtimeMs, conflict: null, preview: false, saving: false });
     return "saved";
   } catch (e) {
     if (e instanceof FsApiError && e.status === 409) {
-      st().patchTab(id, { conflict: { text: e.data.text ?? "", mtimeMs: e.data.mtimeMs ?? 0 } });
+      st().patchTab(id, { conflict: { text: e.data.text ?? "", mtimeMs: e.data.mtimeMs ?? 0 }, saving: false });
       return "conflict";
     }
-    st().patchTab(id, { error: (e as Error).message });
+    st().patchTab(id, { error: (e as Error).message, saving: false });
     return "error";
   }
 }
