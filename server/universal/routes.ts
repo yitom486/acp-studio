@@ -878,14 +878,14 @@ async function handleUniversalInner(req: Request): Promise<Response | null> {
   }
 
   // ---- terminal exec stream ----
-  // Basic guards only (cwd exists+is-dir, non-empty, 8k length cap).
+  // Basic guards only (cwd required + exists + is-dir, non-empty, 8k length cap).
   // Full command allowlist is owned by the security agent
   // (server/universal/security.ts) — see TODO there.
   const EXEC_MAX_CHARS = 8000;
   if (p === "/api/universal/terminal/exec" && req.method === "POST") {
     try {
       const body = await readJson(req);
-      const cwd = String(body.cwd || process.cwd());
+      const cwd = typeof body.cwd === "string" ? body.cwd.trim() : "";
       const cmd = String(body.command || "").trim();
       if (!cmd) return json({ ok: false, error: "command is required" }, 400);
       if (cmd.length > EXEC_MAX_CHARS) {
@@ -896,16 +896,16 @@ async function handleUniversalInner(req: Request): Promise<Response | null> {
       const shellArgs = process.platform === "win32" ? ["-NoProfile", "-Command", cmd] : ["-c", cmd];
 
       const { spawn } = await import("node:child_process");
-      let targetCwd: string;
+      // cwd 必须显式给出且存在：不再悄悄回落到 process.cwd()（no-silent-fallbacks.md）。
+      if (!cwd) return json({ ok: false, error: "cwd is required" }, 400);
+      const targetCwd = path.resolve(cwd);
+      let isDir = false;
       try {
-        targetCwd = fs.existsSync(cwd) && fs.statSync(cwd).isDirectory() ? cwd : process.cwd();
-        if (targetCwd !== cwd) {
-          console.warn(`[Universal] terminal cwd ${cwd} missing/not-a-dir, using ${targetCwd}`);
-        }
+        isDir = fs.existsSync(targetCwd) && fs.statSync(targetCwd).isDirectory();
       } catch (err) {
-        console.error(`[Universal] terminal cwd check failed: ${(err as Error).message}`);
-        targetCwd = process.cwd();
+        return json({ ok: false, error: `无法访问工作目录 ${targetCwd}：${(err as Error).message}` }, 400);
       }
+      if (!isDir) return json({ ok: false, error: `工作目录不存在或不是目录：${targetCwd}` }, 400);
       const proc = spawn(shellBin, shellArgs, {
         cwd: targetCwd,
         env: { ...process.env, TERM: "xterm-256color" },

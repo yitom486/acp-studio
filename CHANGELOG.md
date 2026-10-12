@@ -18,6 +18,9 @@
 - 删除 `routes.ts` 里“安全模块导入失败就放行”的可选鉴权代码，改为静态导入、失败即拒绝；路由响应不再返回 `Access-Control-Allow-Origin: *`。
 - 工作区白名单从“只告警”改为强制：智能体经 ACP `fs/write_text_file` 只能写会话工作区（session cwd + additionalDirectories + `ACP_WORKSPACE_ROOTS`）之内，`..` 与软链接逃逸同样拒绝；文件系统根 / 系统目录不能作为工作区（`workspace/validate` 返回 403，`session/new` 拒绝）。
 
+### Fixed
+- 终端工作目录不存在时不再悄悄换成网关当前目录：`terminal/exec` 返回 400 并写明路径（cwd 也必须显式给出），ACP `terminal/create` 把错误回给智能体；终端抽屉显示网关返回的具体原因。
+
 ## [0.1.0] - 2026-10-12
 
 首个公开发版（此前 `package.json` 误标 1.0.0，回正为 0.1.0 起步）。

@@ -168,3 +168,43 @@ describe("isPathAllowed / dangerousRootReason units", () => {
     if (process.platform !== "win32") expect(dangerousRootReason("/etc/nginx")).toBeTruthy();
   });
 });
+
+describe("terminal cwd: explicit errors instead of silent fallback", () => {
+  async function exec(body: Record<string, unknown>) {
+    const res = await app.fetch(
+      authedRequest("http://127.0.0.1:3004/api/universal/terminal/exec", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    );
+    return res;
+  }
+
+  it("gateway terminal/exec: missing cwd dir → 400 with the path, nothing runs", async () => {
+    const ghost = path.join(base, "does-not-exist");
+    const res = await exec({ cwd: ghost, command: "echo should-not-run" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { ok: boolean; error: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain(ghost);
+  });
+
+  it("gateway terminal/exec: cwd pointing at a file or omitted → 400", async () => {
+    const file = path.join(base, "plain.txt");
+    fs.writeFileSync(file, "x");
+    expect((await exec({ cwd: file, command: "echo x" })).status).toBe(400);
+    const omitted = await exec({ command: "echo x" });
+    expect(omitted.status).toBe(400);
+    expect(((await omitted.json()) as { error: string }).error).toBe("cwd is required");
+  });
+
+  it("ACP terminal/create: missing cwd is reported back to the agent", async () => {
+    const sid = await newSession({ cwd: workspace });
+    const ghost = path.join(base, "nope-dir");
+    const report = await guardTurn(sid, `trigger_terminal_create ${ghost}`);
+    expect(report).toMatch(/^GUARD:ERR:/);
+    expect(report).toContain("cwd does not exist");
+    expect(await guardTurn(sid, `trigger_terminal_create ${workspace}`)).toBe("GUARD:OK");
+  });
+});

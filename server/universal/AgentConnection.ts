@@ -903,16 +903,19 @@ export class UniversalAgentConnection {
     const command = String(params.command || "");
     if (!command) throw new Error("terminal/create: command is required");
     const args = Array.isArray(params.args) ? (params.args as unknown[]).map(String) : [];
-    // cwd must exist + be a directory; otherwise fall back to process.cwd().
-    let cwd = typeof params.cwd === "string" && params.cwd ? params.cwd : process.cwd();
+    // cwd 省略 → 用会话工作区（ACP 允许省略）；给了但不存在 / 不是目录 → 明确报错，
+    // 绝不悄悄换成 process.cwd()（.agents/rules/no-silent-fallbacks.md）。
+    const sessionCwd = (this.sessionRoots.get(String(params.sessionId || "")) || [])[0];
+    const requested = typeof params.cwd === "string" && params.cwd ? params.cwd : "";
+    const cwd = requested || sessionCwd || this.profile.defaultCwd || process.cwd();
+    let cwdOk = false;
     try {
-      if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
-        console.warn(`[UniversalACP:${this.profile.id}] terminal cwd ${cwd} missing/not-a-dir, falling back to process.cwd()`);
-        cwd = process.cwd();
-      }
+      cwdOk = fs.existsSync(cwd) && fs.statSync(cwd).isDirectory();
     } catch (err) {
-      console.error(`[UniversalACP:${this.profile.id}] terminal cwd check failed: ${(err as Error).message}`);
-      cwd = process.cwd();
+      throw new acp.RequestError(-32602, `terminal/create: cannot access cwd ${cwd}: ${(err as Error).message}`, { cwd });
+    }
+    if (!cwdOk) {
+      throw new acp.RequestError(-32602, `terminal/create: cwd does not exist or is not a directory: ${cwd}`, { cwd });
     }
     const envList = Array.isArray(params.env) ? (params.env as Array<{ name: string; value: string }>) : [];
     const env: Record<string, string> = { ...process.env } as Record<string, string>;

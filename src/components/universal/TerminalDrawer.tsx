@@ -568,7 +568,15 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
       });
 
       if (!res.ok || !res.body) {
-        term.writeln(`\x1b[31m[执行失败: HTTP ${res.status}]\x1b[0m`);
+        // 网关的 400（如工作目录不存在）带明确原因：原样显示，不只给状态码。
+        const detail = await res
+          .json()
+          .then((b: { error?: string }) => b?.error || "")
+          .catch((err: unknown) => {
+            console.debug("[TerminalDrawer] 错误响应不是 JSON（已忽略，只显示状态码）:", err);
+            return "";
+          });
+        term.writeln(`\x1b[31m[执行失败: HTTP ${res.status}${detail ? ` · ${detail}` : ""}]\x1b[0m`);
       } else {
         const reader = res.body.getReader();
         readerRef.current = reader;
