@@ -152,7 +152,8 @@ acp-studio/
 │   ├── index.ts / node.ts       # Bun / Node 网关入口
 │   ├── gateway.ts               # Hono 应用：鉴权、/api/universal/*、静态文件
 │   └── universal/
-│       ├── routes.ts            # HTTP / SSE 接口（智能体、会话、聊天、工作区、git、终端）
+│       ├── routes.ts            # /api/universal/* 入口：鉴权 + 组装各子路由
+│       ├── http/                # Hono 子路由（agents、sessions、interactions、chat、workspace、terminal、git）+ 请求校验
 │       ├── AgentConnection.ts   # 单个智能体的 ACP stdio 连接
 │       ├── registry.ts          # 智能体定义与活动连接
 │       ├── presets.ts           # 内置预设

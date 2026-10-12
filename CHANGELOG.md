@@ -23,6 +23,9 @@
 - `bun run test` 全绿：`@yitom/acp-client` 集成测试改为等 `session/update` 通知落地再断言（原先与 prompt 响应赛跑）。
 - 测试不再写真实 `~/.acp-studio/agents.json`：全局 setup 把 `ACP_AGENTS_FILE` / `ACP_AGENTS_HOME` / `ACP_GATEWAY_TOKEN` 指向临时目录。
 
+### Changed
+- `server/universal/routes.ts`（1000+ 行 if 链）拆成按功能划分的 Hono 子路由 `server/universal/http/*`，请求体用 zod 校验；坏 JSON 或字段类型不对返回 400，不再静默当成 `{}` 继续。其余接口行为不变。
+
 ### Removed
 - 遗留文件 `scripts/stage-my-changes.py`（写死 `D:\` 路径）、空的 `scratch/out.json`、`run-zed-acp.cmd`。
 - 未使用的依赖 `@bufbuild/protobuf`；`@yitom/acp-client` 只被测试使用，移到 devDependencies 并锁定 `0.1.2`（不再用 `latest`）。
