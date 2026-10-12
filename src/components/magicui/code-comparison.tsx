@@ -1,12 +1,15 @@
 /**
  * Port of Magic UI "Code Comparison" (registry/magicui/code-comparison).
  * Adaptations for this repo (see .agents/rules/ui_design.md):
- * - dropped `next-themes`: app is dark-only, theme fixed via `theme` prop
- *   (defaults to the official darkTheme);
+ * - dropped `next-themes`: light/dark is passed in via the `theme` prop
+ *   (GitChangesModal maps the app's data-theme to it);
+ * - syntax themes: github-dark-default / github-light-high-contrast — the
+ *   classic github-light/github-dark token colours (e.g. #e36209, #6a737d)
+ *   fall below WCAG AA on the diff row washes;
  * - diff row washes use semantic tokens (bg-success/15, bg-destructive/15)
  *   instead of the upstream rgba literals;
  * - chrome (borders, headers) retokened border-border/bg-muted to match the
- *   blue-gray theme; layout otherwise verbatim from upstream
+ *   neutral vercel palette; layout otherwise verbatim from upstream
  *   (before/after panes, VS badge, focus-blur, shiki notation transformers).
  *
  * Perf: shiki is NEVER statically imported here. The highlighter core,
@@ -103,8 +106,8 @@ const LANG_LOADERS: Record<string, () => Promise<unknown>> = {
  */
 
 const THEME_LOADERS: Record<string, () => Promise<unknown>> = {
-  "github-dark": () => import("@shikijs/themes/github-dark"),
-  "github-light": () => import("@shikijs/themes/github-light"),
+  "github-dark-default": () => import("@shikijs/themes/github-dark-default"),
+  "github-light-high-contrast": () => import("@shikijs/themes/github-light-high-contrast"),
 };
 
 function unwrapGrammar(mod: unknown): unknown {
@@ -129,8 +132,8 @@ async function getHighlighter(): Promise<any> {
         ]);
       void transformers; // loaded here so its chunk joins the shiki group
       const [darkMod, lightMod, tsMod] = await Promise.all([
-        THEME_LOADERS["github-dark"](),
-        THEME_LOADERS["github-light"](),
+        THEME_LOADERS["github-dark-default"](),
+        THEME_LOADERS["github-light-high-contrast"](),
         LANG_LOADERS["typescript"](),
       ]);
       const hl = await createHighlighterCore({
@@ -188,8 +191,8 @@ export function CodeComparison({
   afterCode,
   language,
   filename,
-  lightTheme = "github-light",
-  darkTheme = "github-dark",
+  lightTheme = "github-light-high-contrast",
+  darkTheme = "github-dark-default",
   highlightColor = "#ff3333",
   theme = "dark",
 }: CodeComparisonProps) {
@@ -222,10 +225,10 @@ export function CodeComparison({
           await import("@shikijs/transformers");
         const hl = await getHighlighter();
         const effectiveLang = await ensureLanguage(hl, language);
-        const effectiveTheme = THEME_LOADERS[selectedTheme] ? selectedTheme : "github-dark";
+        const effectiveTheme = THEME_LOADERS[selectedTheme] ? selectedTheme : "github-dark-default";
         if (effectiveTheme !== selectedTheme) {
           console.warn(
-            `[CodeComparison] unsupported theme "${selectedTheme}", falling back to plaintext theme "github-dark"`
+            `[CodeComparison] unsupported theme "${selectedTheme}", falling back to plaintext theme "github-dark-default"`
           );
         } else if (!THEME_LOADERS[selectedTheme]) {
           // unreachable by construction, kept loud for future theme props
@@ -233,7 +236,7 @@ export function CodeComparison({
         // Load the requested theme on demand if it wasn't preloaded.
         try {
           const loadedThemes: string[] =
-            typeof hl.getLoadedThemes === "function" ? hl.getLoadedThemes() : ["github-dark", "github-light"];
+            typeof hl.getLoadedThemes === "function" ? hl.getLoadedThemes() : ["github-dark-default", "github-light-high-contrast"];
           if (!loadedThemes.includes(effectiveTheme)) {
             const themeMod = await THEME_LOADERS[effectiveTheme]();
             await hl.loadTheme(unwrapGrammar(themeMod) as any);

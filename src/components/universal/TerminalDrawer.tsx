@@ -44,10 +44,10 @@ export interface TerminalCssVars {
 /** 读主题变量；非浏览器/DOM 缺省时回退深色默认（happy-dom 单测走此分支）。 */
 export function readTerminalCssVars(): TerminalCssVars {
   const fallback: TerminalCssVars = {
-    background: "#141312",
-    card: "#1a1918",
-    cardForeground: "#e8e5e1",
-    primary: "#e9e6e1",
+    background: "#121212",
+    card: "#181818",
+    cardForeground: "#f5f5f5",
+    primary: "#f5f5f5",
   };
   try {
     const cs = getComputedStyle(document.documentElement);
@@ -85,15 +85,19 @@ export function buildXtermTheme(vars: TerminalCssVars, light: boolean): ITheme {
     foreground: vars.cardForeground,
     cursor: vars.primary,
     cursorAccent: vars.card,
-    selectionBackground: light ? "rgba(180, 110, 20, 0.22)" : "rgba(232, 168, 72, 0.28)",
-    black: light ? "#64748b" : "#1e293b",
+    selectionBackground: light ? "rgba(163, 87, 0, 0.2)" : "rgba(255, 166, 4, 0.26)",
+    // xterm 6 默认滑块是不透明浅灰，在深色底上很刺眼；改成跟随明暗的半透明中性色
+    scrollbarSliderBackground: light ? "rgba(0, 0, 0, 0.14)" : "rgba(255, 255, 255, 0.12)",
+    scrollbarSliderHoverBackground: light ? "rgba(0, 0, 0, 0.24)" : "rgba(255, 255, 255, 0.2)",
+    scrollbarSliderActiveBackground: light ? "rgba(0, 0, 0, 0.32)" : "rgba(255, 255, 255, 0.28)",
+    black: light ? "#737373" : "#404040",
     red: light ? "#dc2626" : "#f87171",
     green: light ? "#16a34a" : "#4ade80",
     yellow: light ? "#a16207" : "#facc15",
     blue: light ? "#2563eb" : "#60a5fa",
     magenta: light ? "#9333ea" : "#c084fc",
     cyan: light ? "#0891b2" : "#38bdf8",
-    white: light ? "#1e293b" : "#f8fafc",
+    white: light ? "#262626" : "#fafafa",
   };
 }
 
