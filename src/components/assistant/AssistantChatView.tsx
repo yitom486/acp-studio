@@ -27,7 +27,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AnimatedShinyText } from "@/components/magicui/animated-shiny-text";
 import { AcpMarkdownText } from "@/components/assistant/AcpMarkdown";
 import { AcpImagePart } from "@/components/assistant/AcpMedia";
 import { TurnChanges } from "@/components/assistant/TurnChanges";
@@ -49,7 +48,7 @@ import {
   resolveWidgetKey,
   toolPath,
 } from "@/components/assistant/tool-widget-utils";
-import type { Message } from "@/components/ChatArea";
+import type { Message } from "@/lib/message-types";
 import type { UsageState } from "@/stores/useStudioStore";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { cn } from "@/lib/utils";
@@ -175,27 +174,27 @@ const AcpReasoningView: React.FC<{
       ? timing.completedAt - timing.startedAt
       : null;
   return (
-    <div className="rounded-lg bg-background/70 border border-primary/20 text-xs text-primary/90 overflow-hidden">
+    <div className="rounded-lg bg-background/70 border border-border text-xs text-muted-foreground overflow-hidden">
       <button
         type="button"
         onClick={() => {
           manual.current = true;
           setOpen((o) => !o);
         }}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-primary/5 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/40 transition-colors"
       >
-        <Brain className="w-3.5 h-3.5 text-primary shrink-0" />
-        <span className="font-medium text-primary">思考过程</span>
+        <Brain className="w-3.5 h-3.5 shrink-0" />
+        <span className="font-medium text-foreground">思考过程</span>
         <span className="font-mono text-[10px] opacity-70">({thought.length} 字)</span>
         {running ? (
-          <AnimatedShinyText className="text-[11px]">思考中…</AnimatedShinyText>
+          <span className="inline-flex items-center text-muted-foreground text-[11px]">思考中…</span>
         ) : (
           doneMs != null && (
             <span className="font-mono text-[10px] opacity-70">用时 {fmtElapsed(doneMs)}</span>
           )
         )}
         <ChevronDown
-          className={cn("w-3.5 h-3.5 ml-auto text-primary transition-transform duration-300", open && "rotate-180")}
+          className={cn("w-3.5 h-3.5 ml-auto transition-transform duration-300", open && "rotate-180")}
         />
       </button>
       <div
@@ -316,7 +315,7 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = ({ t
         <Wrench className="w-3.5 h-3.5 text-primary shrink-0" />
         <span className="font-medium">工具调用 · {tools.length}</span>
         {latest ? (
-          <AnimatedShinyText className="text-[11px] truncate">正在调用 {resolveToolDisplayTitle(latest)}…</AnimatedShinyText>
+          <span className="inline-flex items-center text-muted-foreground text-[11px] truncate">正在调用 {resolveToolDisplayTitle(latest)}…</span>
         ) : (
           <span className="font-mono text-[10px] opacity-70">
             {failed ? "有失败" : "全部完成"}
@@ -416,7 +415,7 @@ const AssistantWelcome: React.FC<{
       >
         <div className="flex items-center gap-2">
           {sessionLoading ? (
-            <AnimatedShinyText className="text-xs">正在建立会话，模型列表马上就来…</AnimatedShinyText>
+            <span className="inline-flex items-center text-muted-foreground text-xs">正在建立会话，模型列表马上就来…</span>
           ) : sessionError ? (
             <span className="text-warning font-medium">建会话失败：{sessionError}</span>
           ) : (
@@ -598,7 +597,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
         </div>
         <div className="flex items-center gap-2.5 rounded-lg border border-border/80 bg-card px-3.5 py-2 shadow-xs">
           <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-          <AnimatedShinyText className="text-xs font-medium">正在思考…</AnimatedShinyText>
+          <span className="inline-flex items-center text-muted-foreground text-xs font-medium">正在思考…</span>
           <BouncingDots />
         </div>
       </MessagePrimitive.Root>
@@ -628,7 +627,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
               </Badge>
             )}
             {acp?.mode && acp.mode !== "default" && (
-              <Badge variant="warning" className="text-[10px] h-4 px-1.5 font-mono">
+              <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono text-muted-foreground">
                 {acp.mode}
               </Badge>
             )}
@@ -637,7 +636,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
             {running ? (
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                <AnimatedShinyText className="text-[11px]">生成中…</AnimatedShinyText>
+                <span className="inline-flex items-center text-muted-foreground text-[11px]">生成中…</span>
               </span>
             ) : (
               <>

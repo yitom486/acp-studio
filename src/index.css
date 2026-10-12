@@ -51,7 +51,6 @@
   --font-mono: "Geist Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, "Microsoft YaHei UI", monospace;
 
   --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  --animate-shiny-text: shiny-text 8s infinite;
   --animate-fade-slide-in: fade-slide-in 0.25s ease-out;
 
   /* Tailwind 默认 transition 工具类统一绑定设计令牌 */
@@ -65,15 +64,6 @@
   }
   50% {
     opacity: 0.5;
-  }
-}
-
-@keyframes shiny-text {
-  0%, 100% {
-    opacity: 0.85;
-  }
-  50% {
-    opacity: 1;
   }
 }
 

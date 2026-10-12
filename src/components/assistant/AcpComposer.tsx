@@ -27,7 +27,6 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AnimatedShinyText } from "@/components/magicui/animated-shiny-text";
 import { configCurrentValue, findConfigOption, extractModelThinking, searchWorkspaceFiles, readWorkspaceFile, type Attachment, type ConfigOptionLike, type ModelCatalogEntry, type WorkspaceFileEntry } from "@/lib/universal-api";
 import { matchMentionToken, applyMentionInsert, buildMentionAttachment, formatFileSize } from "@/lib/mention";
 
@@ -347,7 +346,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
         return (
           <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground" title="正在创建会话以加载可用模型">
             <Cpu className="w-3.5 h-3.5 text-signal animate-pulse shrink-0" />
-            <AnimatedShinyText className="text-[11px]">模型加载中…</AnimatedShinyText>
+            <span className="inline-flex items-center text-muted-foreground text-[11px]">模型加载中…</span>
           </span>
         );
       }

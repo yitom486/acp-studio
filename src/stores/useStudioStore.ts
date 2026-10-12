@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import type { Message } from "@/components/ChatArea";
+import type { Message } from "@/lib/message-types";
 import type {
   Attachment,
   ModelCatalog,
@@ -574,7 +574,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
  * streaming hot path writes `messages` once per token; subscribing to it at
  * shell level made App re-render (and re-render every layout child) on every
  * chunk. `messages` is consumed by the leaves that actually render it
- * (`ChatArea` via `useStudioStore((s) => s.messages)`), while stream callbacks
+ * (`AssistantChatView` via `useStudioStore((s) => s.messages)`), while stream callbacks
  * write through `getState()` actions, which needs no subscription at all.
  *
  * Per .agents/rules/state_management.md: subscribe with selectors, never the

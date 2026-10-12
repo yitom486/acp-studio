@@ -4,8 +4,6 @@ import * as path from "node:path";
 import { createElement as h } from "react";
 import { renderToString } from "react-dom/server";
 import { Skeleton } from "../../src/components/ui/skeleton";
-import { BlurFade } from "../../src/components/magicui/blur-fade";
-import { AnimatedShinyText } from "../../src/components/magicui/animated-shiny-text";
 import { Markdown } from "../../src/components/universal/Markdown";
 import { CodeComparison } from "../../src/components/magicui/code-comparison";
 import { parseUnifiedDiff, guessLanguage } from "../../src/lib/universal-api";
@@ -19,15 +17,12 @@ describe("motion primitives (shadcn + magic ui)", () => {
     expect(html).toContain("h-4");
   });
 
-  it("AnimatedShinyText renders children with the shine sweep", () => {
-    const html = renderToString(h(AnimatedShinyText, null, "正在思考…"));
-    expect(html).toContain("正在思考…");
-    expect(html).toContain("animate-shiny-text");
-  });
-
-  it("BlurFade renders children for entrance animation", () => {
-    const html = renderToString(h(BlurFade, { delay: 0.1 }, h("span", null, "hello")));
-    expect(html).toContain("hello");
+  it("entrance/shine animations stay removed (de-AI: no blur-fade, no shiny text)", () => {
+    const root = process.cwd();
+    expect(fs.existsSync(path.join(root, "src/components/magicui/blur-fade.tsx"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "src/components/magicui/animated-shiny-text.tsx"))).toBe(false);
+    const css = fs.readFileSync(path.join(root, "src/index.css"), "utf8");
+    expect(css).not.toContain("shiny-text");
   });
 
   it("Markdown renders rich text without literal palette classes", () => {
