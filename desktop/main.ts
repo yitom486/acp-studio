@@ -244,11 +244,12 @@ async function createWindow(cwd?: string) {
 }
 
 // Native Desktop IPC Handlers: Folder selection & system explorer reveal
-ipcMain.handle("dialog:openDirectory", async (_event) => {
+ipcMain.handle("dialog:openDirectory", async (_event, opts?: { defaultPath?: string }) => {
   const targetWin = senderWin(_event) || win || BrowserWindow.getFocusedWindow();
   const res = await dialog.showOpenDialog(targetWin!, {
     properties: ["openDirectory"],
     title: "选择项目工作区目录",
+    defaultPath: opts?.defaultPath,
   });
   if (res.canceled || res.filePaths.length === 0) return null;
   return res.filePaths[0];
@@ -311,9 +312,11 @@ async function openFolderInto(p: string) {
 const menuActions: MenuActions = {
   openFolder: async () => {
     const target = BrowserWindow.getFocusedWindow() || win;
-    const res = target
-      ? await dialog.showOpenDialog(target, { properties: ["openDirectory"], title: "打开文件夹" })
-      : await dialog.showOpenDialog({ properties: ["openDirectory"], title: "打开文件夹" });
+    if (target && !target.isDestroyed()) {
+      target.webContents.send("app:command", "workspace.openFolder");
+      return;
+    }
+    const res = await dialog.showOpenDialog({ properties: ["openDirectory"], title: "打开文件夹" });
     if (!res.canceled && res.filePaths[0]) await openFolderInto(res.filePaths[0]);
   },
   openRecent: (p) => void openFolderInto(p),

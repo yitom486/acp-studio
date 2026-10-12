@@ -34,6 +34,7 @@ import { matchMentionToken, applyMentionInsert, buildMentionAttachment, formatFi
 import { ACP_PATH_MIME, decodeDragRefs, relativeToWorkspace, classifyOutsideFile, collectFolderFiles, stripMentionText, FOLDER_FILE_CAP, OUTSIDE_FILE_MAX, type DragRef } from "@/lib/composer-drop";
 import { fsList } from "@/lib/fs-api";
 import { matchSlashToken, replaceSlashToken, mergeCommands, filterCommands, type SlashCommand } from "@/lib/slash-commands";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 
 export interface AcpComposerProps {
   onSendAttachmentOnly: () => void;
@@ -162,19 +163,9 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [localMenuOpen]);
 
-  const handleOpenFolder = async () => {
+  const handleOpenFolder = () => {
     setLocalMenuOpen(false);
-    if (window.acpStudio?.openDirectory) {
-      try {
-        const chosen = await window.acpStudio.openDirectory();
-        if (chosen) p.onSelectWorkspace?.(chosen);
-      } catch (err: any) {
-        alert("打开文件夹失败: " + err.message);
-      }
-      return;
-    }
-    const input = prompt("请输入工作区绝对路径:", p.currentWorkspace || "");
-    if (input?.trim()) p.onSelectWorkspace?.(input.trim());
+    useWorkbenchStore.getState().openWorkspacePicker();
   };
 
   const handleRevealInExplorer = async () => {

@@ -300,7 +300,12 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
 
   const createIn = async (dirId: string, type: "file" | "dir") => {
     if (!cwd) return;
-    const name = window.prompt(type === "file" ? "新文件名" : "新文件夹名");
+    let name: string | null = null;
+    try {
+      name = window.prompt(type === "file" ? "新文件名" : "新文件夹名");
+    } catch {
+      name = type === "file" ? "untitled.txt" : "new-folder";
+    }
     if (!name) return;
     const rel = dirId ? `${dirId}/${name}` : name;
     await guard(async () => {

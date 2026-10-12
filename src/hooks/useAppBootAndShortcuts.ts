@@ -100,26 +100,9 @@ export function useAppBootAndShortcuts({
       // Open Directory: Ctrl + O
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "o" || e.key === "O")) {
         e.preventDefault();
-        if (window.acpStudio?.openDirectory) {
-          try {
-            const dir = await window.acpStudio.openDirectory();
-            if (dir) {
-              useStudioStore.getState().setWorkspace(dir);
-            }
-          } catch (err: any) {
-            console.error("Open directory error:", err);
-          }
-        } else {
-          const input = prompt("请输入本地项目工作区绝对路径:", useStudioStore.getState().currentWorkspace || "");
-          if (input && input.trim()) {
-            const res = await validateWorkspace(input.trim());
-            if (res.ok && res.path) {
-              useStudioStore.getState().setWorkspace(res.path, res.name);
-            } else {
-              alert("无效目录: " + (res.error || "路径不存在"));
-            }
-          }
-        }
+        import("@/stores/useWorkbenchStore").then(({ useWorkbenchStore }) => {
+          useWorkbenchStore.getState().openWorkspacePicker();
+        });
         return;
       }
     };

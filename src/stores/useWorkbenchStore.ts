@@ -38,6 +38,9 @@ interface WorkbenchState {
   settingsTab: SettingsTab;
   paletteOpen: boolean;
   paletteQuery: string;
+  workspacePickerOpen: boolean;
+  workspacePickerDistro: string | null;
+  workspacePickerInitialPath: string | null;
   tabs: EditorTab[];
   activeId: string | null;
   setSidebarOpen: (v: boolean) => void;
@@ -45,6 +48,8 @@ interface WorkbenchState {
   openSettings: (tab?: SettingsTab) => void;
   closeSettings: () => void;
   setPaletteOpen: (v: boolean, query?: string) => void;
+  openWorkspacePicker: (opts?: { distro?: string | null; initialPath?: string | null }) => void;
+  closeWorkspacePicker: () => void;
   openTab: (tab: Omit<EditorTab, "preview"> & { preview?: boolean }) => void;
   patchTab: (id: string, patch: Partial<EditorTab>) => void;
   pinTab: (id: string) => void;
@@ -80,6 +85,9 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   settingsTab: "general",
   paletteOpen: false,
   paletteQuery: "",
+  workspacePickerOpen: false,
+  workspacePickerDistro: null,
+  workspacePickerInitialPath: null,
   tabs: [],
   activeId: null,
   setSidebarOpen: (v) => {
@@ -93,6 +101,18 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   openSettings: (tab = "general") => set({ settingsOpen: true, settingsTab: tab }),
   closeSettings: () => set({ settingsOpen: false }),
   setPaletteOpen: (v, query = "") => set({ paletteOpen: v, paletteQuery: query }),
+  openWorkspacePicker: (opts) =>
+    set({
+      workspacePickerOpen: true,
+      workspacePickerDistro: opts?.distro ?? null,
+      workspacePickerInitialPath: opts?.initialPath ?? null,
+    }),
+  closeWorkspacePicker: () =>
+    set({
+      workspacePickerOpen: false,
+      workspacePickerDistro: null,
+      workspacePickerInitialPath: null,
+    }),
   openTab: (tab) =>
     set((s) => {
       const existing = s.tabs.find((t) => t.id === tab.id);

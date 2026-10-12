@@ -65,9 +65,13 @@ export function clearErrors() {
   emit();
 }
 
-/** ResizeObserver loop notices are benign (spec: delivered next frame). */
+/** ResizeObserver loop notices and prompt() not supported in Electron are benign. */
 export function isBenignWindowError(message: unknown): boolean {
-  return typeof message === "string" && /^(Uncaught )?ResizeObserver loop (completed with undelivered notifications|limit exceeded)/.test(message);
+  if (typeof message !== "string") return false;
+  return (
+    /^(Uncaught )?ResizeObserver loop (completed with undelivered notifications|limit exceeded)/.test(message) ||
+    /prompt\(\) is not supported/i.test(message)
+  );
 }
 
 /** Capture window errors / unhandled rejections into the bus (call once). */

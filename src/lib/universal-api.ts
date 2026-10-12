@@ -444,6 +444,76 @@ export async function validateWorkspace(path: string): Promise<WorkspaceValidate
   return res.json();
 }
 
+export interface BrowseDirectoryEntry {
+  name: string;
+  path: string;
+  isGit: boolean;
+  mtimeMs?: number;
+}
+
+export interface BrowseDirectoryRoot {
+  label: string;
+  path: string;
+  distro?: string;
+}
+
+export interface BrowseDirectoriesResult {
+  ok: boolean;
+  current: string;
+  displayPath: string;
+  distro?: string | null;
+  parent: string | null;
+  roots: BrowseDirectoryRoot[];
+  entries: BrowseDirectoryEntry[];
+  error?: string;
+}
+
+export async function browseDirectories(opts?: { dir?: string; distro?: string | null }): Promise<BrowseDirectoriesResult> {
+  const params = new URLSearchParams();
+  if (opts?.dir) params.set("dir", opts.dir);
+  if (opts?.distro) params.set("distro", opts.distro);
+  const q = params.toString();
+  const res = await apiFetch(`/api/universal/workspace/directories${q ? `?${q}` : ""}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    return {
+      ok: false,
+      current: "",
+      displayPath: "",
+      parent: null,
+      roots: [],
+      entries: [],
+      error: data?.error || `HTTP ${res.status}: ${res.statusText}`,
+    };
+  }
+  return res.json();
+}
+
+export interface LaunchWslResult {
+  ok: boolean;
+  url?: string;
+  distro?: string;
+  reused?: boolean;
+  token?: string;
+  error?: string;
+}
+
+export async function launchWslGateway(distro: string, port = 3005): Promise<LaunchWslResult> {
+  const res = await apiFetch("/api/universal/workspace/wsl-launch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ distro, port }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    return {
+      ok: false,
+      error: data?.error || `启动 WSL 网关失败 (HTTP ${res.status}: ${res.statusText})`,
+    };
+  }
+  return res.json();
+}
+
 export interface WorkspaceFileEntry {
   path: string;
   size: number;

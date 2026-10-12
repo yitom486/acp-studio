@@ -17,7 +17,18 @@ export function setupEnv() {
   if (!process.env.ACP_GATEWAY_TOKEN) process.env.ACP_GATEWAY_TOKEN = token;
 }
 
-export const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3004;
+function parseArg(key: string): string | null {
+  const idx = process.argv.indexOf(key);
+  return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : null;
+}
+
+export const PORT = process.env.PORT
+  ? parseInt(process.env.PORT)
+  : parseArg("--port")
+    ? parseInt(parseArg("--port")!)
+    : 3004;
+
+export const HOST = process.env.HOST || parseArg("--host") || "127.0.0.1";
 
 process.on("unhandledRejection", (reason) => {
   console.error("[Server] Unhandled rejection:", reason);
@@ -47,7 +58,23 @@ export function corsHeaders(req?: Request): Record<string, string> {
  * 非 win32 直接返回（Unix 由调用方/SO_REUSEADDR 语义处理，不在此杀进程）。
  */
 export function freePortIfOccupied(port: number) {
-  if (process.platform !== "win32") return;
+  if (process.platform !== "win32") {
+    try {
+      const pidOut = execSync(`lsof -ti :${port} 2>/dev/null || fuser ${port}/tcp 2>/dev/null`, {
+        encoding: "utf8",
+      }).trim();
+      const pids = pidOut
+        .split(/\s+/)
+        .map((p) => p.trim())
+        .filter((p) => /^\d+$/.test(p) && p !== String(process.pid));
+      for (const pid of pids) {
+        try {
+          process.kill(parseInt(pid), "SIGKILL");
+        } catch {}
+      }
+    } catch {}
+    return;
+  }
   let stdout: string;
   try {
     stdout = execSync(`netstat -ano | findstr /R /C:":${port} " | findstr LISTENING`, {
@@ -55,8 +82,6 @@ export function freePortIfOccupied(port: number) {
       windowsHide: true,
     });
   } catch {
-    // findstr 无匹配时 exit 1 → 端口空闲。这是确定性无害路径，直接返回
-    //（error_handling.md 允许此类位置不打 warn；见该文件“deterministically 无害”条）。
     return;
   }
   let pids: string[];
@@ -76,15 +101,21 @@ export function freePortIfOccupied(port: number) {
     throw new Error(`port ${port} occupied (netstat parse failed, refusing to kill blindly)`);
   }
   if (pids.length === 0) return;
-  // 健康检查：只有本项目旧实例（/api/universal/agents 返回 ok:true）才可能是残留网关。
+  // 健康检查：只有本项目旧实例（带 token 请求返回 ok:true，或返回鉴权拒绝结构）才确认为残留网关。
   let healthy = false;
   try {
-    const probe = execSync(`curl.exe -s -m 3 http://127.0.0.1:${port}/api/universal/agents`, {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 8000,
-    });
-    healthy = /"ok"\s*:\s*true/.test(probe);
+    const token = ensureGatewayToken();
+    const probe = execSync(
+      `curl.exe -s -m 3 -H "Authorization: Bearer ${token}" http://127.0.0.1:${port}/api/universal/agents`,
+      {
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 8000,
+      }
+    );
+    healthy =
+      /"ok"\s*:\s*true/.test(probe) ||
+      /"error"\s*:\s*"(?:missing-token|invalid-token|unauthorized)"/.test(probe);
   } catch (err) {
     console.warn(`[Server] 端口 ${port} 健康检查探针不通，拒绝自动杀进程: ${(err as Error).message}`);
   }

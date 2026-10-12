@@ -12,6 +12,8 @@ import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { ptyStatus, ptyResize, ptyWsCandidateBases, buildPtyWsUrl } from "@/lib/universal-api";
 import { apiFetch, getGatewayBase, withTokenQuery } from "@/lib/gateway-auth";
+import { parseWslDistro } from "@/lib/wsl-distro";
+export { parseWslDistro };
 
 /** 抽屉传输模式：pty=真交互 shell；oneshot=单次执行（PTY 不可用时回落）。 */
 export type TerminalMode = "probing" | "pty" | "oneshot";
@@ -122,9 +124,8 @@ export function newPtyId(now: number = Date.now(), rand: number = Math.random())
 
 /**
  * 工作区是否在 WSL 里：是则返回 distro 名，否则 null（纯函数，可测）。
- * 实现在 `@/lib/wsl-distro`（零依赖，状态栏也用它）；这里 re-export，单测路径不变。
+ * 实现在 `@/lib/wsl-distro`（零依赖，状态栏也用它）；头部已 import 并 re-export。
  */
-export { parseWslDistro } from "@/lib/wsl-distro";
 
 /** 浮动终端几何（纯函数，可测；组件只负责指针事件接线）。 */
 export interface TerminalGeom {

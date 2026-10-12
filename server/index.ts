@@ -1,4 +1,4 @@
-import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "./gateway";
+import { setupEnv, PORT, HOST, buildApp, freePortIfOccupied, shutdownBridges } from "./gateway";
 import { gatewayBootstrapUrl, gatewayTokenPreview } from "./universal/security";
 
 setupEnv();
@@ -8,7 +8,7 @@ const app = buildApp();
 
 const server = Bun.serve({
   port: PORT,
-  hostname: "127.0.0.1", // 安全边界第一层：只绑回环，局域网不可达（纵深防御见 universal/security.ts）。
+  hostname: HOST,
   idleTimeout: 0, // Disable idle timeout so server never exits
   fetch: app.fetch,
 });

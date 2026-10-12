@@ -173,6 +173,7 @@ async function main() {
       });
       await new Promise((r) => cleanup.on("close", r));
     } catch {}
+    recyclePort(GATEWAY_PORT, "Universal Gateway");
     recyclePort(VITE_PORT, "Vite Dev Server");
   }
 

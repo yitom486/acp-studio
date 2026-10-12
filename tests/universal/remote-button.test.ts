@@ -138,21 +138,21 @@ describe("StatusBar remote corner", () => {
     qc.clear();
   });
 
-  it("does not crash when prompt is cancelled", async () => {
-    window.prompt = vi.fn(() => null) as any;
+  it("opens workspace picker modal with distro when WSL folder button is clicked", async () => {
     const { el, root, qc } = await renderBar();
     await act(async () => {
       cornerButton(el)?.click();
       await new Promise((r) => setTimeout(r, 150));
     });
-    const wslRow = Array.from(el.querySelectorAll('[role="menuitem"]')).find((b) =>
-      (b.textContent || "").includes("WSL: Ubuntu")
+    const wslFolderBtn = Array.from(el.querySelectorAll('[role="menuitem"]')).find((b) =>
+      (b.getAttribute("aria-label") || "").includes("选择工作区目录 WSL: Ubuntu")
     ) as HTMLButtonElement | undefined;
-    expect(wslRow).toBeTruthy();
+    expect(wslFolderBtn).toBeTruthy();
     await act(async () => {
-      wslRow?.click();
+      wslFolderBtn?.click();
     });
-    expect(window.prompt).toHaveBeenCalled();
+    expect(useWorkbenchStore.getState().workspacePickerOpen).toBe(true);
+    expect(useWorkbenchStore.getState().workspacePickerDistro).toBe("Ubuntu");
     root.unmount();
     el.remove();
     qc.clear();

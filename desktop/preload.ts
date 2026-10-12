@@ -12,7 +12,7 @@ contextBridge.exposeInMainWorld("acpStudio", {
     electron: process.versions.electron,
   },
   getGatewayToken: (): Promise<string> => ipcRenderer.invoke("gateway:getToken"),
-  openDirectory: (): Promise<string | null> => ipcRenderer.invoke("dialog:openDirectory"),
+  openDirectory: (opts?: { defaultPath?: string }): Promise<string | null> => ipcRenderer.invoke("dialog:openDirectory", opts),
   openPath: (p: string): Promise<void> => ipcRenderer.invoke("shell:openPath", p),
   setTitleBarOverlay: (opts: { color?: string; symbolColor?: string; height?: number }): Promise<void> =>
     ipcRenderer.invoke("window:setTitleBarOverlay", opts),

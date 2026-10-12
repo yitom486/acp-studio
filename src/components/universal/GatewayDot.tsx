@@ -4,7 +4,7 @@
  * 真正的错误由各处请求就近 loud 报错。
  */
 import React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, QueryClient } from "@tanstack/react-query";
 import { getGatewayBase, verifyGatewayToken, type GatewayAuthState } from "@/lib/gateway-auth";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { cn } from "@/lib/utils";
@@ -20,21 +20,32 @@ export function healthDotClass(state: GatewayAuthState | undefined, fetching: bo
   return "bg-destructive";
 }
 
+const fallbackClient = new QueryClient({ defaultOptions: { queries: { enabled: false } } });
+
 export const GatewayDot: React.FC = () => {
   const openSettings = useWorkbenchStore((s) => s.openSettings);
   const base = getGatewayBase();
-  const q = useQuery({
-    queryKey: ["universal", "gateway-health", base],
-    queryFn: async () => {
-      const t0 = Date.now();
-      const st = await verifyGatewayToken();
-      return { st, ms: Date.now() - t0 };
+  let client: QueryClient | undefined;
+  try {
+    client = useQueryClient();
+  } catch {
+    client = fallbackClient;
+  }
+  const q = useQuery(
+    {
+      queryKey: ["universal", "gateway-health", base],
+      queryFn: async () => {
+        const t0 = Date.now();
+        const st = await verifyGatewayToken();
+        return { st, ms: Date.now() - t0 };
+      },
+      staleTime: GATEWAY_HEALTH_STALE_MS,
+      refetchInterval: GATEWAY_HEALTH_INTERVAL_MS,
+      refetchOnWindowFocus: true,
+      retry: false,
     },
-    staleTime: GATEWAY_HEALTH_STALE_MS,
-    refetchInterval: GATEWAY_HEALTH_INTERVAL_MS,
-    refetchOnWindowFocus: true,
-    retry: false,
-  });
+    client,
+  );
   const st = q.data?.st;
   const label =
     st === undefined

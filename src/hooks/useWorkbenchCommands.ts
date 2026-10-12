@@ -36,9 +36,8 @@ export function useWorkbenchCommands(opts: { onNewSession: () => void }) {
       { id: "session.new", title: "新会话", group: "文件", run: onNewSession },
       {
         id: "workspace.openFolder", title: "打开文件夹…", group: "文件", keybinding: "Ctrl+O",
-        run: async () => {
-          const picked = window.acpStudio?.openDirectory ? await window.acpStudio.openDirectory() : window.prompt("文件夹路径");
-          if (picked) await openWorkspace(picked);
+        run: () => {
+          wb().openWorkspacePicker();
         },
       },
       { id: "workspace.open", title: "打开工作区（路径）", group: "文件", hidden: true, run: async (p) => { if (typeof p === "string") await openWorkspace(p); } },

@@ -7,6 +7,7 @@ import { ErrorToast } from "@/components/ErrorToast";
 import { UpdateNotice } from "@/components/UpdateNotice";
 import { SettingsModal } from "@/components/workbench/SettingsModal";
 import { CommandPalette } from "@/components/workbench/CommandPalette";
+import { WorkspacePickerModal } from "@/components/universal/WorkspacePickerModal";
 import { GatewayTokenGate } from "@/components/GatewayTokenGate";
 import { installGlobalErrorCapture, reportError } from "@/lib/error-bus";
 import { bootstrapGatewayToken, verifyGatewayToken } from "@/lib/gateway-auth";
@@ -38,6 +39,7 @@ function renderApp() {
         <UpdateNotice />
         <SettingsModal />
         <CommandPalette />
+        <WorkspacePickerModal />
       </QueryClientProvider>
     </React.StrictMode>
   );

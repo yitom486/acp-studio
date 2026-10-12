@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Folder, FolderOpen, ExternalLink, ChevronDown, Check, Clock } from "lucide-react";
 import { validateWorkspace } from "@/lib/universal-api";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import type { RecentWorkspace } from "@/stores/useStudioStore";
 
 export interface WorkspaceDropdownProps {
@@ -32,30 +33,10 @@ export const WorkspaceDropdown: React.FC<WorkspaceDropdownProps> = ({
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [open]);
 
-  // Handle native folder dialog or web fallback
-  const handleOpenFolder = async () => {
+  // Handle folder opening via in-app WorkspacePickerModal
+  const handleOpenFolder = () => {
     setOpen(false);
-    if (window.acpStudio?.openDirectory) {
-      try {
-        const chosen = await window.acpStudio.openDirectory();
-        if (chosen) {
-          onSelectWorkspace(chosen);
-        }
-      } catch (err: any) {
-        alert("打开文件夹失败: " + err.message);
-      }
-      return;
-    }
-
-    // Web fallback
-    const input = prompt("请输入本地项目工作区绝对路径 (如 D:\\project\\my-app):", currentWorkspace || "");
-    if (!input || !input.trim()) return;
-    const res = await validateWorkspace(input.trim());
-    if (res.ok && res.path) {
-      onSelectWorkspace(res.path, res.name);
-    } else {
-      alert("无效目录: " + (res.error || "路径不存在或不是目录"));
-    }
+    useWorkbenchStore.getState().openWorkspacePicker();
   };
 
   const handleRevealInExplorer = async () => {

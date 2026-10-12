@@ -19,6 +19,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import type { AgentSummary } from "@/lib/universal-api";
 import type { RecentWorkspace } from "@/stores/useStudioStore";
 
@@ -439,18 +440,8 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
         <div className="flex items-center gap-1 text-muted-foreground">
           <button
             type="button"
-            onClick={async () => {
-              if (window.acpStudio?.openDirectory) {
-                try {
-                  const chosen = await window.acpStudio.openDirectory();
-                  if (chosen) p.onSelectWorkspace?.(chosen);
-                } catch (e: any) {
-                  alert("打开文件夹失败: " + e.message);
-                }
-              } else {
-                const input = prompt("请输入本地项目路径:");
-                if (input?.trim()) p.onSelectWorkspace?.(input.trim());
-              }
+            onClick={() => {
+              useWorkbenchStore.getState().openWorkspacePicker();
             }}
             title="打开本地项目文件夹 (Ctrl+O)"
             aria-label="打开本地项目文件夹"

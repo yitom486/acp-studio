@@ -1,36 +1,35 @@
-/**
- * 状态栏远程角标（VSCode 左下角式）：当前环境一眼可见，点开切换。
- * - 本机：本地网关 + 本地工作区
- * - WSL: <distro>：工作区在 \\wsl$\ 里（网关仍在本地，经 wsl.exe 干活）
- * - 远端 <host>：自定义网关基址（网关在 WSL/SSH 里跑）
- * WSL 发行版列表来自网关（5 分钟缓存，开菜单才查）；切环境走已有命令
- * （workspace.open 带校验、设置页网关 Tab），这里不造新流程。
- */
 import React, { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, FolderOpen, Monitor, Server, Terminal } from "lucide-react";
+import { Check, FolderOpen, Loader2, Monitor, Play, Server, Terminal } from "lucide-react";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
-import { getGatewayBase, setGatewayBase, gatewayHost } from "@/lib/gateway-auth";
-import { listWslDistros } from "@/lib/universal-api";
+import { getGatewayBase, setGatewayBase, setGatewayToken, gatewayHost } from "@/lib/gateway-auth";
+import { listWslDistros, launchWslGateway } from "@/lib/universal-api";
 import { parseWslDistro } from "@/lib/wsl-distro";
 import { runCommand } from "@/lib/commands";
 import { cn } from "@/lib/utils";
 
 const menuCls =
-  "absolute bottom-6 left-1 z-50 min-w-64 max-w-80 rounded-md border border-border bg-popover p-1 text-xs text-popover-foreground shadow-lg";
+  "absolute bottom-6 left-1 z-50 min-w-72 max-w-88 rounded-xl border border-border bg-popover p-1.5 text-xs text-popover-foreground shadow-2xl backdrop-blur-md";
 
 const rowCls =
-  "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent";
+  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent transition-colors";
 
 export const RemoteButton: React.FC = () => {
   const currentWorkspace = useStudioStore((s) => s.currentWorkspace);
   const recentWorkspaces = useStudioStore((s) => s.recentWorkspaces);
   const openSettings = useWorkbenchStore((s) => s.openSettings);
+  const openWorkspacePicker = useWorkbenchStore((s) => s.openWorkspacePicker);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [connectingDistro, setConnectingDistro] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const base = getGatewayBase();
   const distro = currentWorkspace ? parseWslDistro(currentWorkspace) : null;
+
+  // 记录是否处于 WSL 原生真环境中 (存储在 localStorage)
+  const isWslNative = Boolean(base && localStorage.getItem("acp_wsl_native_distro"));
+  const wslNativeDistro = localStorage.getItem("acp_wsl_native_distro");
 
   const distrosQuery = useQuery({
     queryKey: ["universal", "wsl-distros"],
@@ -58,26 +57,62 @@ export const RemoteButton: React.FC = () => {
     };
   }, [menuOpen]);
 
-  const close = () => setMenuOpen(false);
+  const close = () => {
+    setMenuOpen(false);
+    setConnectError(null);
+  };
 
   const openWslFolder = (d: string) => {
     close();
-    const p = window.prompt("WSL 里的工作区路径", `\\\\wsl$\\${d}\\home\\`);
-    if (p && p.trim()) void runCommand("workspace.open", p.trim());
+    openWorkspacePicker({ distro: d });
+  };
+
+  // 一键启动并在 WSL 内直连原生网关
+  const handleConnectWslNative = async (d: string) => {
+    setConnectingDistro(d);
+    setConnectError(null);
+    try {
+      const res = await launchWslGateway(d, 3005);
+      if (res.ok && res.url) {
+        localStorage.setItem("acp_wsl_native_distro", d);
+        setGatewayBase(res.url);
+        if (res.token) {
+          setGatewayToken(res.token, true);
+        }
+        close();
+        window.location.reload();
+      } else {
+        setConnectError(res.error || "启动 WSL 原生网关失败");
+      }
+    } catch (err: any) {
+      setConnectError(err?.message || "请求启动 WSL 网关失败");
+    } finally {
+      setConnectingDistro(null);
+    }
   };
 
   const backToLocal = () => {
+    localStorage.removeItem("acp_wsl_native_distro");
     setGatewayBase("");
-    // 状态归属网关：回本地即重载（与设置页行为一致）
+    close();
     window.location.reload();
   };
 
-  const label = base ? `远端 ${gatewayHost(base)}` : distro ? `WSL: ${distro}` : "本机";
-  const title = base
-    ? `经远端网关 ${base} 连接（点此切换）`
-    : distro
-      ? `WSL 发行版 ${distro}（本地网关经 wsl.exe，点此切换）`
-      : "本地网关 + 本地工作区（点此切换）";
+  const label = isWslNative
+    ? `WSL: ${wslNativeDistro} (真环境)`
+    : base
+      ? `远端 ${gatewayHost(base)}`
+      : distro
+        ? `WSL: ${distro}`
+        : "本机";
+
+  const title = isWslNative
+    ? `已连接 WSL ${wslNativeDistro} 原生 Linux 开发环境（点此切换）`
+    : base
+      ? `经远端网关 ${base} 连接（点此切换）`
+      : distro
+        ? `WSL 发行版 ${distro}（点此切换）`
+        : "本地网关 + 本地工作区（点此切换）";
 
   return (
     <div ref={rootRef} className="relative flex h-full items-stretch">
@@ -89,33 +124,52 @@ export const RemoteButton: React.FC = () => {
         aria-expanded={menuOpen}
         className={cn(
           "flex items-center gap-1.5 px-2.5 font-mono text-[11px] transition-colors",
-          base || distro
-            ? "bg-primary text-primary-foreground hover:opacity-90"
-            : "text-muted-foreground hover:bg-accent hover:text-foreground"
+          isWslNative
+            ? "bg-emerald-600 text-white hover:bg-emerald-500 font-semibold"
+            : base || distro
+              ? "bg-primary text-primary-foreground hover:opacity-90"
+              : "text-muted-foreground hover:bg-accent hover:text-foreground"
         )}
       >
-        <span aria-hidden>{"><"}</span>
+        <span aria-hidden>{isWslNative ? "🐧" : "><"}</span>
         <span className="max-w-48 truncate">{label}</span>
       </button>
       {menuOpen && (
         <div className={menuCls} role="menu" aria-label="切换环境">
-          <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             当前：{label}
           </div>
-          <button type="button" role="menuitem" className={rowCls} onClick={() => (base ? backToLocal() : close())}>
+
+          <button
+            type="button"
+            role="menuitem"
+            className={rowCls}
+            onClick={() => (base || isWslNative ? backToLocal() : close())}
+          >
             <Monitor className="h-3.5 w-3.5 shrink-0" />
-            <span className="flex-1">本机</span>
+            <span className="flex-1">本机 Windows 环境</span>
             {!base && !distro && <Check className="h-3.5 w-3.5 shrink-0" />}
           </button>
+
           {showWsl && (
             <>
-              <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                WSL
+              <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                WSL 发行版与真环境
               </div>
-              {distrosQuery.isPending && <div className="px-2 py-1.5 text-muted-foreground">正在读取发行版…</div>}
+              {distrosQuery.isPending && (
+                <div className="px-2 py-1.5 text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>正在扫描 WSL 发行版…</span>
+                </div>
+              )}
               {distrosQuery.isError && (
                 <div className="px-2 py-1.5 text-destructive break-words" title="点远端网关…可连 WSL 里的网关">
                   {String((distrosQuery.error as Error)?.message || "读取失败")}
+                </div>
+              )}
+              {connectError && (
+                <div className="mx-1 my-1 rounded bg-destructive/15 p-2 text-[11px] text-destructive break-words">
+                  {connectError}
                 </div>
               )}
               {distrosQuery.isSuccess && distros.length === 0 && !distro && (
@@ -123,37 +177,85 @@ export const RemoteButton: React.FC = () => {
                   已连通但无发行版：在 PowerShell 跑 wsl --install -d Ubuntu
                 </div>
               )}
-              {distros.map((d) => (
-                <div key={d}>
-                  <button type="button" role="menuitem" className={rowCls} onClick={() => openWslFolder(d)}>
-                    <Terminal className="h-3.5 w-3.5 shrink-0" />
-                    <span className="flex-1 truncate">WSL: {d}</span>
-                    {distro === d && <Check className="h-3.5 w-3.5 shrink-0" />}
-                  </button>
-                  {recentWorkspaces
-                    .filter((r) => parseWslDistro(r.path)?.toLowerCase() === d.toLowerCase())
-                    .slice(0, 5)
-                    .map((r) => (
-                      <button
-                        key={r.path}
-                        type="button"
-                        role="menuitem"
-                        className={cn(rowCls, "pl-8")}
-                        title={r.path}
-                        onClick={() => {
-                          close();
-                          void runCommand("workspace.open", r.path);
-                        }}
-                      >
-                        <span className="flex-1 truncate">{r.name}</span>
-                        {currentWorkspace === r.path && <Check className="h-3.5 w-3.5 shrink-0" />}
-                      </button>
-                    ))}
-                </div>
-              ))}
+              {distros.map((d) => {
+                const isCurrentNative = isWslNative && wslNativeDistro?.toLowerCase() === d.toLowerCase();
+                const isConnecting = connectingDistro === d;
+                return (
+                  <div key={d} className="my-0.5 rounded-md border border-border/40 p-1 bg-background/30">
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="flex items-center gap-1.5 truncate flex-1 px-1">
+                        <Terminal className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        <span className="font-semibold text-xs truncate">WSL: {d}</span>
+                        {isCurrentNative && (
+                          <span className="rounded-sm bg-emerald-500/15 px-1 py-0.2 text-[9.5px] font-mono text-emerald-500 font-medium">
+                            原生已连
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          aria-label={`一键连接真环境 WSL: ${d}`}
+                          disabled={isConnecting}
+                          onClick={() => handleConnectWslNative(d)}
+                          title="一键打通真环境：在 WSL 内部启动网关，所有 Agent 与终端作为 Linux 原生进程就地运行"
+                          className={cn(
+                            "flex items-center gap-1 rounded-sm px-2 py-1 font-mono text-[10.5px] font-medium transition-colors border shadow-xs",
+                            isCurrentNative
+                              ? "bg-emerald-600 text-white border-emerald-500"
+                              : "bg-primary text-primary-foreground hover:bg-primary/90 border-primary/20"
+                          )}
+                        >
+                          {isConnecting ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Play className="h-2.5 w-2.5 fill-current" />
+                          )}
+                          <span>{isCurrentNative ? "已直连" : "一键打通真环境"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          aria-label={`选择工作区目录 WSL: ${d}`}
+                          onClick={() => openWslFolder(d)}
+                          title="打开内置工作区选择器浏览目录"
+                          className="rounded-sm border border-border p-1 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <FolderOpen className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {recentWorkspaces
+                      .filter((r) => parseWslDistro(r.path)?.toLowerCase() === d.toLowerCase())
+                      .slice(0, 3)
+                      .map((r) => (
+                        <button
+                          key={r.path}
+                          type="button"
+                          role="menuitem"
+                          className={cn(rowCls, "pl-6 py-1 text-[11px]")}
+                          title={r.path}
+                          onClick={() => {
+                            close();
+                            void runCommand("workspace.open", r.path);
+                          }}
+                        >
+                          <span className="flex-1 truncate">{r.name}</span>
+                          {currentWorkspace === r.path && <Check className="h-3 w-3 shrink-0" />}
+                        </button>
+                      ))}
+                  </div>
+                );
+              })}
             </>
           )}
-          <div className="my-1 h-px bg-border" />
+
+          <div className="my-1.5 h-px bg-border/60" />
+
           <button
             type="button"
             role="menuitem"
@@ -164,17 +266,21 @@ export const RemoteButton: React.FC = () => {
             }}
           >
             <Server className="h-3.5 w-3.5 shrink-0" />
-            <span className="flex-1">远端网关…</span>
-            {base && <Check className="h-3.5 w-3.5 shrink-0" />}
+            <span className="flex-1">远端网关配置…</span>
+            {base && !isWslNative && <Check className="h-3.5 w-3.5 shrink-0" />}
           </button>
-          {base && (
-            <div className="px-2 py-1 font-mono text-[10px] text-muted-foreground truncate" title={base}>
-              经 {gatewayHost(base)} 连接
-            </div>
-          )}
-          <button type="button" role="menuitem" className={cn(rowCls, "text-muted-foreground")} onClick={() => { close(); void runCommand("workspace.openFolder"); }}>
+
+          <button
+            type="button"
+            role="menuitem"
+            className={cn(rowCls, "text-muted-foreground")}
+            onClick={() => {
+              close();
+              openWorkspacePicker();
+            }}
+          >
             <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-            <span className="flex-1">打开文件夹…（Ctrl+O）</span>
+            <span className="flex-1">打开文件夹… (Ctrl+O)</span>
           </button>
         </div>
       )}

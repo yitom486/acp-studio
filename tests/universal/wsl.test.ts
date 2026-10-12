@@ -6,7 +6,7 @@ import {
   execSpawnForCwd,
   gitSpawnForCwd,
 } from "../../server/universal/wsl";
-import { parseWslDistros } from "../../server/universal/http/workspace";
+import { parseWslDistros, getSystemDirectoryRoots } from "../../server/universal/http/workspace";
 import { parseWslDistro } from "@/components/universal/TerminalDrawer";
 
 const UNC = "\\\\wsl$\\Ubuntu\\home\\u\\proj";
@@ -85,5 +85,11 @@ describe("wsl paths", () => {
       "https://aka.ms/wslstore",
     ].join("\r\n");
     expect(parseWslDistros(help)).toEqual([]);
+  });
+
+  it("getSystemDirectoryRoots returns home and roots", () => {
+    const roots = getSystemDirectoryRoots();
+    expect(roots.length).toBeGreaterThan(0);
+    expect(roots[0].label).toContain("用户目录");
   });
 });

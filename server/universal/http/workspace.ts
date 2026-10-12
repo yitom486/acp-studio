@@ -5,9 +5,10 @@
 import { Hono, type Context } from "hono";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { z } from "zod";
-import { dangerousRootReason } from "../security";
+import { dangerousRootReason, ensureGatewayToken } from "../security";
 import { json, jsonBody, optStr } from "./shared";
 
 export const workspaceRouter = new Hono();
@@ -89,6 +90,209 @@ workspaceRouter.post("/validate", jsonBody(validateBody), (c) => {
     console.error(`[Universal] workspace validate failed: ${err.message || err}`);
     return json({ ok: false, error: err.message || "校验工作区失败" }, 400);
   }
+});
+
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  isGit: boolean;
+  mtimeMs?: number;
+}
+
+export interface DirectoryRoot {
+  label: string;
+  path: string;
+  distro?: string;
+}
+
+/** 获取快捷根目录列表（磁盘驱动器、用户目录、WSL 实例）。 */
+export function getSystemDirectoryRoots(): DirectoryRoot[] {
+  const roots: DirectoryRoot[] = [];
+  const home = os.homedir();
+  roots.push({ label: "用户目录 (~)", path: home });
+
+  if (process.platform === "win32") {
+    // 快速扫描 Windows 驱动器 C:\ ~ Z:\
+    for (const drive of ["C", "D", "E", "F", "G", "H", "Z"]) {
+      const rootPath = `${drive}:\\`;
+      try {
+        if (fs.existsSync(rootPath)) {
+          roots.push({ label: `本地磁盘 (${drive}:)`, path: rootPath });
+        }
+      } catch {}
+    }
+    // 快速探测已安装的 WSL 发行版
+    try {
+      const r = spawnSync("wsl.exe", ["-l", "-q"], {
+        encoding: "utf16le",
+        timeout: 3000,
+        windowsHide: true,
+      });
+      if (!r.error && r.stdout) {
+        const distros = parseWslDistros(String(r.stdout));
+        for (const d of distros) {
+          const wslHome = `\\\\wsl.localhost\\${d}\\home`;
+          const wslRoot = `\\\\wsl.localhost\\${d}`;
+          let targetPath = wslRoot;
+          try {
+            if (fs.existsSync(wslHome)) {
+              const subs = fs.readdirSync(wslHome, { withFileTypes: true });
+              const userDir = subs.find((s) => s.isDirectory() && s.name !== "lost+found");
+              targetPath = userDir ? path.join(wslHome, userDir.name) : wslHome;
+            }
+          } catch {}
+          roots.push({ label: `WSL: ${d}`, path: targetPath, distro: d });
+        }
+      }
+    } catch {}
+  } else {
+    roots.push({ label: "根目录 (/)", path: "/" });
+    const userHome = path.join("/home");
+    if (fs.existsSync(userHome)) {
+      roots.push({ label: "/home", path: userHome });
+    }
+  }
+  return roots;
+}
+
+/** 供内置工作区选择器浏览目录的只读接口。 */
+workspaceRouter.get("/directories", (c) => {
+  const requestedDir = c.req.query("dir")?.trim();
+  const requestedDistro = c.req.query("distro")?.trim();
+
+  let targetDir = requestedDir || "";
+
+  // 1. 若无指定路径，按发行版或用户家目录初始化
+  if (!targetDir) {
+    if (requestedDistro && process.platform === "win32") {
+      const wslHome = `\\\\wsl.localhost\\${requestedDistro}\\home`;
+      try {
+        if (fs.existsSync(wslHome)) {
+          const subs = fs.readdirSync(wslHome, { withFileTypes: true });
+          const userDir = subs.find((s) => s.isDirectory() && s.name !== "lost+found");
+          targetDir = userDir ? path.join(wslHome, userDir.name) : wslHome;
+        } else {
+          targetDir = `\\\\wsl.localhost\\${requestedDistro}`;
+        }
+      } catch {
+        targetDir = `\\\\wsl.localhost\\${requestedDistro}`;
+      }
+    } else {
+      targetDir = os.homedir();
+    }
+  } else if (requestedDistro && process.platform === "win32" && (targetDir.startsWith("/") || targetDir.startsWith("~"))) {
+    // 将 Linux 风格的路径映射为 WSL UNC 路径
+    const clean = targetDir.replace(/^~/, "").replace(/^\/+/, "");
+    targetDir = clean
+      ? `\\\\wsl.localhost\\${requestedDistro}\\${clean.replace(/\//g, "\\")}`
+      : `\\\\wsl.localhost\\${requestedDistro}`;
+  }
+
+  // 规范化路径
+  try {
+    targetDir = path.resolve(targetDir);
+  } catch {
+    targetDir = os.homedir();
+  }
+
+  if (!fs.existsSync(targetDir)) {
+    return json(
+      {
+        ok: false,
+        error: `目录不存在: ${targetDir}`,
+        current: os.homedir(),
+        parent: null,
+        roots: getSystemDirectoryRoots(),
+        entries: [],
+      },
+      404
+    );
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(targetDir);
+  } catch (err: any) {
+    return json({ ok: false, error: `无法访问该目录: ${err?.message || err}` }, 403);
+  }
+
+  if (!stat.isDirectory()) {
+    targetDir = path.dirname(targetDir);
+  }
+
+  // 计算 parent
+  let parent: string | null = path.dirname(targetDir);
+  if (parent === targetDir) {
+    parent = null;
+  } else if (process.platform === "win32") {
+    const isWslRoot = /^\\\\wsl(?:\$|\.localhost)\\[^\\]+$/i.test(targetDir);
+    if (isWslRoot) parent = null;
+  }
+
+  // 友好显示路径
+  let displayPath = targetDir;
+  let distro = requestedDistro || null;
+  const wslMatch = /^(?:\\\\|\/\/)wsl(?:\$|\.localhost)[\\\/]([^\\\/]+)(?:[\\\/](.*))?$/i.exec(targetDir);
+  if (wslMatch) {
+    distro = wslMatch[1];
+    const sub = wslMatch[2] ? `/${wslMatch[2].replace(/[\\\/]+/g, "/")}` : "/";
+    displayPath = `WSL (${distro}): ${sub}`;
+  }
+
+  const IGNORED_NAMES = new Set([
+    "$Recycle.Bin",
+    "System Volume Information",
+    "Recovery",
+    "node_modules",
+    ".git",
+    "AppData",
+    "Application Data",
+  ]);
+
+  const entries: DirectoryEntry[] = [];
+  try {
+    const rawItems = fs.readdirSync(targetDir, { withFileTypes: true });
+    for (const item of rawItems) {
+      if (!item.isDirectory() && !item.isSymbolicLink()) continue;
+      if (IGNORED_NAMES.has(item.name)) continue;
+      if (item.name.startsWith("$")) continue;
+
+      const fullSubPath = path.join(targetDir, item.name);
+      let isGit = false;
+      let mtimeMs: number | undefined;
+      try {
+        isGit = fs.existsSync(path.join(fullSubPath, ".git"));
+        const subStat = fs.statSync(fullSubPath);
+        if (!subStat.isDirectory()) continue;
+        mtimeMs = Math.round(subStat.mtimeMs);
+      } catch {
+        // 权限不足跳过
+      }
+
+      entries.push({
+        name: item.name,
+        path: fullSubPath,
+        isGit,
+        mtimeMs,
+      });
+
+      if (entries.length >= 300) break;
+    }
+  } catch (err: any) {
+    return json({ ok: false, error: `读取目录内容失败: ${err?.message || err}` }, 500);
+  }
+
+  entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+
+  return json({
+    ok: true,
+    current: targetDir,
+    displayPath,
+    distro,
+    parent,
+    roots: getSystemDirectoryRoots(),
+    entries,
+  });
 });
 
 /**
@@ -219,4 +423,115 @@ workspaceRouter.get("/read", (c) => {
   } catch (err: any) {
     return json({ ok: false, error: err.message || "读取文件失败" }, 400);
   }
+});
+
+const wslLaunchBody = z.looseObject({
+  distro: z.string().min(1),
+  port: z.number().int().positive().optional(),
+});
+
+/** 一键在目标 WSL 发行版内拉起/直连原生 Headless 网关。 */
+workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
+  if (process.platform !== "win32") {
+    return json({ ok: false, error: "WSL 原生环境仅在 Windows 宿主机上可用" }, 400);
+  }
+  const body = c.get("body");
+  const distro = body.distro.trim();
+  const port = body.port || 3005;
+  const token = ensureGatewayToken();
+
+  // 1. 探针：检查 port 是否已经有健康的网关且令牌匹配
+  const probe = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/universal/workspace/default`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      return res.status === 200;
+    } catch {
+      return false;
+    }
+  };
+
+  if (await probe()) {
+    return json({ ok: true, url: `http://127.0.0.1:${port}`, distro, reused: true, token });
+  }
+
+  // 2. 检测 WSL 内部的 runtime (bun 或 node)，通过 bash -lc 加载完整环境与 PATH
+  const probeRuntime = spawnSync(
+    "wsl.exe",
+    [
+      "-d",
+      distro,
+      "--",
+      "bash",
+      "-lc",
+      "command -v bun || [ -x ~/.bun/bin/bun ] && echo ~/.bun/bin/bun || command -v node",
+    ],
+    { encoding: "utf8", timeout: 8000, windowsHide: true }
+  );
+
+  const runtimeLines = (probeRuntime.stdout || "")
+    .replace(/\0/g, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("/") && (l.endsWith("/bun") || l.endsWith("/node")));
+  const runtime = runtimeLines[0] || "";
+
+  if (!runtime) {
+    return json(
+      {
+        ok: false,
+        error: `WSL 发行版 [${distro}] 内未检测到 Bun 或 Node 环境。\n请在 WSL 中运行: curl -fsSL https://bun.sh/install | bash 进行安装。`,
+      },
+      400
+    );
+  }
+
+  // 3. 计算工程根目录在 WSL 中的 Linux 挂载路径
+  const cwd = process.cwd();
+  const driveMatch = /^([a-zA-Z]):[\\\/](.*)$/.exec(cwd);
+  if (!driveMatch) {
+    return json({ ok: false, error: "无法将当前工作目录映射为 WSL 挂载路径" }, 500);
+  }
+  const driveLetter = driveMatch[1].toLowerCase();
+  const subPath = driveMatch[2].replace(/\\/g, "/");
+  const linuxProjectRoot = `/mnt/${driveLetter}/${subPath}`;
+
+  // 4. 以后台守护进程方式在 WSL 内部启动网关（自动同步同一令牌，重定向输入避免终端退出时断开）
+  const logFile = `/tmp/acp-wsl-gateway-${port}.log`;
+  const launchScript = `mkdir -p ~/.acp-studio && echo '${token}' > ~/.acp-studio/.gateway-token && cd "${linuxProjectRoot}" && export ACP_GATEWAY_TOKEN='${token}' && export PORT=${port} && export HOST=0.0.0.0 && nohup ${runtime} server/index.ts --port ${port} --host 0.0.0.0 < /dev/null > "${logFile}" 2>&1 & sleep 1`;
+
+  const launchProc = spawnSync("wsl.exe", ["-d", distro, "--", "bash", "-lc", launchScript], {
+    timeout: 10000,
+    windowsHide: true,
+  });
+
+  if (launchProc.error) {
+    return json({ ok: false, error: `启动 WSL 网关失败: ${launchProc.error.message}` }, 500);
+  }
+
+  // 5. 等待网关就绪（轮询最多 8 秒）
+  const start = Date.now();
+  while (Date.now() - start < 8000) {
+    await new Promise((r) => setTimeout(r, 400));
+    if (await probe()) {
+      return json({ ok: true, url: `http://127.0.0.1:${port}`, distro, reused: false, token });
+    }
+  }
+
+  // 若超时，读取日志
+  const readLog = spawnSync("wsl.exe", ["-d", distro, "--", "cat", logFile], {
+    encoding: "utf8",
+    timeout: 3000,
+    windowsHide: true,
+  });
+  const errLog = (readLog.stdout || "").replace(/\0/g, "").slice(-500);
+
+  return json(
+    {
+      ok: false,
+      error: `WSL 网关在端口 ${port} 启动超时。\n${errLog ? `日志输出:\n${errLog}` : "请检查 WSL 内是否有端口冲突或依赖缺失。"}`,
+    },
+    500
+  );
 });
