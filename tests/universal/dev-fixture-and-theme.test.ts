@@ -46,3 +46,14 @@ describe("dev conversation fixture", () => {
     expect(matchPermToToolCalls(fx.pendingPerms[1], fx.messages, fx.sessionId)).toBeNull();
   });
 });
+
+describe("theme switch animation gate", () => {
+  it("falls back to an instant switch without View Transitions or with reduced motion", async () => {
+    const { canAnimateThemeSwitch } = await import("../../src/stores/useThemeStore");
+    const win = (reduce: boolean) => ({ matchMedia: () => ({ matches: reduce }) }) as unknown as Window;
+    expect(canAnimateThemeSwitch({} as Document, win(false))).toBe(false);
+    const doc = { startViewTransition: () => {} } as unknown as Document;
+    expect(canAnimateThemeSwitch(doc, win(false))).toBe(true);
+    expect(canAnimateThemeSwitch(doc, win(true))).toBe(false);
+  });
+});

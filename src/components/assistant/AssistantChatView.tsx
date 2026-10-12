@@ -121,7 +121,7 @@ const UsagePanel: React.FC<{ msg: Message }> = ({ msg }) => {
         </div>
         <div className="h-1 rounded-full bg-muted overflow-hidden mt-1.5">
           <div
-            className={cn("h-full rounded-full transition-all duration-500", bar)}
+            className={cn("h-full rounded-full transition-[width] duration-500", bar)}
             style={{ width: `${(pct * 100).toFixed(1)}%` }}
           />
         </div>
@@ -200,7 +200,7 @@ const AcpReasoningView: React.FC<{
       </button>
       <div
         className={cn(
-          "grid transition-all duration-300 ease-out",
+          "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
         )}
       >
@@ -338,7 +338,7 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = ({ t
       </button>
       <div
         className={cn(
-          "grid transition-all duration-300 ease-out",
+          "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
         )}
       >

@@ -302,7 +302,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           onClick={onNewSession}
           disabled={isStreaming || busy}
           title="新会话（可设置工作目录与 MCP）"
-          className={`h-7 px-2.5 text-xs gap-1.5 font-medium rounded-md flex items-center cursor-pointer transition-all disabled:opacity-50 ${
+          className={`h-7 px-2.5 text-xs gap-1.5 font-medium rounded-md flex items-center cursor-pointer transition-colors disabled:opacity-50 ${
             connected ? "bg-primary text-primary-foreground hover:bg-primary/90" : "border border-border text-foreground hover:bg-muted"
           }`}
         >

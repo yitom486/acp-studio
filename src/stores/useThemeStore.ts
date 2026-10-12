@@ -83,40 +83,55 @@ function syncTitleBarOverlay(color: string, symbolColor: string) {
   }
 }
 
-let themeTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+function setThemeAttributes(meta: ThemeMeta) {
+  const root = document.documentElement;
+  root.setAttribute("data-theme", meta.id);
+  // Tailwind darkMode: "class"
+  root.classList.toggle("dark", meta.isDark);
+  root.classList.toggle("light", !meta.isDark);
+  syncTitleBarOverlay(meta.overlayColor, meta.overlaySymbolColor);
+}
 
+/** 浏览器支持 View Transitions 且用户没开“减少动态效果”时才做交叉淡化。 */
+export function canAnimateThemeSwitch(doc: Document = document, win: Window = window): boolean {
+  if (typeof (doc as any).startViewTransition !== "function") return false;
+  try {
+    return !win.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * 应用主题。用户切换时：
+ * - 根节点加 .theme-transitioning，关掉所有元素自身过渡（只在切换这一刻）；
+ * - 支持 View Transitions 则整页交叉淡化一次（时长取 --theme-transition-duration）；
+ * - 不支持 / 减少动态效果 → 直接瞬间切换。
+ */
 function applyThemeToDOM(themeId: ThemeId, isUserSwitch = false) {
   if (typeof document === "undefined") return;
   const meta = THEMES[themeId] || THEMES.dark;
   const root = document.documentElement;
-
-  if (isUserSwitch) {
-    // Read dynamic duration token from CSS variable (single source of truth)
-    const cssDuration = getComputedStyle(root).getPropertyValue("--theme-transition-duration").trim();
-    const parsedDuration = parseInt(cssDuration, 10);
-    const durationMs = Number.isFinite(parsedDuration) ? parsedDuration : 200;
-
-    root.classList.add("theme-transitioning");
-    if (themeTransitionTimer) clearTimeout(themeTransitionTimer);
-    themeTransitionTimer = setTimeout(() => {
-      root.classList.remove("theme-transitioning");
-    }, durationMs + 30);
+  if (!isUserSwitch) {
+    setThemeAttributes(meta);
+    return;
   }
-
-  // Set data-theme attribute
-  root.setAttribute("data-theme", meta.id);
-
-  // Toggle dark class for Tailwind darkMode: "class"
-  if (meta.isDark) {
-    root.classList.add("dark");
-    root.classList.remove("light");
-  } else {
-    root.classList.remove("dark");
-    root.classList.add("light");
+  root.classList.add("theme-transitioning");
+  const cleanup = () => {
+    // 等新样式落地一帧后再恢复过渡，避免恢复瞬间又触发颜色过渡
+    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("theme-transitioning")));
+  };
+  if (canAnimateThemeSwitch()) {
+    try {
+      const vt = (document as any).startViewTransition(() => setThemeAttributes(meta));
+      vt.finished.finally(cleanup);
+      return;
+    } catch {
+      // 落到瞬间切换
+    }
   }
-
-  // Sync to Electron native title bar overlay
-  syncTitleBarOverlay(meta.overlayColor, meta.overlaySymbolColor);
+  setThemeAttributes(meta);
+  cleanup();
 }
 
 // Immediately apply theme on script load (cold boot: no animation to avoid flicker)

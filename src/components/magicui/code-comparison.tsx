@@ -317,8 +317,8 @@ export function CodeComparison({
             "group-hover/left:[&>pre>code>:not(.focused)]:opacity-100! group-hover/left:[&>pre>code>:not(.focused)]:blur-none!",
             "group-hover/right:[&>pre>code>:not(.focused)]:opacity-100! group-hover/right:[&>pre>code>:not(.focused)]:blur-none!",
             "[&>pre>code>.add]:bg-success/15 [&>pre>code>.remove]:bg-destructive/15",
-            "group-hover/left:[&>pre>code>:not(.focused)]:transition-all group-hover/left:[&>pre>code>:not(.focused)]:duration-300",
-            "group-hover/right:[&>pre>code>:not(.focused)]:transition-all group-hover/right:[&>pre>code>:not(.focused)]:duration-300"
+            "group-hover/left:[&>pre>code>:not(.focused)]:transition-[filter,opacity] group-hover/left:[&>pre>code>:not(.focused)]:duration-300",
+            "group-hover/right:[&>pre>code>:not(.focused)]:transition-[filter,opacity] group-hover/right:[&>pre>code>:not(.focused)]:duration-300"
           )}
           dangerouslySetInnerHTML={{ __html: highlighted }}
         />
@@ -341,7 +341,7 @@ export function CodeComparison({
               "leftside group/left border-border md:border-r",
               hasLeftFocus &&
                 "[&>div>pre>code>:not(.focused)]:opacity-50! [&>div>pre>code>:not(.focused)]:blur-[0.095rem]!",
-              "[&>div>pre>code>:not(.focused)]:transition-all [&>div>pre>code>:not(.focused)]:duration-300"
+              "[&>div>pre>code>:not(.focused)]:transition-[filter,opacity] [&>div>pre>code>:not(.focused)]:duration-300"
             )}
           >
             <div className="border-border bg-muted text-foreground flex items-center border-b p-2 text-sm">
@@ -356,7 +356,7 @@ export function CodeComparison({
               "rightside group/right border-border border-t md:border-t-0",
               hasRightFocus &&
                 "[&>div>pre>code>:not(.focused)]:opacity-50! [&>div>pre>code>:not(.focused)]:blur-[0.095rem]!",
-              "[&>div>pre>code>:not(.focused)]:transition-all [&>div>pre>code>:not(.focused)]:duration-300"
+              "[&>div>pre>code>:not(.focused)]:transition-[filter,opacity] [&>div>pre>code>:not(.focused)]:duration-300"
             )}
           >
             <div className="border-border bg-muted text-foreground flex items-center border-b p-2 text-sm">

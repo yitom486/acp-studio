@@ -80,28 +80,13 @@
 
 @layer base {
   :root {
-    /* =========================================================================
-     * Unified Theme Transition Design Tokens
-     * 统一明暗主题切换动效设计令牌（全局单一真实数据源）
-     * ========================================================================= */
-    --theme-transition-duration: 150ms;
-    --theme-transition-timing: cubic-bezier(0.16, 1, 0.3, 1);
-    --theme-transition-properties: color, background-color, border-color, text-decoration-color, fill, stroke;
+    /* 主题切换：整页 View Transitions 交叉淡化，时长 / 缓动只此一处
+     * （Tailwind transition-* 工具类的默认时长也绑在这里，见 @theme） */
+    --theme-transition-duration: 180ms;
+    --theme-transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  /* =========================================================================
-   * Universal Typography & Component Theme Transition Baseline
-   * 全局文字字体、图标与各级小组件色彩过渡基线
-   * 确保所有文本（h1-h6, p, span, label, code）、小组件（button, badge, input）与
-   * 容器背景在明暗切换时 100% 锁步渐变，彻底解决文字瞬间反色、小组件脱节的割裂感
-   * ========================================================================= */
-  *,
-  *::before,
-  *::after {
-    transition-property: var(--theme-transition-properties);
-    transition-duration: var(--theme-transition-duration);
-    transition-timing-function: var(--theme-transition-timing);
-  }
+
 
   /*
    * Tailwind v4 的裸 `border` 默认是 currentColor（--default-border-color 并不会被
@@ -421,5 +406,26 @@ code, pre, kbd, samp {
   .acp-stream-ring[data-streaming="true"] .acp-md > :is(ul, ol):last-child > li:last-child::after {
     animation: none;
     opacity: 0.6;
+  }
+}
+
+/* ---------- 主题切换 ---------- */
+/* 切换期间关掉所有元素自身的过渡，避免与整页交叉淡化叠加、各部分不同步 */
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition: none !important;
+}
+/* 整页一次交叉淡化：旧快照淡出、新页面淡入，统一时长与缓动 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--theme-transition-duration);
+  animation-timing-function: var(--theme-transition-timing);
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
   }
 }
