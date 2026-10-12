@@ -20,6 +20,19 @@ contextBridge.exposeInMainWorld("acpStudio", {
   maximize: (): Promise<void> => ipcRenderer.invoke("window:maximize"),
   close: (): Promise<void> => ipcRenderer.invoke("window:close"),
   isMaximized: (): Promise<boolean> => ipcRenderer.invoke("window:isMaximized"),
+  updates: {
+    getInfo: (): Promise<{ version: string; enabled: boolean; canAutoInstall: boolean }> =>
+      ipcRenderer.invoke("update:getInfo"),
+    check: (): Promise<void> => ipcRenderer.invoke("update:check"),
+    download: (): Promise<void> => ipcRenderer.invoke("update:download"),
+    install: (): Promise<void> => ipcRenderer.invoke("update:install"),
+    openReleases: (): Promise<void> => ipcRenderer.invoke("update:openReleases"),
+    onEvent: (cb: (e: unknown) => void): (() => void) => {
+      const h = (_: unknown, e: unknown) => cb(e);
+      ipcRenderer.on("update:event", h);
+      return () => ipcRenderer.removeListener("update:event", h);
+    },
+  },
 });
 
 declare global {
@@ -35,6 +48,14 @@ declare global {
       maximize?: () => Promise<void>;
       close?: () => Promise<void>;
       isMaximized?: () => Promise<boolean>;
+      updates?: {
+        getInfo: () => Promise<{ version: string; enabled: boolean; canAutoInstall: boolean }>;
+        check: () => Promise<void>;
+        download: () => Promise<void>;
+        install: () => Promise<void>;
+        openReleases: () => Promise<void>;
+        onEvent: (cb: (e: unknown) => void) => () => void;
+      };
     };
   }
 }
