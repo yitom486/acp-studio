@@ -11,14 +11,16 @@
 
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+
+## [0.1.4] - 2026-10-12
+
+### Added
 - 输入框工具栏精简：只保留模型与思考等级，附件、/ 命令、权限（Auto review）、模式、Fast mode、模型库收进“更多”弹层；按容器宽度自适应收缩；聊天栏最小宽度 360px
 - 顶栏精简：智能体、连接状态、pid、认证收进左上角状态胶囊（点开查看详情、切换智能体、连接 / 认证 / 退出）；顶栏单行不换行，窄宽度下变更 / 终端 / 通道 / 工作区收进“…”菜单
-
 ### Fixed
 - 文件树悬停抖动与“ResizeObserver loop completed…”错误提示：文件树按内容区（不含内边距）取整测量、RAF 合并去重，容器隔离布局，滚动条槽位固定；该良性错误不再弹出提示（仍记录到控制台）
 - 输入框打字时布局抖动：输入框 2–8 行内按整行增长、超出内部滚动；聊天区滚动条槽位固定；贴底跟随对尺寸变化去重
 - Windows 桌面快捷方式与 exe 显示默认 Electron 图标：此前关闭了 signAndEditExecutable，导致图标未写入 exe；现在嵌入完整多尺寸 ico（16–256），并补齐 macOS icns、Linux 16–512 图标、网页 favicon/manifest
-
 
 ## [0.1.3] - 2026-10-12
 
@@ -197,8 +199,9 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.4...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
 [0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
 [0.1.2]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.2
 [0.1.3]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.3
+[0.1.4]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.4
