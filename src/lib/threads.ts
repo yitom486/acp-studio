@@ -1,4 +1,4 @@
-import type { Message } from "@/components/ChatArea";
+import type { Message } from "@/lib/message-types";
 
 /**
  * Chat threads: persisted per-agent conversation records (Inkdown-style

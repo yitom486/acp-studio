@@ -64,7 +64,7 @@ const TurnChangesBody: React.FC<TurnChangesProps> = ({ open, onClose, cwd, files
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80" onClick={onClose}>
       <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-4 text-foreground text-xs space-y-2 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-border pb-2">
           <History className="w-4 h-4 text-primary" />

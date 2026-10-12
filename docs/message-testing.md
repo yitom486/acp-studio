@@ -23,7 +23,7 @@
 
 ## 2. 核心消息数据结构 (Data Models)
 
-前端所持有的统一消息模型定义（详见 `src/components/ChatArea.tsx`）：
+前端所持有的统一消息模型定义（详见 `src/lib/message-types.ts`）：
 
 ```typescript
 export interface Message {

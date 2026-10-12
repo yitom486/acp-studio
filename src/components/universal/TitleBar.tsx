@@ -49,13 +49,13 @@ export const TitleBar: React.FC = () => {
   const getThemeIcon = (id: ThemeId) => {
     switch (id) {
       case "oled":
-        return <MoonStar className="w-3.5 h-3.5 text-indigo-400 shrink-0" />;
+        return <MoonStar className="w-3.5 h-3.5 shrink-0" />;
       case "dark":
-        return <Moon className="w-3.5 h-3.5 text-primary shrink-0" />;
+        return <Moon className="w-3.5 h-3.5 shrink-0" />;
       case "dim":
-        return <CloudMoon className="w-3.5 h-3.5 text-amber-400 shrink-0" />;
+        return <CloudMoon className="w-3.5 h-3.5 shrink-0" />;
       case "light":
-        return <Sun className="w-3.5 h-3.5 text-amber-500 shrink-0" />;
+        return <Sun className="w-3.5 h-3.5 shrink-0" />;
     }
   };
 
@@ -82,7 +82,7 @@ export const TitleBar: React.FC = () => {
           alt="ACP Studio"
           className="w-4 h-4 object-contain shrink-0"
         />
-        <span className="font-semibold text-[12px] tracking-tight text-foreground/85">
+        <span className="font-medium text-[12px] text-foreground/80">
           ACP Studio
         </span>
       </div>
@@ -99,13 +99,13 @@ export const TitleBar: React.FC = () => {
           <button
             type="button"
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-            title={`快速切换明暗主题 (当前: ${currentThemeMeta.name})`}
+            title={`切换深色 / 浅色（当前：${currentThemeMeta.name}）`}
             className="h-6 w-6 rounded-md hover:bg-muted/80 text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
           >
             {theme === "light" ? (
-              <Sun className="w-3.5 h-3.5 text-warning" />
+              <Sun className="w-3.5 h-3.5" />
             ) : (
-              <Moon className="w-3.5 h-3.5 text-primary" />
+              <Moon className="w-3.5 h-3.5" />
             )}
           </button>
 
@@ -113,7 +113,7 @@ export const TitleBar: React.FC = () => {
             <button
               type="button"
               onClick={() => setThemeMenuOpen(!themeMenuOpen)}
-              title="调节界面明暗与主题外观"
+              title="选择主题"
               className="h-6 px-2 rounded-md hover:bg-muted/80 text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-[11px] font-medium transition-colors border border-transparent hover:border-border/60"
             >
               <span className="text-[11px] font-medium">{currentThemeMeta.name}</span>
@@ -121,9 +121,9 @@ export const TitleBar: React.FC = () => {
             </button>
 
             {themeMenuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-60 rounded-xl border border-border bg-popover/95 p-1.5 shadow-xl text-xs z-50 backdrop-blur-md space-y-1">
-                <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground tracking-wider uppercase flex items-center justify-between border-b border-border/60">
-                  <span>界面明暗度与主题</span>
+              <div className="absolute right-0 top-full mt-1.5 w-60 rounded-lg border border-border bg-popover p-1 shadow-lg text-xs z-50 space-y-0.5">
+                <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground flex items-center justify-between">
+                  <span>主题</span>
                 </div>
 
                 {(Object.keys(THEMES) as ThemeId[]).map((id) => {
@@ -137,9 +137,9 @@ export const TitleBar: React.FC = () => {
                         setTheme(id);
                         setThemeMenuOpen(false);
                       }}
-                      className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer ${
+                      className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-md text-left transition-colors cursor-pointer ${
                         active
-                          ? "bg-primary/15 text-foreground font-medium"
+                          ? "bg-accent text-foreground font-medium"
                           : "hover:bg-muted/70 text-muted-foreground hover:text-foreground"
                       }`}
                     >
@@ -153,7 +153,7 @@ export const TitleBar: React.FC = () => {
                           {item.description}
                         </p>
                       </div>
-                      {active && <Check className="w-3.5 h-3.5 text-primary shrink-0 mt-1" />}
+                      {active && <Check className="w-3.5 h-3.5 text-foreground shrink-0 mt-1" />}
                     </button>
                   );
                 })}

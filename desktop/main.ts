@@ -121,7 +121,7 @@ function getSavedOverlayConfig(): { color: string; symbolColor: string } {
   } catch {
     // fallback
   }
-  return { color: "#0b0e14", symbolColor: "#94a3b8" };
+  return { color: "#171717", symbolColor: "#a5a5a5" };
 }
 
 function saveOverlayConfig(cfg: { color: string; symbolColor: string }) {
@@ -162,7 +162,8 @@ async function createWindow() {
     minWidth: 1024,
     minHeight: 640,
     autoHideMenuBar: true,
-    backgroundColor: "#0b0e14",
+    // 首帧底色跟随上次保存的主题标题栏色，避免启动时闪一下旧的蓝黑底
+    backgroundColor: initialOverlay.color,
     title: "ACP Studio",
     icon: appIcon,
     titleBarStyle: "hidden",

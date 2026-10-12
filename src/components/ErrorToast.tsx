@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { AlertTriangle, X, Copy, Check, Trash2 } from "lucide-react";
-import { BlurFade } from "@/components/magicui/blur-fade";
 import { subscribeErrors, dismissError, clearErrors, type AppError } from "@/lib/error-bus";
 
 /**
@@ -25,7 +24,7 @@ export const ErrorToast: React.FC = () => {
   return (
     <div className="fixed bottom-4 right-4 z-[100] w-80 space-y-2 text-xs">
       {errors.slice(0, 4).map((e) => (
-        <BlurFade key={e.id}>
+        <div key={e.id}>
           <div className="rounded-xl border border-destructive/40 bg-card/95 p-3 shadow-xl backdrop-blur-md space-y-1.5">
             <div className="flex items-center gap-1.5 text-destructive font-semibold">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
@@ -50,7 +49,7 @@ export const ErrorToast: React.FC = () => {
               </pre>
             )}
           </div>
-        </BlurFade>
+        </div>
       ))}
       {errors.length > 1 && (
         <button

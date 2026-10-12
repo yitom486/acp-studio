@@ -71,25 +71,25 @@ export const WorkspaceDropdown: React.FC<WorkspaceDropdownProps> = ({
         type="button"
         onClick={() => setOpen(!open)}
         title={currentWorkspace ? `当前工作区: ${currentWorkspace}` : "点击选择本地工作区目录"}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border/70 bg-card/70 hover:bg-card text-xs text-foreground transition-colors max-w-[170px] sm:max-w-[210px] group"
+        className="h-7 flex items-center gap-1.5 px-2 rounded-md border border-transparent hover:border-border hover:bg-muted text-xs text-foreground transition-colors max-w-[170px] sm:max-w-[240px]"
       >
-        <Folder className="w-3.5 h-3.5 text-primary shrink-0 group-hover:scale-105 transition-transform" />
-        <span className="truncate font-medium">
+        <Folder className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        <span className="truncate font-mono text-[12px]">
           {projectName || "打开工作区…"}
         </span>
         <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0 ml-0.5" />
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1.5 w-64 p-1 rounded-xl border border-border bg-popover/95 shadow-2xl text-xs z-50 backdrop-blur-md animate-in fade-in-50 zoom-in-95 duration-100">
+        <div className="absolute left-0 top-full mt-1.5 w-64 p-1 rounded-lg border border-border bg-popover shadow-lg text-xs z-50">
           {/* Open Folder Action */}
           <button
             type="button"
             onClick={handleOpenFolder}
-            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-foreground hover:bg-muted/80 transition-colors"
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-left text-foreground hover:bg-muted/80 transition-colors"
           >
             <div className="flex items-center gap-2">
-              <FolderOpen className="w-3.5 h-3.5 text-primary" />
+              <FolderOpen className="w-3.5 h-3.5 text-muted-foreground" />
               <span className="font-medium">打开文件夹…</span>
             </div>
             <kbd className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border/60">
@@ -102,7 +102,7 @@ export const WorkspaceDropdown: React.FC<WorkspaceDropdownProps> = ({
             <button
               type="button"
               onClick={handleRevealInExplorer}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>在资源管理器中显示</span>
@@ -128,9 +128,9 @@ export const WorkspaceDropdown: React.FC<WorkspaceDropdownProps> = ({
                         onSelectWorkspace(rw.path, rw.name);
                       }}
                       title={rw.path}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors ${
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-left transition-colors ${
                         isCurrent
-                          ? "bg-primary/10 text-primary font-medium"
+                          ? "bg-accent text-foreground font-medium"
                           : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
                       }`}
                     >
@@ -140,7 +140,7 @@ export const WorkspaceDropdown: React.FC<WorkspaceDropdownProps> = ({
                           {rw.path}
                         </span>
                       </div>
-                      {isCurrent && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                      {isCurrent && <Check className="w-3.5 h-3.5 text-foreground shrink-0" />}
                     </button>
                   );
                 })}

@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 /**
  * Tailwind v4 (CSS-first): design tokens live here, not in tailwind.config.js.
@@ -30,8 +32,11 @@
   --color-popover-foreground: hsl(var(--popover-foreground));
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-signal: hsl(var(--signal));
 
-  --radius-xl: 0.75rem;
+  /* 圆角按层级（--radius 0.5rem，取自 vercel）：容器 12px > 控件 8px > 内嵌 6px > 标签 4px，不再全局统一 */
+  --radius-xl: calc(var(--radius) + 4px);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -41,11 +46,11 @@
 }
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* 字体随包打进来（@fontsource），桌面端离线也一致；中文回落到各平台系统黑体 */
+  --font-sans: "Geist Variable", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, "Microsoft YaHei UI", monospace;
 
   --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  --animate-shiny-text: shiny-text 8s infinite;
   --animate-fade-slide-in: fade-slide-in 0.25s ease-out;
 
   /* Tailwind 默认 transition 工具类统一绑定设计令牌 */
@@ -59,15 +64,6 @@
   }
   50% {
     opacity: 0.5;
-  }
-}
-
-@keyframes shiny-text {
-  0%, 100% {
-    opacity: 0.85;
-  }
-  50% {
-    opacity: 1;
   }
 }
 
@@ -107,6 +103,19 @@
     transition-timing-function: var(--theme-transition-timing);
   }
 
+  /*
+   * Tailwind v4 的裸 `border` 默认是 currentColor（--default-border-color 并不会被
+   * preflight 读取），导致 outline 徽标等出现黑/白粗框。按官方 v3→v4 兼容写法
+   * 把默认边框色绑回 --border；显式的 border-* 颜色类优先级更高，不受影响。
+   */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: hsl(var(--border));
+  }
+
   /* 尊重系统动效减弱偏好 (Accessibility) */
   @media (prefers-reduced-motion: reduce) {
     :root {
@@ -119,137 +128,157 @@
     }
   }
 
+  /*
+   * 配色来源：tweakcn「vercel」主题（https://tweakcn.com ，jnsahaj/tweakcn，Apache-2.0），
+   * 由 OKLCH 换算为 HSL 通道。纯中性灰阶（饱和度 0），primary 为黑白反相按钮。
+   * 唯一强调色 signal 取 vercel 自带的琥珀色（chart-1，oklch(0.81 0.17 75.35)），
+   * 只给“键盘焦点 / 智能体运行中 / 当前会话”；浅色下压暗到 32%，作文字用也满足 AA。
+   * 改动：深色底从纯黑抬到 7%，表面/边框同步上移；纯黑档沿用 vercel 原值；
+   * 暗灰档为自定义的 15% 中灰；success/warning 为补充的语义色（vercel 未定义）。
+   * 正文与 muted 文字在四档主题的 background/card/muted 上均满足 WCAG AA（≥4.5:1）。
+   */
   [data-theme="dark"] {
-    /* 默认：经典蓝灰暗黑 (VS Code Modern Dark) */
-    --background: 222 26% 7%;
-    --foreground: 214 22% 92%;
-    --card: 222 22% 10%;
-    --card-foreground: 214 22% 92%;
-    --popover: 222 22% 11%;
-    --popover-foreground: 214 22% 92%;
-    --primary: 213 76% 62%;
-    --primary-foreground: 222 26% 8%;
-    --secondary: 222 16% 15%;
-    --secondary-foreground: 214 18% 86%;
-    --muted: 222 16% 12%;
-    --muted-foreground: 218 13% 60%;
-    --accent: 222 16% 15%;
-    --accent-foreground: 214 18% 86%;
-    --success: 160 42% 42%;
-    --success-foreground: 222 26% 8%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 222 26% 8%;
-    --destructive: 0 60% 55%;
-    --destructive-foreground: 214 22% 94%;
-    --border: 222 14% 17%;
-    --input: 222 14% 17%;
-    --ring: 213 76% 62%;
+    /* 深色（默认）：vercel dark，底色抬到 7%，长时间看不刺眼 */
+    --background: 0 0% 7%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 9.5%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 96%;
+    --primary-foreground: 0 0% 7%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 13%;
+    --muted-foreground: 0 0% 64.5%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 98%;
+    --success: 142 55% 50%;
+    --success-foreground: 0 0% 7%;
+    --warning: 40.7 100% 50.9%;
+    --warning-foreground: 0 0% 7%;
+    --destructive: 359.9 100% 67.8%;
+    --destructive-foreground: 0 0% 7%;
+    --border: 0 0% 17%;
+    --input: 0 0% 22%;
+    --ring: 40.7 100% 50.9%;
+    --signal: 40.7 100% 50.9%;
+    --sidebar: 0 0% 9%;
     --radius: 0.5rem;
 
-    --titlebar-bg: 222 28% 6%;
-    --titlebar-border: 222 14% 14%;
+    --titlebar-bg: 0 0% 9%;
+    --titlebar-border: 0 0% 15%;
   }
 
   [data-theme="oled"] {
-    /* 极黑深邃 OLED Pitch Black (纯黑高对比) */
-    --background: 222 30% 3%;
-    --foreground: 214 22% 94%;
-    --card: 222 25% 6%;
-    --card-foreground: 214 22% 94%;
-    --popover: 222 25% 6%;
-    --popover-foreground: 214 22% 94%;
-    --primary: 213 85% 64%;
-    --primary-foreground: 222 30% 4%;
-    --secondary: 222 20% 10%;
-    --secondary-foreground: 214 18% 88%;
-    --muted: 222 20% 9%;
-    --muted-foreground: 218 13% 60%;
-    --accent: 222 20% 11%;
-    --accent-foreground: 214 18% 88%;
-    --success: 160 50% 45%;
-    --success-foreground: 222 30% 4%;
-    --warning: 38 95% 52%;
-    --warning-foreground: 222 30% 4%;
-    --destructive: 0 65% 58%;
-    --destructive-foreground: 214 22% 94%;
-    --border: 222 18% 13%;
-    --input: 222 18% 13%;
-    --ring: 213 85% 64%;
+    /* 纯黑：vercel dark 原值，#000 底 */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 3.5%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 6.9%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 13.1%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 11.3%;
+    --muted-foreground: 0 0% 64.5%;
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 100%;
+    --success: 142 55% 50%;
+    --success-foreground: 0 0% 0%;
+    --warning: 40.7 100% 50.9%;
+    --warning-foreground: 0 0% 0%;
+    --destructive: 359.9 100% 67.8%;
+    --destructive-foreground: 0 0% 0%;
+    --border: 0 0% 14.1%;
+    --input: 0 0% 19.9%;
+    --ring: 40.7 100% 50.9%;
+    --signal: 40.7 100% 50.9%;
+    --sidebar: 0 0% 3%;
     --radius: 0.5rem;
 
-    --titlebar-bg: 222 35% 2%;
-    --titlebar-border: 222 18% 10%;
+    --titlebar-bg: 0 0% 3%;
+    --titlebar-border: 0 0% 12%;
   }
 
   [data-theme="dim"] {
-    /* 柔和暗色 Charcoal Dim (低对比舒适护眼) */
-    --background: 222 18% 13%;
-    --foreground: 214 20% 90%;
-    --card: 222 16% 17%;
-    --card-foreground: 214 20% 90%;
-    --popover: 222 16% 18%;
-    --popover-foreground: 214 20% 90%;
-    --primary: 213 70% 64%;
-    --primary-foreground: 222 18% 12%;
-    --secondary: 222 14% 22%;
-    --secondary-foreground: 214 16% 84%;
-    --muted: 222 14% 20%;
-    --muted-foreground: 218 12% 64%;
-    --accent: 222 14% 22%;
-    --accent-foreground: 214 16% 84%;
-    --success: 160 40% 46%;
-    --success-foreground: 222 18% 12%;
-    --warning: 38 85% 52%;
-    --warning-foreground: 222 18% 12%;
-    --destructive: 0 55% 58%;
-    --destructive-foreground: 214 20% 92%;
-    --border: 222 12% 24%;
-    --input: 222 12% 24%;
-    --ring: 213 70% 64%;
+    /* 暗灰：vercel 的中性灰阶整体上移到 15% 底，对比更柔和 */
+    --background: 0 0% 15%;
+    --foreground: 0 0% 92%;
+    --card: 0 0% 17.5%;
+    --card-foreground: 0 0% 92%;
+    --popover: 0 0% 19%;
+    --popover-foreground: 0 0% 92%;
+    --primary: 0 0% 92%;
+    --primary-foreground: 0 0% 14%;
+    --secondary: 0 0% 22%;
+    --secondary-foreground: 0 0% 92%;
+    --muted: 0 0% 20%;
+    --muted-foreground: 0 0% 69%;
+    --accent: 0 0% 25%;
+    --accent-foreground: 0 0% 95%;
+    --success: 142 50% 55%;
+    --success-foreground: 0 0% 14%;
+    --warning: 40.7 95% 55%;
+    --warning-foreground: 0 0% 14%;
+    --destructive: 359.9 90% 70%;
+    --destructive-foreground: 0 0% 14%;
+    --border: 0 0% 24.5%;
+    --input: 0 0% 29%;
+    --ring: 40.7 95% 55%;
+    --signal: 40.7 95% 55%;
+    --sidebar: 0 0% 13%;
     --radius: 0.5rem;
 
-    --titlebar-bg: 222 18% 11%;
-    --titlebar-border: 222 12% 20%;
+    --titlebar-bg: 0 0% 12.5%;
+    --titlebar-border: 0 0% 21%;
   }
 
   [data-theme="light"] {
-    /* 清爽明亮 Light Daylight (透亮白日模式) */
-    --background: 214 32% 98%;
-    --foreground: 222 47% 11%;
+    /* 浅色：vercel light，近白底 + 纯白卡片 + 黑色主按钮 */
+    --background: 0 0% 98.7%;
+    --foreground: 0 0% 4%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 0 0% 4%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 213 82% 50%;
+    --popover-foreground: 0 0% 4%;
+    --primary: 0 0% 4%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 20% 93%;
-    --secondary-foreground: 222 47% 15%;
-    --muted: 210 20% 92%;
-    --muted-foreground: 215 16% 45%;
-    --accent: 210 20% 92%;
-    --accent-foreground: 222 47% 15%;
-    --success: 160 55% 38%;
+    --secondary: 0 0% 92.1%;
+    --secondary-foreground: 0 0% 4%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 32.3%;
+    --accent: 0 0% 92.1%;
+    --accent-foreground: 0 0% 4%;
+    --success: 142 72% 27%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 95% 42%;
+    --warning: 32 100% 34%;
     --warning-foreground: 0 0% 100%;
-    --destructive: 0 65% 52%;
+    --destructive: 358.4 74.9% 47%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 20% 86%;
-    --input: 214 20% 86%;
-    --ring: 213 82% 50%;
+    --border: 0 0% 89.6%;
+    --input: 0 0% 85%;
+    --ring: 32 100% 32%;
+    --signal: 32 100% 32%;
+    --sidebar: 0 0% 98.7%;
     --radius: 0.5rem;
 
-    --titlebar-bg: 0 0% 100%;
-    --titlebar-border: 214 20% 88%;
+    --titlebar-bg: 0 0% 98.7%;
+    --titlebar-border: 0 0% 89.6%;
   }
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
 }
 
-code, pre {
-  font-family: 'JetBrains Mono', monospace;
+code, pre, kbd, samp {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Custom modern scrollbars */

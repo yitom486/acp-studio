@@ -18,7 +18,7 @@ checklist), `web-design-guidelines` (audit).
 - React 19.3, Tailwind CSS v4 CSS-first (`@theme inline` tokens in
   `src/index.css`; NO `tailwind.config.js`; build via `@tailwindcss/vite`).
   v4 notes: `bg-linear-*` (not `bg-gradient-*`), bare `border` keeps v3 look
-  via `--default-border-color`, button cursor must be explicit.
+  via the base-layer `border-color: hsl(var(--border))` rule, button cursor must be explicit.
 - Chat renders on **assistant-ui primitives** (`Thread/Viewport/Messages/Parts`,
   `ExternalStoreRuntime` over the zustand ACP store). Do not replace the
   runtime or the ACP protocol layer for visual reasons.
@@ -33,15 +33,40 @@ checklist), `web-design-guidelines` (audit).
 ## Direction (agreed)
 
 1. De-card assistant messages → 2px signal rail + spacing hierarchy.
-2. One accent (signal amber for agent/live states); user bubble desaturated
-   slate; semantic red stays.
+2. One accent (signal amber for agent/live states); user bubble neutral
+   grey; semantic red stays. See **Palette** below.
 3. Mono rises to first-class (timestamps, token counts, tool titles, status rows).
 4. Remove per-message entrance animation; motion only for streaming,
    expand/collapse, hover.
-5. Radius by hierarchy (12/8/6), never uniform.
+5. Radius by hierarchy (12/8/6/4 from `--radius: 0.5rem`), never uniform.
 6. Composer becomes a slash-first command deck.
 7. **Unified theme transition system**: zero hardcoded color switch durations;
    synchronized CSS design tokens with lockstep execution.
+
+## Palette (配色：tweakcn vercel)
+
+来源：[tweakcn](https://github.com/jnsahaj/tweakcn) 的 **vercel** 主题（Apache-2.0），
+OKLCH 换算成 HSL 通道后写在 `src/index.css` 的 `[data-theme]` 块里。
+
+- **纯中性灰阶**（饱和度 0）。primary 为黑白反相按钮，不再有蓝色主色。
+- **唯一强调色 `--signal`** 取 vercel 自带的琥珀（chart-1，`oklch(0.81 0.17 75.35)`
+  ≈ `hsl(40.7 100% 50.9%)`），**只用于**键盘焦点（`--ring`）、智能体运行中、当前会话。
+  浅色下压暗到 `hsl(32 100% 32%)`，作文字用也 ≥ 4.5:1。
+- 四档主题：
+
+  | data-theme | 名称 | 底色 | 说明 |
+  |---|---|---|---|
+  | `dark` | 深色（默认） | 7% | vercel dark，底色从纯黑抬到 7%，表面/边框同步上移 |
+  | `oled` | 纯黑 | 0% | vercel dark 原值 |
+  | `dim` | 暗灰 | 15% | 自定义中灰，对比更柔和 |
+  | `light` | 浅色 | 98.7% | vercel light，`--input` 加深到 85% 让输入框边框可见 |
+
+- `success` / `warning` 是补充的语义色（vercel 未定义）。
+- 对比度门槛：`foreground` 与 `muted-foreground` 在 background / card / muted /
+  sidebar / secondary / accent 上都 ≥ 4.5:1（WCAG AA）。改令牌时重新检查。
+- 代码对比面板的语法高亮：深色用 `github-dark-default`，浅色用
+  `github-light-high-contrast`（经典 github-light 的橙色、注释色在 diff 底色上不到 AA）。
+- 终端 ANSI 的 black/white 也改为中性灰，不再带蓝调。
 
 ## Unified Theme Transition System (统一明暗主题切换动效规范)
 

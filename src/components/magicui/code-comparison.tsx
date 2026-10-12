@@ -1,12 +1,15 @@
 /**
  * Port of Magic UI "Code Comparison" (registry/magicui/code-comparison).
  * Adaptations for this repo (see .agents/rules/ui_design.md):
- * - dropped `next-themes`: app is dark-only, theme fixed via `theme` prop
- *   (defaults to the official darkTheme);
+ * - dropped `next-themes`: light/dark is passed in via the `theme` prop
+ *   (GitChangesModal maps the app's data-theme to it);
+ * - syntax themes: github-dark-default / github-light-high-contrast — the
+ *   classic github-light/github-dark token colours (e.g. #e36209, #6a737d)
+ *   fall below WCAG AA on the diff row washes;
  * - diff row washes use semantic tokens (bg-success/15, bg-destructive/15)
  *   instead of the upstream rgba literals;
  * - chrome (borders, headers) retokened border-border/bg-muted to match the
- *   blue-gray theme; layout otherwise verbatim from upstream
+ *   neutral vercel palette; layout otherwise verbatim from upstream
  *   (before/after panes, VS badge, focus-blur, shiki notation transformers).
  *
  * Perf: shiki is NEVER statically imported here. The highlighter core,
@@ -103,13 +106,32 @@ const LANG_LOADERS: Record<string, () => Promise<unknown>> = {
  */
 
 const THEME_LOADERS: Record<string, () => Promise<unknown>> = {
-  "github-dark": () => import("@shikijs/themes/github-dark"),
-  "github-light": () => import("@shikijs/themes/github-light"),
+  "github-dark-default": () => import("@shikijs/themes/github-dark-default"),
+  "github-light-high-contrast": () => import("@shikijs/themes/github-light-high-contrast"),
 };
 
 function unwrapGrammar(mod: unknown): unknown {
   const m = mod as { default?: unknown };
   return m?.default ?? mod;
+}
+
+/**
+ * github-light-high-contrast 的注释色 #66707b 在浅色主题的改动行底色
+ * （bg-destructive/15、bg-success/15 叠在近白底上）上只有约 3.9–4.0:1，
+ * 低于 WCAG AA 的 4.5:1。这里换成同一主题自带的更深一档灰 #4b535d
+ * （近白底 7.6:1，红/绿改动行上约 6.0/6.2:1），其余 token 不动。
+ */
+export const LIGHT_COMMENT_COLOR = "#4b535d";
+export function patchLightThemeComments(theme: any): any {
+  if (!theme || !Array.isArray(theme.tokenColors)) return theme;
+  return {
+    ...theme,
+    tokenColors: theme.tokenColors.map((tc: any) => {
+      const scopes = Array.isArray(tc?.scope) ? tc.scope : [tc?.scope];
+      if (!scopes.includes("comment")) return tc;
+      return { ...tc, settings: { ...tc.settings, foreground: LIGHT_COMMENT_COLOR } };
+    }),
+  };
 }
 
 // Singleton highlighter shared across all CodeComparison instances.
@@ -129,14 +151,14 @@ async function getHighlighter(): Promise<any> {
         ]);
       void transformers; // loaded here so its chunk joins the shiki group
       const [darkMod, lightMod, tsMod] = await Promise.all([
-        THEME_LOADERS["github-dark"](),
-        THEME_LOADERS["github-light"](),
+        THEME_LOADERS["github-dark-default"](),
+        THEME_LOADERS["github-light-high-contrast"](),
         LANG_LOADERS["typescript"](),
       ]);
       const hl = await createHighlighterCore({
         // Preload only typescript (plaintext needs no grammar); the rest loads on demand.
         langs: [unwrapGrammar(tsMod)] as any,
-        themes: [unwrapGrammar(darkMod), unwrapGrammar(lightMod)] as any,
+        themes: [unwrapGrammar(darkMod), patchLightThemeComments(unwrapGrammar(lightMod))] as any,
         engine: createJavaScriptRegexEngine(),
       });
       return hl;
@@ -188,8 +210,8 @@ export function CodeComparison({
   afterCode,
   language,
   filename,
-  lightTheme = "github-light",
-  darkTheme = "github-dark",
+  lightTheme = "github-light-high-contrast",
+  darkTheme = "github-dark-default",
   highlightColor = "#ff3333",
   theme = "dark",
 }: CodeComparisonProps) {
@@ -222,10 +244,10 @@ export function CodeComparison({
           await import("@shikijs/transformers");
         const hl = await getHighlighter();
         const effectiveLang = await ensureLanguage(hl, language);
-        const effectiveTheme = THEME_LOADERS[selectedTheme] ? selectedTheme : "github-dark";
+        const effectiveTheme = THEME_LOADERS[selectedTheme] ? selectedTheme : "github-dark-default";
         if (effectiveTheme !== selectedTheme) {
           console.warn(
-            `[CodeComparison] unsupported theme "${selectedTheme}", falling back to plaintext theme "github-dark"`
+            `[CodeComparison] unsupported theme "${selectedTheme}", falling back to plaintext theme "github-dark-default"`
           );
         } else if (!THEME_LOADERS[selectedTheme]) {
           // unreachable by construction, kept loud for future theme props
@@ -233,10 +255,12 @@ export function CodeComparison({
         // Load the requested theme on demand if it wasn't preloaded.
         try {
           const loadedThemes: string[] =
-            typeof hl.getLoadedThemes === "function" ? hl.getLoadedThemes() : ["github-dark", "github-light"];
+            typeof hl.getLoadedThemes === "function" ? hl.getLoadedThemes() : ["github-dark-default", "github-light-high-contrast"];
           if (!loadedThemes.includes(effectiveTheme)) {
-            const themeMod = await THEME_LOADERS[effectiveTheme]();
-            await hl.loadTheme(unwrapGrammar(themeMod) as any);
+            const themeMod = unwrapGrammar(await THEME_LOADERS[effectiveTheme]());
+            await hl.loadTheme(
+              (effectiveTheme === "github-light-high-contrast" ? patchLightThemeComments(themeMod) : themeMod) as any,
+            );
           }
         } catch (themeErr) {
           console.warn(`[CodeComparison] theme "${effectiveTheme}" failed to load, using preloaded theme:`, themeErr);
@@ -286,7 +310,7 @@ export function CodeComparison({
           style={{ "--highlight-color": highlightColor } as React.CSSProperties}
           className={cn(
             "bg-background h-full w-full overflow-auto font-mono text-xs",
-            "[&>pre]:h-full [&>pre]:w-screen! [&>pre]:py-2",
+            "[&>pre]:h-full [&>pre]:w-screen! [&>pre]:py-2 [&>pre]:bg-transparent!",
             "[&>pre>code]:inline-block! [&>pre>code]:w-full!",
             "[&>pre>code>span]:inline-block! [&>pre>code>span]:w-full [&>pre>code>span]:px-4 [&>pre>code>span]:py-0.5",
             "[&>pre>code>.highlighted]:inline-block [&>pre>code>.highlighted]:w-full [&>pre>code>.highlighted]:bg-(--highlight-color)!",
@@ -323,7 +347,7 @@ export function CodeComparison({
             <div className="border-border bg-muted text-foreground flex items-center border-b p-2 text-sm">
               <FileIcon className="mr-2 h-4 w-4" />
               {filename}
-              <span className="ml-auto hidden md:block">before</span>
+              <span className="ml-auto hidden md:block text-xs text-muted-foreground">改动前</span>
             </div>
             {renderCode(beforeCode, highlightedBefore)}
           </div>
@@ -338,13 +362,10 @@ export function CodeComparison({
             <div className="border-border bg-muted text-foreground flex items-center border-b p-2 text-sm">
               <FileIcon className="mr-2 h-4 w-4" />
               {filename}
-              <span className="ml-auto hidden md:block">after</span>
+              <span className="ml-auto hidden md:block text-xs text-muted-foreground">改动后</span>
             </div>
             {renderCode(afterCode, highlightedAfter)}
           </div>
-        </div>
-        <div className="border-border bg-muted text-foreground absolute top-1/2 left-1/2 hidden h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md border text-xs md:flex">
-          VS
         </div>
       </div>
     </div>

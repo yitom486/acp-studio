@@ -1,5 +1,5 @@
 import type { ThreadMessageLike } from "@assistant-ui/react";
-import type { Message } from "@/components/ChatArea";
+import type { Message } from "@/lib/message-types";
 import type { PendingPermission } from "@/lib/universal-api";
 
 /**

@@ -44,10 +44,10 @@ export interface TerminalCssVars {
 /** 读主题变量；非浏览器/DOM 缺省时回退深色默认（happy-dom 单测走此分支）。 */
 export function readTerminalCssVars(): TerminalCssVars {
   const fallback: TerminalCssVars = {
-    background: "#0b0e14",
-    card: "#11151d",
-    cardForeground: "#e2e8f0",
-    primary: "#38bdf8",
+    background: "#121212",
+    card: "#181818",
+    cardForeground: "#f5f5f5",
+    primary: "#f5f5f5",
   };
   try {
     const cs = getComputedStyle(document.documentElement);
@@ -85,15 +85,19 @@ export function buildXtermTheme(vars: TerminalCssVars, light: boolean): ITheme {
     foreground: vars.cardForeground,
     cursor: vars.primary,
     cursorAccent: vars.card,
-    selectionBackground: light ? "rgba(37, 99, 235, 0.25)" : "rgba(56, 189, 248, 0.3)",
-    black: light ? "#64748b" : "#1e293b",
+    selectionBackground: light ? "rgba(163, 87, 0, 0.2)" : "rgba(255, 166, 4, 0.26)",
+    // xterm 6 默认滑块是不透明浅灰，在深色底上很刺眼；改成跟随明暗的半透明中性色
+    scrollbarSliderBackground: light ? "rgba(0, 0, 0, 0.14)" : "rgba(255, 255, 255, 0.12)",
+    scrollbarSliderHoverBackground: light ? "rgba(0, 0, 0, 0.24)" : "rgba(255, 255, 255, 0.2)",
+    scrollbarSliderActiveBackground: light ? "rgba(0, 0, 0, 0.32)" : "rgba(255, 255, 255, 0.28)",
+    black: light ? "#737373" : "#404040",
     red: light ? "#dc2626" : "#f87171",
     green: light ? "#16a34a" : "#4ade80",
     yellow: light ? "#a16207" : "#facc15",
     blue: light ? "#2563eb" : "#60a5fa",
     magenta: light ? "#9333ea" : "#c084fc",
     cyan: light ? "#0891b2" : "#38bdf8",
-    white: light ? "#1e293b" : "#f8fafc",
+    white: light ? "#262626" : "#fafafa",
   };
 }
 
@@ -321,13 +325,13 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
       fitAddonRef.current = fit;
 
       // Welcome header
-      term.writeln("\x1b[1;34m=== ACP Studio Integrated Terminal ===\x1b[0m");
+      term.writeln("\x1b[90mACP Studio 终端\x1b[0m");
       if (hasCwd) {
-        term.writeln(`\x1b[90m工作目录:\x1b[0m \x1b[33m${activeCwd}\x1b[0m`);
+        term.writeln(`\x1b[90m工作目录\x1b[0m ${activeCwd}`);
       } else {
         term.writeln("\x1b[33m[未选择工作目录]\x1b[0m \x1b[90m按 Ctrl+O 选择目录，或等待默认工作区加载\x1b[0m");
       }
-      term.writeln("\x1b[90m支持 PowerShell / 命令执行，按 Enter 运行，支持快捷键 Ctrl+` 开关\x1b[0m");
+      term.writeln("\x1b[90mEnter 运行 · Ctrl+` 显示/隐藏\x1b[0m");
       printPrompt(term);
 
       // Handle key input
@@ -835,25 +839,25 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
 
   return (
     <div
-      className="fixed z-40 bg-card/95 border border-border rounded-xl shadow-2xl flex flex-col backdrop-blur-md overflow-hidden"
+      className="fixed z-40 bg-card border border-border rounded-xl shadow-xl flex flex-col overflow-hidden"
       style={panelStyle}
     >
       {/* Terminal Title Bar（拖拽手柄；按钮区 stopPropagation 不触发拖动） */}
       <div
-        className={`h-9 px-3 border-b border-border/70 flex items-center justify-between text-xs bg-muted/40 select-none shrink-0 ${maximized ? "" : dragging ? "cursor-grabbing touch-none" : "cursor-move touch-none"}`}
+        className={`h-9 px-3 border-b border-border flex items-center justify-between text-xs bg-card select-none shrink-0 ${maximized ? "" : dragging ? "cursor-grabbing touch-none" : "cursor-move touch-none"}`}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest("button")) return;
           beginDrag(e, "move");
         }}
       >
-        <div className="flex items-center gap-2 font-semibold text-foreground">
-          <TerminalIcon className="w-3.5 h-3.5 text-primary" />
-          <span>终端 (Terminal)</span>
+        <div className="flex items-center gap-2 font-medium text-foreground">
+          <TerminalIcon className="w-3.5 h-3.5 text-muted-foreground" />
+          <span>终端</span>
           {/* 传输模式徽标：诚实展示当前是真 shell 还是回落 */}
           <span
             className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${
               mode === "pty"
-                ? "text-success border-success/40 bg-success/10"
+                ? "text-muted-foreground border-border bg-transparent"
                 : mode === "oneshot"
                   ? "text-warning border-warning/40 bg-warning/10"
                   : "text-muted-foreground border-border/60 bg-muted/40"
@@ -862,7 +866,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
           >
             {mode === "pty" ? "PTY" : mode === "oneshot" ? "单次" : "…"}
           </span>
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded border border-border/50 max-w-[300px] truncate">
+          <div className="flex items-center gap-1 text-[11px] text-muted-foreground font-mono px-1 max-w-[300px] truncate">
             <Folder className="w-3 h-3 shrink-0" />
             <span className="truncate" title={hasCwd ? activeCwd : "未选择工作目录，按 Ctrl+O 选择"}>
               {hasCwd ? activeCwd : "未选择工作目录（Ctrl+O 选择）"}

@@ -68,7 +68,7 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = (p) => 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md" onClick={p.onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80" onClick={p.onClose}>
       <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 text-foreground space-y-4 text-xs" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border pb-2">
           <h2 className="font-bold text-sm">新会话设置</h2>

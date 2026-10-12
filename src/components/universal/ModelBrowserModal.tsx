@@ -51,7 +51,7 @@ export const ModelBrowserModal: React.FC<ModelBrowserModalProps> = (p) => {
   const current = p.currentModelId || p.catalog?.currentModelId || "";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md" onClick={p.onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80" onClick={p.onClose}>
       <div className="w-full max-w-xl rounded-2xl border border-border bg-card p-5 text-foreground space-y-3 text-xs max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border pb-2">
           <h2 className="font-bold text-sm flex items-center gap-2">

@@ -6,8 +6,6 @@ import {
   ChevronRight,
   ChevronDown,
   Folder,
-  History,
-  Timer,
   Boxes,
   Settings,
   Trash2,
@@ -15,7 +13,6 @@ import {
   Bot,
   RefreshCw,
   PlusCircle,
-  SlidersHorizontal,
   Cloud,
   MoreHorizontal,
   X,
@@ -139,8 +136,8 @@ export const SessionRow = React.memo<SessionRowProps>(
         onClick={() => onOpen(session)}
         className={`group relative flex items-center justify-between rounded-md px-2 py-1.5 cursor-pointer text-xs transition-colors select-none ${
           active
-            ? "bg-muted/70 text-foreground font-medium"
-            : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            ? "bg-accent text-foreground"
+            : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
         }`}
       >
         <div
@@ -161,7 +158,7 @@ export const SessionRow = React.memo<SessionRowProps>(
                   e.stopPropagation();
                   onFork(session);
                 }}
-                className="p-0.5 rounded hover:text-primary transition-colors"
+                className="p-0.5 rounded hover:text-foreground transition-colors"
               >
                 <GitFork className="w-3 h-3" />
               </button>
@@ -182,7 +179,7 @@ export const SessionRow = React.memo<SessionRowProps>(
           {/* Timestamp or Active blue indicator */}
           {active ? (
             <span
-              className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 group-hover:hidden"
+              className="w-1.5 h-1.5 rounded-full bg-signal shrink-0 group-hover:hidden"
               title="活动会话"
             />
           ) : time ? (
@@ -366,114 +363,80 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
   };
 
   return (
-    <aside className="w-64 shrink-0 border-r border-border bg-background flex flex-col text-xs overflow-hidden select-none z-10 transition-colors">
-      {/* 1. Top Controls Bar: Logo & Tool Icons */}
-      <div className="h-11 px-3 flex items-center justify-between border-b border-border/40 shrink-0">
-        <div className="flex items-center gap-2">
-          {/* Antigravity Logo mark */}
-          <div className="w-6 h-6 rounded-md flex items-center justify-center font-bold text-foreground bg-muted/60 text-sm">
-            ∧
-          </div>
+    <aside className="w-60 shrink-0 border-r border-border bg-sidebar flex flex-col text-xs overflow-hidden select-none z-10 transition-colors">
+      {/* 1. 顶部：新会话为主操作，搜索 / 清理 / 刷新为次要图标 */}
+      <div className="h-12 px-2 flex items-center gap-1 border-b border-border shrink-0">
+        <button
+          type="button"
+          onClick={p.onNewSession}
+          className="flex-1 h-7 px-2 rounded-md flex items-center gap-2 text-[13px] font-medium text-foreground hover:bg-accent transition-colors cursor-pointer"
+        >
+          <Plus className="w-3.5 h-3.5 text-muted-foreground" />
+          <span>新会话</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowSearch(!showSearch)}
+          title="搜索会话"
+          aria-label="搜索会话"
+          aria-pressed={showSearch}
+          className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors ${showSearch ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent"}`}
+        >
+          <Search className="w-3.5 h-3.5" />
+        </button>
+        {p.onCleanupEmpty && (
           <button
             type="button"
-            onClick={() => setShowSearch(!showSearch)}
-            title="搜索会话"
-            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            onClick={p.onCleanupEmpty}
+            disabled={p.cleaningEmpty}
+            title="清理空会话"
+            aria-label="清理空会话"
+            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
           >
-            <Search className="w-3.5 h-3.5" />
+            <Trash2 className={`w-3.5 h-3.5 ${p.cleaningEmpty ? "animate-pulse" : ""}`} />
           </button>
-        </div>
-
-        <div className="flex items-center gap-1">
-          {p.onCleanupEmpty && (
-            <button
-              type="button"
-              onClick={p.onCleanupEmpty}
-              disabled={p.cleaningEmpty}
-              title="清理空会话"
-              className="p-1 rounded-md text-muted-foreground hover:text-warning hover:bg-muted/50 transition-colors disabled:opacity-40"
-            >
-              <Trash2 className={`w-3.5 h-3.5 ${p.cleaningEmpty ? "animate-spin" : ""}`} />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={p.onRefreshSessions}
-            title="刷新会话"
-            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${p.sessionsLoading ? "animate-spin" : ""}`} />
-          </button>
-        </div>
+        )}
+        <button
+          type="button"
+          onClick={p.onRefreshSessions}
+          title="刷新会话列表"
+          aria-label="刷新会话列表"
+          className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${p.sessionsLoading ? "animate-spin" : ""}`} />
+        </button>
       </div>
 
       {/* Optional Search Input */}
       {showSearch && (
-        <div className="px-3 pt-2">
+        <div className="px-2 pt-2">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜索会话..."
+            placeholder="按标题或 ID 搜索"
             autoFocus
-            className="w-full bg-muted/50 border border-border rounded-md px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60"
+            className="w-full h-7 bg-background border border-input rounded-md px-2 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring"
           />
         </div>
       )}
 
-      {/* 2. Antigravity + New Conversation Pill Button */}
-      <div className="p-3 pb-2 shrink-0">
-        <button
-          type="button"
-          onClick={p.onNewSession}
-          className="w-full h-8 rounded-full bg-muted/70 hover:bg-muted border border-border/80 text-foreground text-xs font-medium flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-[0.99]"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>新会话</span>
-        </button>
-      </div>
-
-      {/* 3. Global Navigation Links */}
-      <div className="px-2 space-y-0.5 shrink-0">
-        <button
-          type="button"
-          onClick={p.onNewSession}
-          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
-        >
-          <History className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
-          <span className="truncate flex-1">Conversation History</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {}}
-          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left group"
-        >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <Timer className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
-            <span className="truncate">Automations</span>
-          </div>
-          <span className="text-[10px] font-mono text-muted-foreground/50 group-hover:text-muted-foreground">
-            Ctrl+U
-          </span>
-        </button>
-
+      {/* 2. 只保留真正可用的入口（原 Conversation History 实为新建会话、Automations 无功能，已移除） */}
+      <div className="px-2 pt-2 shrink-0">
         <button
           type="button"
           onClick={p.onManageCustom}
-          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-left"
+          className="w-full h-7 flex items-center gap-2 px-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-left"
         >
-          <Boxes className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
-          <span className="truncate flex-1">Customizations</span>
+          <Boxes className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate flex-1">自定义智能体</span>
         </button>
       </div>
 
       {/* 4. Projects Tree Header */}
-      <div className="px-3 pt-3.5 pb-1 flex items-center justify-between text-[11px] font-semibold text-muted-foreground shrink-0 select-none">
-        <div className="flex items-center gap-1.5 tracking-tight text-foreground/80">
-          <span>Projects</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-muted-foreground/60">
+      <div className="mt-3 px-4 pb-1 flex items-center justify-between text-[11px] font-medium text-muted-foreground shrink-0 select-none">
+        <span>项目</span>
+        <div className="flex items-center gap-1 text-muted-foreground">
           <button
             type="button"
             onClick={async () => {
@@ -490,16 +453,17 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
               }
             }}
             title="打开本地项目文件夹 (Ctrl+O)"
-            className="hover:text-foreground cursor-pointer"
+            aria-label="打开本地项目文件夹"
+            className="h-5 w-5 rounded flex items-center justify-center hover:text-foreground hover:bg-accent cursor-pointer"
           >
             <FolderOpen className="w-3.5 h-3.5" />
           </button>
-          <SlidersHorizontal className="w-3 h-3 hover:text-foreground cursor-pointer" />
           <button
             type="button"
             onClick={p.onNewSession}
             title="新建会话"
-            className="hover:text-foreground cursor-pointer"
+            aria-label="新建会话"
+            className="h-5 w-5 rounded flex items-center justify-center hover:text-foreground hover:bg-accent cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -515,7 +479,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
               {/* Project folder row */}
               <div
                 onClick={() => toggleProject(grp.name)}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-foreground/90 font-medium hover:bg-muted/40 cursor-pointer transition-colors"
+                className="flex items-center gap-1.5 px-2 h-7 rounded-md text-xs text-foreground font-medium hover:bg-accent cursor-pointer transition-colors"
               >
                 {isCollapsed ? (
                   <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
@@ -532,10 +496,10 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
 
               {/* Child sessions */}
               {!isCollapsed && (
-                <div className="pl-3.5 space-y-0.5 border-l border-border/40 ml-2.5 my-0.5">
+                <div className="pl-2 space-y-px border-l border-border ml-3.5 my-0.5">
                   {grp.items.length === 0 ? (
-                    <div className="px-2 py-1 text-[11px] text-muted-foreground/60 italic">
-                      No conversations yet
+                    <div className="px-2 py-1 text-[11px] text-muted-foreground">
+                      还没有会话
                     </div>
                   ) : (() => {
                     const isExpanded = Boolean(expandedProjects[grp.name]);
@@ -612,14 +576,15 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       </div>
 
       {/* 6. Bottom Sticky Settings Bar */}
-      <div className="p-2 border-t border-border shrink-0 bg-background">
+      <div className="p-2 border-t border-border shrink-0">
         <button
           type="button"
           onClick={p.onOpenSettings || p.onNewSession}
-          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors text-xs font-medium cursor-pointer"
+          title="设置新会话的工作目录与 MCP 服务"
+          className="w-full h-7 flex items-center gap-2 px-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs cursor-pointer"
         >
           <Settings className="w-3.5 h-3.5" />
-          <span>设置 (Settings)</span>
+          <span>会话设置</span>
         </button>
       </div>
 

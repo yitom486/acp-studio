@@ -117,7 +117,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
   }, [menuOpen]);
 
   return (
-    <header className="h-14 border-b border-border/80 bg-background/85 backdrop-blur-md px-4 flex items-center justify-between gap-3 shrink-0 z-20 select-none">
+    <header className="h-12 border-b border-border bg-background px-3 flex items-center justify-between gap-3 shrink-0 z-20 select-none">
       {/* LEFT: Agent Selector + Connection Status + Workspace */}
       <div className="flex items-center gap-2.5 min-w-0">
         <span className="sr-only">ACP Studio</span>
@@ -126,11 +126,11 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           <select
             value={activeAgentId}
             onChange={(e) => onSelectAgent(e.target.value)}
-            className="bg-card/80 hover:bg-card border border-border rounded-lg pl-2.5 pr-7 py-1 text-xs text-foreground outline-none font-medium cursor-pointer transition-colors max-w-[180px] sm:max-w-[210px] appearance-none"
+            className="h-7 [field-sizing:content] bg-transparent hover:bg-muted border border-transparent hover:border-border rounded-md pl-2 pr-7 text-[13px] text-foreground outline-none font-medium cursor-pointer transition-colors max-w-[180px] sm:max-w-[210px] appearance-none focus-visible:border-ring"
           >
             {agents.map((a) => (
               <option key={a.id} value={a.id} className="bg-card text-foreground">
-                {a.title} ({a.id}) {a.status?.connected ? "●" : ""}
+                {a.title}{a.status?.connected ? "  · 已连接" : ""}
               </option>
             ))}
           </select>
@@ -144,7 +144,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
             variant="default"
             onClick={onConnect}
             disabled={connecting}
-            className="h-7 px-2.5 text-xs gap-1 font-medium shadow-sm"
+            className="h-7 px-2.5 text-xs gap-1.5 font-medium shadow-none"
           >
             {connecting ? (
               <RefreshCw className="w-3 h-3 animate-spin" />
@@ -155,11 +155,11 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           </Button>
         ) : (
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-success shrink-0" />
-            <Badge variant="outline" className="h-6 text-[10px] font-mono px-2 gap-1 text-muted-foreground hidden md:inline-flex">
+            <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
+            <span className="text-[11px] font-mono text-muted-foreground hidden md:inline-flex items-center gap-1">
               <PlugZap className="w-3 h-3 text-success" />
               <span>{pid ? `pid ${pid}` : "已连接"}</span>
-            </Badge>
+            </span>
           </div>
         )}
 
@@ -173,10 +173,10 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
             >
               <Info className="w-3.5 h-3.5" />
             </button>
-            <div className="absolute left-0 top-full mt-1.5 hidden group-hover:block w-72 p-3 rounded-xl border border-border bg-popover/95 shadow-xl text-[11px] text-muted-foreground space-y-1.5 z-50 backdrop-blur-md pointer-events-none">
+            <div className="absolute left-0 top-full mt-1.5 hidden group-hover:block w-72 p-3 rounded-lg border border-border bg-popover shadow-lg text-[11px] text-muted-foreground space-y-1.5 z-50 pointer-events-none">
               <div className="font-semibold text-foreground flex items-center justify-between">
                 <span>{agentInfo?.title || active?.title}</span>
-                <span className="font-mono text-[10px] text-primary">ACP v{proto ?? "1"}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">ACP v{proto ?? "1"}</span>
               </div>
               {agentInfo?.version && (
                 <div className="text-[10px]">版本: {agentInfo.version}</div>
@@ -228,23 +228,23 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
       {/* CENTER: Current Session Title & Token Usage */}
       <div className="flex items-center gap-2 min-w-0 flex-1 justify-center max-w-lg">
         {sessionId ? (
-          <div className="flex items-center gap-2 min-w-0 bg-muted/40 border border-border/60 rounded-full px-3 py-1">
-            <span className="text-xs font-semibold text-foreground truncate max-w-[140px] sm:max-w-[220px]">
+          <div className="flex items-center gap-2 min-w-0 px-2 py-1">
+            <span className="text-[13px] font-medium text-foreground truncate max-w-[160px] sm:max-w-[260px]">
               {sessionTitle || "当前会话"}
             </span>
-            <Badge variant="secondary" className="font-mono text-[10px] h-4 px-1.5 hidden md:inline-flex">
-              {sessionId.slice(0, 8)}…
-            </Badge>
+            <span className="font-mono text-[11px] text-muted-foreground hidden md:inline">
+              {sessionId.slice(0, 8)}
+            </span>
             {usage && (
               <span className="items-center gap-1 font-mono text-[10px] text-muted-foreground hidden lg:inline-flex pl-1 border-l border-border/60">
-                <Gauge className="w-3 h-3 text-primary" />
+                <Gauge className="w-3 h-3" />
                 {usage.used.toLocaleString()}/{usage.size.toLocaleString()}
                 {usage.cost && <span className="text-success">${usage.cost.amount}</span>}
               </span>
             )}
           </div>
         ) : (
-          <span className="text-xs text-muted-foreground/70 hidden sm:inline">无活动会话，发送消息自动新建</span>
+          <span className="text-xs text-muted-foreground hidden sm:inline">尚未开始会话 · 发送第一条消息即新建</span>
         )}
       </div>
 
@@ -256,14 +256,14 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           variant="outline"
           onClick={onOpenChanges}
           disabled={busy || !hasChangesCwd}
-          title={hasChangesCwd ? "查看本地代码变更 (Ctrl+Shift+D)" : "当前目录无代码变更"}
-          className={`h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border bg-card hover:bg-muted transition-colors ${
-            hasChangesCwd ? "text-foreground font-medium" : "text-muted-foreground opacity-60"
+          title={hasChangesCwd ? "查看本地代码变更 (Ctrl+Shift+D)" : "未选择工作区"}
+          className={`h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border bg-transparent shadow-none hover:bg-muted transition-colors ${
+            hasChangesCwd ? "text-foreground" : "text-muted-foreground opacity-60"
           }`}
         >
           <FileDiff className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">变更</span>
-          {hasChangesCwd && <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />}
+          
         </Button>
 
         {/* Integrated Terminal Drawer */}
@@ -272,8 +272,9 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           variant="outline"
           onClick={onToggleTerminal}
           title="集成终端 (Ctrl+`)"
-          className={`h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border transition-colors ${
-            terminalOpen ? "bg-muted text-foreground font-medium shadow-xs" : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60"
+          aria-pressed={terminalOpen}
+          className={`h-7 px-2.5 text-xs gap-1.5 rounded-md border shadow-none transition-colors ${
+            terminalOpen ? "border-border bg-accent text-foreground" : "border-border bg-transparent text-foreground hover:bg-muted"
           }`}
         >
           <Terminal className="w-3.5 h-3.5" />
@@ -288,7 +289,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
             onClick={onOpenProviders}
             disabled={busy}
             title="Providers（模型通道与网关配置）"
-            className="h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 hidden sm:inline-flex"
+            className="h-7 px-2.5 text-xs gap-1.5 rounded-md border border-border bg-transparent shadow-none text-foreground hover:bg-muted hidden sm:inline-flex"
           >
             <Cpu className="w-3.5 h-3.5" />
             <span>通道</span>
@@ -300,7 +301,10 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           type="button"
           onClick={onNewSession}
           disabled={isStreaming || busy}
-          className="h-7 px-3 text-xs gap-1.5 font-medium rounded-md bg-foreground text-background hover:opacity-90 flex items-center shadow-xs cursor-pointer transition-all disabled:opacity-50"
+          title="新会话（可设置工作目录与 MCP）"
+          className={`h-7 px-2.5 text-xs gap-1.5 font-medium rounded-md flex items-center cursor-pointer transition-all disabled:opacity-50 ${
+            connected ? "bg-primary text-primary-foreground hover:bg-primary/90" : "border border-border text-foreground hover:bg-muted"
+          }`}
         >
           <Plus className="w-3.5 h-3.5" />
           <span>新会话</span>
@@ -312,14 +316,14 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
             size="sm"
             variant="outline"
             onClick={() => setMenuOpen(!menuOpen)}
-            className="h-7 w-7 p-0 flex items-center justify-center text-muted-foreground hover:text-foreground"
+            className="h-7 w-7 p-0 flex items-center justify-center shadow-none bg-transparent text-muted-foreground hover:text-foreground"
             title="更多会话与智能体操作"
           >
             <MoreHorizontal className="w-3.5 h-3.5" />
           </Button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1.5 w-44 p-1 rounded-xl border border-border bg-popover/95 shadow-xl text-xs z-50 backdrop-blur-md animate-in fade-in-50 zoom-in-95 duration-100">
+            <div className="absolute right-0 top-full mt-1.5 w-44 p-1 rounded-lg border border-border bg-popover shadow-lg text-xs z-50">
               {supportsFork && (
                 <button
                   type="button"
@@ -328,7 +332,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
                     onForkSession();
                   }}
                   disabled={busy || !sessionId}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left text-muted-foreground hover:text-foreground hover:bg-muted/80 disabled:opacity-40 transition-colors"
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 transition-colors"
                 >
                   <GitFork className="w-3.5 h-3.5" />
                   <span>Fork 会话</span>
@@ -342,7 +346,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
                   onClearMessages();
                 }}
                 disabled={isStreaming}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left text-muted-foreground hover:text-foreground hover:bg-muted/80 disabled:opacity-40 transition-colors"
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>清空消息记录</span>
@@ -356,7 +360,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
                     onCloseSession();
                   }}
                   disabled={busy}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left text-muted-foreground hover:text-foreground hover:bg-muted/80 disabled:opacity-40 transition-colors"
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40 transition-colors"
                 >
                   <XCircle className="w-3.5 h-3.5" />
                   <span>关闭会话</span>
@@ -371,7 +375,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
                     onDeleteSession();
                   }}
                   disabled={busy}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left text-destructive hover:bg-destructive/10 disabled:opacity-40 transition-colors"
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-destructive hover:bg-destructive/10 disabled:opacity-40 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>删除会话</span>
@@ -386,7 +390,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
                   setMenuOpen(false);
                   onLogout();
                 }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 <span>退出 Agent 登录</span>

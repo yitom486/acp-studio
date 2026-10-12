@@ -1,0 +1,48 @@
+import { describe, it, expect } from "vitest";
+import lightTheme from "@shikijs/themes/github-light-high-contrast";
+import { patchLightThemeComments, LIGHT_COMMENT_COLOR } from "../../src/components/magicui/code-comparison";
+import { buildConversationFixture, FIXTURE_SESSION_ID } from "../../src/dev/conversation-fixture";
+import { matchPermToToolCalls } from "../../src/lib/acp-assistant";
+import { badgeVariants } from "../../src/components/ui/badge";
+
+describe("light diff comment contrast", () => {
+  it("swaps only the comment token colour in github-light-high-contrast", () => {
+    const src: any = (lightTheme as any).default ?? lightTheme;
+    const patched = patchLightThemeComments(src);
+    const comment = patched.tokenColors.find((t: any) => [].concat(t.scope).includes("comment" as never));
+    expect(comment.settings.foreground).toBe(LIGHT_COMMENT_COLOR);
+    // 原主题对象不被改写，其余 token 原样保留
+    const orig = src.tokenColors.find((t: any) => [].concat(t.scope).includes("comment" as never));
+    expect(orig.settings.foreground.toLowerCase()).toBe("#66707b");
+    expect(patched.tokenColors.length).toBe(src.tokenColors.length);
+  });
+});
+
+describe("untracked badge", () => {
+  it("neutral variant does not use the warning/amber tokens", () => {
+    const cls = badgeVariants({ variant: "neutral" });
+    expect(cls).not.toMatch(/warning|signal/);
+    expect(cls).toContain("text-muted-foreground");
+  });
+});
+
+describe("dev conversation fixture", () => {
+  it("covers user/assistant, streaming turn, plan, tools, usage and an inline permission", () => {
+    const fx = buildConversationFixture({ now: 1_760_000_000_000 });
+    expect(fx.sessionId).toBe(FIXTURE_SESSION_ID);
+    expect(fx.messages.some((m) => m.role === "user")).toBe(true);
+    const streaming = fx.messages.find((m) => m.isStreaming);
+    expect(streaming?.thought).toBeTruthy();
+    expect(streaming?.plan?.some((p) => p.status === "in_progress")).toBe(true);
+    expect(fx.messages.flatMap((m) => m.toolCalls || []).length).toBeGreaterThanOrEqual(5);
+    expect(fx.usage.used).toBeGreaterThan(0);
+    expect(fx.pendingPerms).toHaveLength(1);
+    expect(matchPermToToolCalls(fx.pendingPerms[0], fx.messages, fx.sessionId)).not.toBeNull();
+  });
+
+  it("approval mode adds a permission that is not attached to any tool card", () => {
+    const fx = buildConversationFixture({ globalPermission: true });
+    expect(fx.pendingPerms).toHaveLength(2);
+    expect(matchPermToToolCalls(fx.pendingPerms[1], fx.messages, fx.sessionId)).toBeNull();
+  });
+});

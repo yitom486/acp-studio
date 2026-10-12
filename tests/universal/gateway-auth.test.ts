@@ -84,7 +84,8 @@ describe("gateway auth: token is mandatory", () => {
     expect(res.status).toBe(200);
     expect(await readAll(res)).toContain("pwned");
     expect(fs.existsSync(marker)).toBe(true);
-  });
+    // Windows CI 上 PowerShell 冷启动常超过 vitest 默认的 5s。
+  }, 30_000);
 
   it("keeps origin + host checks even with a valid token", async () => {
     const evil = await app.fetch(

@@ -111,7 +111,7 @@ describe("assistant-ui ACP thread (client smoke)", () => {
       );
     });
     const html = el.innerHTML;
-    expect(html).toContain("随便问点什么");
+    expect(html).toContain("@ 引用文件");
     expect(html).toContain("发送");
     expect(html).toContain("点击加载模型");
     root.unmount();
