@@ -20,6 +20,7 @@ import { json, jsonBody } from "./shared";
 export const filesRouter = new Hono();
 
 export const FS_READ_MAX = 2 * 1024 * 1024; // 编辑器单文件上限 2MB
+export const FS_NOTEBOOK_MAX = 20 * 1024 * 1024; // .ipynb 带图片输出，放宽到 20MB（只读查看）
 export const FS_LIST_MAX = 5000;
 const HIDDEN_DIRS = new Set(["node_modules", ".git"]);
 
@@ -157,7 +158,8 @@ filesRouter.get("/read", handle((c) => {
   const { abs, rel } = resolveInside(root, c.req.query("path") || "");
   const st = fs.statSync(abs);
   if (!st.isFile()) throw new FsError(400, "不是文件");
-  if (st.size > FS_READ_MAX) return json({ ok: false, error: `文件超过 ${FS_READ_MAX / 1024 / 1024}MB，暂不支持在编辑器中打开`, size: st.size }, 413);
+  const max = /\.ipynb$/i.test(rel) ? FS_NOTEBOOK_MAX : FS_READ_MAX;
+  if (st.size > max) return json({ ok: false, error: `文件超过 ${max / 1024 / 1024}MB，暂不支持在编辑器中打开`, size: st.size }, 413);
   const buf = fs.readFileSync(abs);
   if (buf.subarray(0, 8000).includes(0)) return json({ ok: false, error: "二进制文件不支持在编辑器中打开", binary: true }, 415);
   return json({ ok: true, path: rel, text: buf.toString("utf8"), size: st.size, mtimeMs: Math.round(st.mtimeMs) });

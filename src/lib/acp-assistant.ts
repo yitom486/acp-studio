@@ -30,7 +30,10 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
     return {
       id: msg.id,
       role: "user",
-      content: [{ type: "text", text: msg.content || "" }],
+      content: [
+        { type: "text", text: msg.content || "" },
+        ...(msg.images || []).filter((img) => img && typeof img.src === "string" && img.src).map((img) => ({ type: "image" as const, image: img.src })),
+      ],
       metadata: {
         custom: {
           timestamp: msg.timestamp,

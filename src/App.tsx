@@ -11,6 +11,8 @@ import { ElicitationCard } from "@/components/universal/ElicitationCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TitleBar } from "@/components/universal/TitleBar";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { usePanelRef, useDefaultLayout, type PanelSize } from "react-resizable-panels";
 import { useWorkbenchCommands } from "@/hooks/useWorkbenchCommands";
 const FileTreePanel = lazy(() => import("@/components/workbench/FileTreePanel"));
 const EditorPane = lazy(() => import("@/components/workbench/EditorPane"));
@@ -101,6 +103,16 @@ function LazyModalFallback() {
  * excludes `messages`. Streaming chunks therefore re-render only the
  * transcript leaves, not the whole layout.
  */
+/** 把 store 里的开关同步到可收起面板（命令 / 快捷键 → 面板）。 */
+function useSyncPanel(ref: ReturnType<typeof usePanelRef>, open: boolean) {
+  React.useEffect(() => {
+    const p = ref.current;
+    if (!p) return;
+    if (open && p.isCollapsed()) p.expand();
+    else if (!open && !p.isCollapsed()) p.collapse();
+  }, [ref, open]);
+}
+
 export default function App() {
   const qc = useQueryClient();
   const agentsRef = useRef<AgentSummary[]>([]);
@@ -226,13 +238,36 @@ export default function App() {
   const openNewSessionDialog = useCallback(() => useStudioStore.getState().setSettingsOpen(true), []);
   useWorkbenchCommands({ onNewSession: openNewSessionDialog });
 
+  // 可拖拽面板：尺寸按面板组合存 localStorage；侧栏 / 文件树拖到最小即收起，与 Ctrl+B / Ctrl+Shift+E 同步
+  const sidebarPanel = usePanelRef();
+  const treePanel = usePanelRef();
+  const panelIds = hasTabs ? ["sidebar", "filetree", "editor", "chat"] : ["sidebar", "filetree", "chat"];
+  const savedLayout = useDefaultLayout({ id: "acp-workbench-v1", panelIds, storage: localStorage });
+  useSyncPanel(sidebarPanel, sidebarOpen);
+  useSyncPanel(treePanel, fileTreeOpen);
+  const onSidebarResize = useCallback((size: PanelSize) => {
+    const open = size.inPixels > 1;
+    if (open !== useWorkbenchStore.getState().sidebarOpen) useWorkbenchStore.getState().setSidebarOpen(open);
+  }, []);
+  const onTreeResize = useCallback((size: PanelSize) => {
+    const open = size.inPixels > 1;
+    if (open !== useWorkbenchStore.getState().fileTreeOpen) useWorkbenchStore.getState().setFileTreeOpen(open);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-text">
       {/* Layer 1: Clean Window TitleBar */}
       <TitleBar />
 
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {sidebarOpen && <Sidebar
+      <ResizablePanelGroup
+        id="acp-workbench"
+        orientation="horizontal"
+        className="flex-1 min-h-0 overflow-hidden"
+        defaultLayout={savedLayout.defaultLayout}
+        onLayoutChanged={savedLayout.onLayoutChanged}
+      >
+        <ResizablePanel id="sidebar" panelRef={sidebarPanel} collapsible collapsedSize={0} minSize="200px" defaultSize="240px" maxSize="420px" onResize={onSidebarResize} className="overflow-hidden [&>aside]:w-full [&>aside]:h-full">
+        <Sidebar
           agents={agents}
           activeAgentId={s.activeAgentId}
           onSelectAgent={handleSelectAgent}
@@ -258,25 +293,36 @@ export default function App() {
           recentWorkspaces={s.recentWorkspaces}
           onSelectWorkspace={(p, name) => s.setWorkspace(p, name)}
           onOpenSettings={() => s.setSettingsOpen(true)}
-        />}
+        />
+        </ResizablePanel>
+        <ResizableHandle className={sidebarOpen ? "" : "w-0"} />
 
-        {fileTreeOpen && (
-          <aside className="w-64 shrink-0 border-r border-border bg-sidebar" aria-label="文件树">
-            <Suspense fallback={<div className="p-3"><Skeleton className="h-4 w-32" /></div>}>
-              <FileTreePanel cwd={effectiveCwd} />
-            </Suspense>
+        <ResizablePanel id="filetree" panelRef={treePanel} collapsible collapsedSize={0} minSize="160px" defaultSize="256px" maxSize="480px" onResize={onTreeResize} className="overflow-hidden">
+          <aside className="h-full bg-sidebar" aria-label="文件树">
+            {fileTreeOpen && (
+              <Suspense fallback={<div className="p-3"><Skeleton className="h-4 w-32" /></div>}>
+                <FileTreePanel cwd={effectiveCwd} />
+              </Suspense>
+            )}
           </aside>
-        )}
+        </ResizablePanel>
+        <ResizableHandle className={fileTreeOpen ? "" : "w-0"} />
 
         {hasTabs && (
-          <section className="flex-1 min-w-0 border-r border-border" aria-label="编辑器">
-            <Suspense fallback={<div className="p-3"><Skeleton className="h-4 w-48" /></div>}>
-              <EditorPane cwd={effectiveCwd} />
-            </Suspense>
-          </section>
+          <>
+            <ResizablePanel id="editor" minSize="280px" defaultSize="50%" className="overflow-hidden">
+              <section className="h-full min-w-0" aria-label="编辑器">
+                <Suspense fallback={<div className="p-3"><Skeleton className="h-4 w-48" /></div>}>
+                  <EditorPane cwd={effectiveCwd} />
+                </Suspense>
+              </section>
+            </ResizablePanel>
+            <ResizableHandle />
+          </>
         )}
 
-        <div className={hasTabs ? "w-[440px] shrink-0 flex flex-col min-w-0" : "flex-1 flex flex-col min-w-0"}>
+        <ResizablePanel id="chat" minSize="340px" defaultSize={hasTabs ? "440px" : undefined} className="overflow-hidden">
+        <div className="h-full flex flex-col min-w-0">
           {/* Layer 2: Retained Lower Workbench Header */}
           <StudioHeader
             agents={agents}
@@ -397,7 +443,8 @@ export default function App() {
             />
           </AcpAssistantProvider>
         </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       <Suspense fallback={<LazyModalFallback />}>
         <UniversalAuthModal

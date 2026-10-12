@@ -21,6 +21,8 @@ export interface EditorTab {
   /** AI / 外部修改后自动重载时，新增或修改的行（1-based），短暂高亮 */
   flashLines?: number[];
   flashAt?: number;
+  /** 视图：源码（默认）/ Markdown 所见即所得 / 笔记本预览（.ipynb 默认） */
+  view?: "source" | "wysiwyg" | "notebook";
 }
 
 export type SettingsTab = "general" | "about";

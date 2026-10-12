@@ -137,7 +137,7 @@ export function patchLightThemeComments(theme: any): any {
 // Singleton highlighter shared across all CodeComparison instances.
 let highlighterPromise: Promise<any> | null = null;
 
-async function getHighlighter(): Promise<any> {
+export async function getHighlighter(): Promise<any> {
   if (!highlighterPromise) {
     highlighterPromise = (async () => {
       // All dynamic — keeps shiki core + engine out of the main bundle
@@ -172,7 +172,7 @@ async function getHighlighter(): Promise<any> {
   return highlighterPromise;
 }
 
-async function ensureLanguage(hl: any, lang: string): Promise<string> {
+export async function ensureLanguage(hl: any, lang: string): Promise<string> {
   const normalized = normalizeLang(lang);
   if (normalized === "plaintext") return "plaintext";
   try {

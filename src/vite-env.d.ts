@@ -27,6 +27,7 @@ interface Window {
       recentAdd: (p: string) => Promise<string[]>;
       reveal: (p: string) => Promise<void>;
       copyText: (t: string) => Promise<void>;
+      pathForFile?: (f: File) => string;
       onCommand: (cb: (id: string, payload?: unknown) => void) => () => void;
     };
   };

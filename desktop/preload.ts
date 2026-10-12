@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 /**
  * Minimal bridge: version/platform info + native dialogs + gateway token.
@@ -39,6 +39,14 @@ contextBridge.exposeInMainWorld("acpStudio", {
     recentAdd: (p: string): Promise<string[]> => ipcRenderer.invoke("recent:add", p),
     reveal: (p: string): Promise<void> => ipcRenderer.invoke("shell:reveal", p),
     copyText: (t: string): Promise<void> => ipcRenderer.invoke("clipboard:writeText", t),
+    /** 拖入的系统文件 → 本机绝对路径（Electron 32+ 不再提供 File.path） */
+    pathForFile: (f: File): string => {
+      try {
+        return webUtils.getPathForFile(f);
+      } catch {
+        return "";
+      }
+    },
     onCommand: (cb: (id: string, payload?: unknown) => void): (() => void) => {
       const h = (_: unknown, id: string, payload?: unknown) => cb(id, payload);
       ipcRenderer.on("app:command", h);

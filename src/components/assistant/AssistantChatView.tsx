@@ -473,7 +473,7 @@ const UserMessageView: React.FC = () => {
     <MessagePrimitive.Root className="flex gap-3 justify-end items-start group animate-fade-slide-in">
       <div className="relative max-w-[80%]">
         <div className="rounded-lg bg-secondary text-secondary-foreground px-3.5 py-2 break-words whitespace-pre-wrap text-sm leading-relaxed font-sans">
-          <MessagePrimitive.Parts components={{ Text: AcpMarkdownText }} />
+          <MessagePrimitive.Parts components={{ Text: AcpMarkdownText, Image: AcpImagePart }} />
           {/* 底部 meta 单行：常驻挂载，只换透明度，宽高恒定不挤布局 */}
           <div className="flex items-center justify-end gap-0.5 pt-1.5">
             {acp?.timestamp && (

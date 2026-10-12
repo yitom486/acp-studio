@@ -252,6 +252,8 @@ export interface Attachment {
   block: Record<string, unknown>;
   /** Local object URL for image thumbnails (not sent). */
   preview?: string;
+  /** 工作区内的 @ 引用（输入框里显示为引用标签；删除标签同时删掉文本里的 @路径） */
+  mention?: { path: string; kind: "file" | "dir" };
 }
 
 /** ACP "Authentication required" (-32000, reserved ACP range -32000..-32099). */
@@ -963,6 +965,9 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
       const m = byId.get(k)!;
       m.role = "user";
       m.content += extractText(u);
+      // 回放里用户发过的图片（ACP image 块）
+      const uimg = u.content?.type === "image" ? toChatImage(u.content) : null;
+      if (uimg) m.images = [...(m.images || []), uimg].slice(-8);
     } else if (kind === "agent_message_chunk") {
       const k = u.messageId ? ensureMessage("assistant", u.messageId) : (lastAssistantKey || ensureMessage("assistant"));
       lastAssistantKey = k;

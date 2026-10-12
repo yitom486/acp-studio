@@ -5,6 +5,7 @@ import {
   Command,
   Cpu,
   ImagePlus,
+  AtSign,
   LayoutGrid,
   Paperclip,
   Send,
@@ -29,6 +30,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { configCurrentValue, findConfigOption, extractModelThinking, searchWorkspaceFiles, readWorkspaceFile, type Attachment, type ConfigOptionLike, type ModelCatalogEntry, type WorkspaceFileEntry } from "@/lib/universal-api";
 import { matchMentionToken, applyMentionInsert, buildMentionAttachment, formatFileSize } from "@/lib/mention";
+import { ACP_PATH_MIME, decodeDragRefs, relativeToWorkspace, classifyOutsideFile, collectFolderFiles, stripMentionText, FOLDER_FILE_CAP, OUTSIDE_FILE_MAX, type DragRef } from "@/lib/composer-drop";
+import { fsList } from "@/lib/fs-api";
 
 export interface AcpComposerProps {
   onSendAttachmentOnly: () => void;
@@ -229,7 +232,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     setMentionOpen(false);
     try {
       const f = await readWorkspaceFile(cwd, filePath);
-      p.setAttachments([...p.attachments, buildMentionAttachment(f)]);
+      p.setAttachments([...p.attachments, { ...buildMentionAttachment(f), mention: { path: filePath, kind: "file" } }]);
       aui.composer.setText(applyMentionInsert(composerText, filePath));
     } catch (err: any) {
       alert(`引用 ${filePath} 失败: ${err.message}`);
@@ -282,17 +285,30 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     }
   };
 
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   const handleFiles = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
     const next = [...p.attachments];
+    const rejectedImages: string[] = [];
+    const tooBig: string[] = [];
     for (const file of Array.from(files)) {
+      const kind = classifyOutsideFile(file, p.supportImage);
+      if (kind === "reject-image") { rejectedImages.push(file.name || "图片"); continue; }
+      if (kind === "reject-size") { tooBig.push(file.name); continue; }
       try {
-        const { text, dataUrl } = await readFile(file, p.supportImage);
         const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        if (file.type.startsWith("image/") && p.supportImage && dataUrl) {
+        if (kind === "image") {
+          const { dataUrl } = await readFile(file, true);
+          if (!dataUrl) continue;
           let payload = dataUrl.split(",")[1] || "";
           let size = file.size;
-          let preview: string | undefined = URL.createObjectURL(file);
+          const preview: string | undefined = URL.createObjectURL(file);
           try {
             const small = await downscaleImage(dataUrl, file.type);
             payload = small.split(",")[1] || payload;
@@ -301,8 +317,9 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
             console.debug("[AcpComposer] 图片压缩失败，已回退原图 (已忽略):", err);
           }
           next.push({ id, name: file.name, mimeType: file.type, size, preview, block: { type: "image", data: payload, mimeType: file.type } });
-        } else if (text !== undefined && (TEXTISH.test(file.type) || file.type === "" || file.size < 512 * 1024)) {
-          next.push({ id, name: file.name, mimeType: file.type || "text/plain", size: file.size, block: { type: "resource", resource: { uri: `file:///${file.name}`, mimeType: file.type || "text/plain", text } } });
+        } else if (kind === "text") {
+          const { text } = await readFile(file, false);
+          next.push({ id, name: file.name, mimeType: file.type || "text/plain", size: file.size, block: { type: "resource", resource: { uri: `file:///${file.name}`, mimeType: file.type || "text/plain", text: text ?? "" } } });
         } else {
           next.push({ id, name: file.name, mimeType: file.type || "application/octet-stream", size: file.size, block: { type: "resource_link", name: file.name, uri: `file:///${file.name}`, mimeType: file.type || undefined, size: file.size } });
         }
@@ -312,6 +329,73 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     }
     p.setAttachments(next);
     if (fileRef.current) fileRef.current.value = "";
+    const msgs: string[] = [];
+    if (rejectedImages.length) msgs.push(`${p.agentTitle || "当前智能体"} 不支持图片输入（未声明 image 能力），已忽略：${rejectedImages.join("、")}。可换用支持图片的智能体，或把图片保存到工作区后用 @ 引用路径。`);
+    if (tooBig.length) msgs.push(`超过 ${OUTSIDE_FILE_MAX / 1024 / 1024}MB 的文件未添加：${tooBig.join("、")}`);
+    if (msgs.length) setNotice(msgs.join(" "));
+  };
+
+  /** 工作区内的文件 / 文件夹 → @ 引用（文件夹最多展开 FOLDER_FILE_CAP 个文件）。 */
+  const addRefs = async (refs: DragRef[]) => {
+    const cwd = p.currentWorkspace;
+    if (!cwd || refs.length === 0) return;
+    const added: Attachment[] = [];
+    let text = aui.composer.getState().text;
+    const notes: string[] = [];
+    const have = new Set(p.attachments.map((a) => a.mention?.path).filter(Boolean));
+    for (const r of refs) {
+      try {
+        let paths = [r.path];
+        if (r.kind === "dir") {
+          const { files, truncated } = await collectFolderFiles(r.path, (d) => fsList(cwd, d));
+          paths = files;
+          if (truncated) notes.push(`文件夹 ${r.path || "."} 只引用了前 ${FOLDER_FILE_CAP} 个文件`);
+          if (!files.length) notes.push(`文件夹 ${r.path} 里没有可引用的文件`);
+        }
+        for (const fp of paths) {
+          if (have.has(fp)) continue;
+          have.add(fp);
+          const f = await readWorkspaceFile(cwd, fp);
+          added.push({ ...buildMentionAttachment(f), mention: { path: fp, kind: "file" } });
+        }
+        const label = r.kind === "dir" ? `${r.path}/` : r.path;
+        text = `${text}${text && !/\s$/.test(text) ? " " : ""}@${label} `;
+      } catch (err: any) {
+        notes.push(`引用 ${r.path} 失败：${err.message}`);
+      }
+    }
+    if (added.length) p.setAttachments([...p.attachments, ...added]);
+    aui.composer.setText(text);
+    if (notes.length) setNotice(notes.join("；"));
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const internal = decodeDragRefs(dt.getData(ACP_PATH_MIME));
+    if (internal.length) {
+      await addRefs(internal);
+      return;
+    }
+    const cwd = p.currentWorkspace;
+    const refs: DragRef[] = [];
+    const outside: File[] = [];
+    const items = Array.from(dt.items || []);
+    let outsideDirs = 0;
+    Array.from(dt.files || []).forEach((file, i) => {
+      const entry = (items[i] as any)?.webkitGetAsEntry?.();
+      const isDir = !!entry?.isDirectory;
+      const abs = window.acpStudio?.workbench?.pathForFile?.(file) || "";
+      const rel = cwd && abs ? relativeToWorkspace(cwd, abs) : null;
+      if (rel !== null && rel !== "") refs.push({ path: rel, kind: isDir ? "dir" : "file" });
+      else if (isDir) outsideDirs++;
+      else outside.push(file);
+    });
+    if (refs.length) await addRefs(refs);
+    if (outside.length) await handleFiles(outside);
+    if (outsideDirs) setNotice(`工作区外的文件夹不能直接拖入（${outsideDirs} 个已忽略），请拖入其中的文件。`);
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -326,6 +410,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     const target = p.attachments.find((a) => a.id === id);
     if (target?.preview) URL.revokeObjectURL(target.preview);
     p.setAttachments(p.attachments.filter((x) => x.id !== id));
+    if (target?.mention) aui.composer.setText(stripMentionText(aui.composer.getState().text, target.mention.path));
   };
 
   const modelOpt = pickRole(p.configOptions, "model");
@@ -410,9 +495,30 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
   return (
     <div className="p-4 md:p-6 bg-background shrink-0 select-none">
       <div className="max-w-3xl mx-auto space-y-2">
+        {notice && (
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] text-foreground">
+            <ImagePlus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+            <span className="flex-1">{notice}</span>
+            <button aria-label="关闭提示" onClick={() => setNotice(null)} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+          </div>
+        )}
         {p.attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1">
-            {p.attachments.map((a) => (
+            {p.attachments.map((a) =>
+              a.mention ? (
+                <span
+                  key={a.id}
+                  data-mention-chip
+                  className="inline-flex items-center gap-1 h-6 pl-1.5 pr-1 rounded-full border border-border bg-accent/60 text-[11.5px] font-mono text-foreground"
+                  title={`@${a.mention.path} · ${formatFileSize(a.size)}（引用的文件内容随消息发送）`}
+                >
+                  <AtSign className="w-3 h-3 text-muted-foreground" />
+                  <span className="max-w-[220px] truncate">{a.mention.path}</span>
+                  <button aria-label={`移除引用 ${a.mention.path}`} onClick={() => removeAttachment(a.id)} className="ml-0.5 rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-destructive">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ) : (
               <span key={a.id} className="flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-md bg-muted/70 border border-border text-[11px] font-mono text-muted-foreground">
                 {a.preview ? (
                   <img src={a.preview} alt={a.name} className="w-6 h-6 rounded object-cover" />
@@ -426,7 +532,8 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                   <X className="w-3 h-3" />
                 </button>
               </span>
-            ))}
+              ),
+            )}
           </div>
         )}
 
@@ -441,11 +548,11 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
             }`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer?.files); }}
+            onDrop={(e) => void handleDrop(e)}
           >
             {dragOver && (
               <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-muted/90 text-xs text-foreground pointer-events-none">
-                松开以添加文件 / 图片附件
+                松开以引用文件（工作区内变为 @ 引用，工作区外作为附件）
               </div>
             )}
             {slashOpen && (

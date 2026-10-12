@@ -2,7 +2,7 @@
  * 编辑器区：标签页（预览 / 固定 / 未保存圆点）+ CodeMirror 6 编辑器 + @codemirror/merge 对比视图。
  * 每个标签保留自己的 EditorState（撤销历史、光标、滚动），切换标签不丢。
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { EditorState, Compartment } from "@codemirror/state";
 import { MergeView, unifiedMergeView } from "@codemirror/merge";
@@ -11,6 +11,16 @@ import { useWorkbenchStore, isDirty, type EditorTab } from "@/stores/useWorkbenc
 import { saveTab, acceptDisk, openDiff } from "@/lib/workbench-actions";
 import { baseExtensions, languageFor, setFlashLines } from "./codemirror-setup";
 import { cn } from "@/lib/utils";
+
+const NotebookViewer = lazy(() => import("./NotebookViewer"));
+const MarkdownWysiwyg = lazy(() => import("./MarkdownWysiwyg"));
+
+export const isNotebook = (p: string) => /\.ipynb$/i.test(p);
+export const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
+export function viewOf(t: EditorTab): "source" | "wysiwyg" | "notebook" {
+  if (t.view) return t.view;
+  return isNotebook(t.path) ? "notebook" : "source";
+}
 
 const states = new Map<string, EditorState>();
 const langCompartment = new Compartment();
@@ -181,6 +191,19 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
             <button title="统一对比" onClick={() => setDiffMode("unified")} className={cn("rounded p-1 hover:bg-accent", diffMode === "unified" && "text-foreground bg-accent")}><Rows2 className="h-3.5 w-3.5" /></button>
           </div>
         )}
+        {active?.kind === "file" && (isMarkdown(active.path) || isNotebook(active.path)) && (
+          <div className="mr-1 flex h-6 items-center rounded-md border border-border p-0.5 text-[11px]" role="group" aria-label="视图">
+            {(isNotebook(active.path) ? (["notebook", "source"] as const) : (["source", "wysiwyg"] as const)).map((v) => (
+              <button
+                key={v}
+                onClick={() => useWorkbenchStore.getState().patchTab(active.id, { view: v })}
+                className={cn("rounded px-2 py-0.5", viewOf(active) === v ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}
+              >
+                {v === "source" ? "源码" : v === "wysiwyg" ? "所见即所得" : "预览"}
+              </button>
+            ))}
+          </div>
+        )}
         {active?.kind === "file" && cwd && (
           <div className="flex h-full items-center gap-1 px-2 text-[11px] text-muted-foreground">
             <button className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground" onClick={() => void openDiff(cwd, active.path)} title="与 HEAD 对比">
@@ -209,6 +232,22 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
           <div className="flex h-full items-center justify-center text-xs text-destructive">{active.error}</div>
         ) : active.kind === "diff" ? (
           <DiffViewer key={active.id + diffMode} tab={active} mode={diffMode} />
+        ) : viewOf(active) === "notebook" ? (
+          <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">正在加载笔记本查看器…</div>}>
+            <NotebookViewer text={active.text} />
+          </Suspense>
+        ) : viewOf(active) === "wysiwyg" ? (
+          <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">正在加载所见即所得编辑器…</div>}>
+            <MarkdownWysiwyg
+              key={active.id + ":wysiwyg"}
+              value={active.text}
+              original={active.savedText}
+              onChange={(text) => {
+                const cur = useWorkbenchStore.getState().tabs.find((t) => t.id === active.id);
+                if (cur && cur.text !== text) useWorkbenchStore.getState().patchTab(active.id, { text, preview: false });
+              }}
+            />
+          </Suspense>
         ) : (
           <FileEditor key={active.id} tab={active} />
         )}

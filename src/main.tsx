@@ -52,6 +52,7 @@ function renderApp() {
 async function maybeSeedDevFixture() {
   if (!import.meta.env.DEV) return;
   const mode = new URLSearchParams(window.location.search).get("fixture");
+  if (mode === "math") return seedMathFixture();
   if (mode !== "conversation" && mode !== "approval" && mode !== "stream") return;
   const [{ buildConversationFixture }, { useStudioStore }] = await Promise.all([
     import("@/dev/conversation-fixture"),
@@ -66,6 +67,34 @@ async function maybeSeedDevFixture() {
   for (const p of fx.pendingPerms) st.addPermission(p);
   if (mode === "stream") simulateStream(useStudioStore);
   console.info("[dev] conversation fixture loaded");
+}
+
+/**
+ * `?fixture=math`：带图片的用户消息（同历史回放的显示方式）、含公式的回答（KaTeX 懒加载）、
+ * 以及一条停在代码块中间的流式回答（检查未闭合代码块的显示）。
+ */
+async function seedMathFixture() {
+  const { useStudioStore } = await import("@/stores/useStudioStore");
+  const img = await fetch("/acp-studio-cat.png").then((r) => r.blob()).then((b) => new Promise<string>((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result)); fr.readAsDataURL(b); }));
+  const st = useStudioStore.getState();
+  st.setSessionId("fixture-math");
+  st.setMessages([
+    { id: "m-u1", role: "user", content: "这张图标的配色和圆角半径的计算方式是什么？", timestamp: "14:02", images: [{ src: img, mimeType: "image/png" }] },
+    {
+      id: "m-a1", role: "assistant", timestamp: "14:02", toolCalls: [], plan: [],
+      content:
+        "圆角用的是“连续曲率”近似：半径 $r = 0.2237\\,w$，其中 $w$ 是图标边长。\n\n" +
+        "超椭圆的方程为\n\n$$\n\\left|\\frac{x}{a}\\right|^{n} + \\left|\\frac{y}{b}\\right|^{n} = 1,\\quad n \\approx 5\n$$\n\n" +
+        "对比度按 WCAG 公式 $\\frac{L_1 + 0.05}{L_2 + 0.05} \\ge 4.5$ 校验；价格类文本如 $5 到 $10 不会被当成公式。",
+    },
+    { id: "m-u2", role: "user", content: "给我一个计算对比度的函数。", timestamp: "14:03" },
+    {
+      id: "m-a2", role: "assistant", timestamp: "14:03", toolCalls: [], plan: [], isStreaming: true,
+      content: "下面是实现（流式输出中，代码块尚未结束）：\n\n```ts\nexport function contrast(l1: number, l2: number): number {\n  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1];\n  return (hi + 0.05) / (lo + 0.05);",
+    },
+  ] as any);
+  st.setStreaming(true);
+  console.info("[dev] math fixture loaded");
 }
 
 /** `?fixture=stream`：把最后一条助手消息逐字“流”出来，用于检查跟随滚动 / 光环 / 淡入。 */

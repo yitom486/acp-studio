@@ -68,6 +68,16 @@ describe("fs routes", () => {
     expect((await get(`/read?${q({ path: "bin.dat" })}`)).status).toBe(415);
   });
 
+  it("allows larger .ipynb files (read-only viewer) but keeps the 2MB cap for others", async () => {
+    const big = JSON.stringify({ nbformat: 4, cells: [], metadata: { pad: "x".repeat(3 * 1024 * 1024) } });
+    fs.writeFileSync(path.join(root, "big.ipynb"), big);
+    fs.writeFileSync(path.join(root, "big.txt"), big);
+    expect((await get(`/read?${q({ path: "big.ipynb" })}`)).status).toBe(200);
+    expect((await get(`/read?${q({ path: "big.txt" })}`)).status).toBe(413);
+    fs.rmSync(path.join(root, "big.ipynb"));
+    fs.rmSync(path.join(root, "big.txt"));
+  });
+
   it("writes with optimistic mtime check (409 on conflict, force overrides)", async () => {
     const r = await get(`/read?${q({ path: "src/a.ts" })}`);
     const ok = await post("/write", { path: "src/a.ts", text: "export const a = 2;\n", baseMtimeMs: r.data.mtimeMs });

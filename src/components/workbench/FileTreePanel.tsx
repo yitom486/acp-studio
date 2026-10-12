@@ -12,6 +12,7 @@ import { gitStatus } from "@/lib/universal-api";
 import { openDiff, openFile, applyWatchEvents } from "@/lib/workbench-actions";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { cn } from "@/lib/utils";
+import { ACP_PATH_MIME, encodeDragRefs } from "@/lib/composer-drop";
 import { reportError } from "@/lib/error-bus";
 
 interface TreeNode {
@@ -243,6 +244,13 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
             node.isFocused && !node.isSelected && "bg-accent/40",
             d.id === activeId && !node.isSelected && "text-foreground",
           )}
+          onDragStart={(e) => {
+            // 拖到聊天输入框 = @ 引用（文件树内部移动仍由 react-dnd 处理）
+            if (d.type === "other") return;
+            e.dataTransfer.setData(ACP_PATH_MIME, encodeDragRefs([{ path: d.id, kind: isDir ? "dir" : "file" }]));
+            e.dataTransfer.setData("text/plain", `@${d.id}${isDir ? "/" : ""}`);
+            e.dataTransfer.effectAllowed = "copyMove";
+          }}
           onClick={() => {
             if (isDir) node.toggle();
             else if (cwdRef.current && d.type === "file") void openFile(cwdRef.current, d.id, { pin: false });
