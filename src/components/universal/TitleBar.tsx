@@ -79,7 +79,7 @@ export const TitleBar: React.FC = () => {
       {/* LEFT: Window Icon + Brand Title */}
       <div className="flex items-center gap-2 app-no-drag shrink-0">
         <img
-          src="/acp-studio-cat.png"
+          src="/icons/icon-64.png"
           alt="ACP Studio"
           className="w-4 h-4 object-contain shrink-0"
         />

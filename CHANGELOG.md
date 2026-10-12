@@ -12,6 +12,10 @@
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
 
+### Fixed
+- Windows 桌面快捷方式与 exe 显示默认 Electron 图标：此前关闭了 signAndEditExecutable，导致图标未写入 exe；现在嵌入完整多尺寸 ico（16–256），并补齐 macOS icns、Linux 16–512 图标、网页 favicon/manifest
+
+
 ## [0.1.3] - 2026-10-12
 
 ### Added

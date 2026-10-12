@@ -28,8 +28,8 @@
         "nsis",
         "dir"
       ],
-      "icon": "public/icon.ico",
-      "signAndEditExecutable": false,
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": true,
       "artifactName": "ACP-Studio-Setup-${version}.${ext}"
     },
     "mac": {
@@ -38,7 +38,8 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "artifactName": "ACP-Studio-${version}-${arch}-mac.${ext}"
+      "artifactName": "ACP-Studio-${version}-${arch}-mac.${ext}",
+      "icon": "build/icon.icns"
     },
     "linux": {
       "target": [
@@ -46,7 +47,7 @@
         "deb"
       ],
       "category": "Development",
-      "icon": "public/icon.png",
+      "icon": "build/icons",
       "artifactName": "ACP-Studio-${version}.${ext}"
     },
     "directories": {
@@ -77,9 +78,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "ACP Studio",
       "runAfterFinish": true,
-      "installerIcon": "public/icon.ico",
-      "uninstallerIcon": "public/icon.ico",
-      "installerHeaderIcon": "public/icon.ico",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "installerSidebar": "build/installerSidebar.bmp",
       "uninstallerSidebar": "build/uninstallerSidebar.bmp",
       "installerHeader": "build/installerHeader.bmp",
@@ -91,7 +92,8 @@
     },
     "deb": {
       "artifactName": "acp-studio_${version}_${arch}.${ext}"
-    }
+    },
+    "icon": "build/icon.png"
   },
   "scripts": {
     "dev": "concurrently -k -n \"server,client\" -c \"cyan,green\" \"bun run dev:server\" \"bun run dev:client\"",
