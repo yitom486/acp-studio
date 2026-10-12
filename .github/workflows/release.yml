@@ -1,6 +1,7 @@
 name: Release (Windows, macOS, Linux)
 
 # 打 tag 即发版，例如：git tag v1.0.0 && git push origin v1.0.0
+# 说明：取自 CHANGELOG.md 对应版本小节（scripts/release-notes.ts）。
 # 产物：Windows NSIS、macOS DMG/ZIP、Linux AppImage/DEB，自动挂到同一个 GitHub Release。
 # 当前默认未签名：Windows 可能提示 SmartScreen，macOS 可能提示无法验证开发者。
 # 如需正式分发，请分别配置 Windows 代码签名与 macOS Developer ID/notarization secrets。
@@ -73,6 +74,16 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # 发布说明 = CHANGELOG 里与 tag 同版本的小节；找不到就让发版失败
+      - name: Release notes from CHANGELOG
+        run: bun scripts/release-notes.ts "${GITHUB_REF_NAME#v}" --out release-notes.md
+
       - name: Download all platform artifacts
         uses: actions/download-artifact@v4
         with:
@@ -83,5 +94,14 @@ jobs:
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*
-          generate_release_notes: true
+          # 不上传 builder-debug.yml / builder-effective-config.yaml 等调试文件
+          files: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+            release/*.blockmap
+            release/latest*.yml
+          fail_on_unmatched_files: true
+          body_path: release-notes.md
