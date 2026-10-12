@@ -115,6 +115,25 @@ function unwrapGrammar(mod: unknown): unknown {
   return m?.default ?? mod;
 }
 
+/**
+ * github-light-high-contrast 的注释色 #66707b 在浅色主题的改动行底色
+ * （bg-destructive/15、bg-success/15 叠在近白底上）上只有约 3.9–4.0:1，
+ * 低于 WCAG AA 的 4.5:1。这里换成同一主题自带的更深一档灰 #4b535d
+ * （近白底 7.6:1，红/绿改动行上约 6.0/6.2:1），其余 token 不动。
+ */
+export const LIGHT_COMMENT_COLOR = "#4b535d";
+export function patchLightThemeComments(theme: any): any {
+  if (!theme || !Array.isArray(theme.tokenColors)) return theme;
+  return {
+    ...theme,
+    tokenColors: theme.tokenColors.map((tc: any) => {
+      const scopes = Array.isArray(tc?.scope) ? tc.scope : [tc?.scope];
+      if (!scopes.includes("comment")) return tc;
+      return { ...tc, settings: { ...tc.settings, foreground: LIGHT_COMMENT_COLOR } };
+    }),
+  };
+}
+
 // Singleton highlighter shared across all CodeComparison instances.
 let highlighterPromise: Promise<any> | null = null;
 
@@ -139,7 +158,7 @@ async function getHighlighter(): Promise<any> {
       const hl = await createHighlighterCore({
         // Preload only typescript (plaintext needs no grammar); the rest loads on demand.
         langs: [unwrapGrammar(tsMod)] as any,
-        themes: [unwrapGrammar(darkMod), unwrapGrammar(lightMod)] as any,
+        themes: [unwrapGrammar(darkMod), patchLightThemeComments(unwrapGrammar(lightMod))] as any,
         engine: createJavaScriptRegexEngine(),
       });
       return hl;
@@ -238,8 +257,10 @@ export function CodeComparison({
           const loadedThemes: string[] =
             typeof hl.getLoadedThemes === "function" ? hl.getLoadedThemes() : ["github-dark-default", "github-light-high-contrast"];
           if (!loadedThemes.includes(effectiveTheme)) {
-            const themeMod = await THEME_LOADERS[effectiveTheme]();
-            await hl.loadTheme(unwrapGrammar(themeMod) as any);
+            const themeMod = unwrapGrammar(await THEME_LOADERS[effectiveTheme]());
+            await hl.loadTheme(
+              (effectiveTheme === "github-light-high-contrast" ? patchLightThemeComments(themeMod) : themeMod) as any,
+            );
           }
         } catch (themeErr) {
           console.warn(`[CodeComparison] theme "${effectiveTheme}" failed to load, using preloaded theme:`, themeErr);

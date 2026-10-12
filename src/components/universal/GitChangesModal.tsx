@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, RefreshCw, FileDiff, Columns2, AlignLeft, Plus, Undo2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { BlurFade } from "@/components/magicui/blur-fade";
 import { CodeComparison } from "@/components/magicui/code-comparison";
 import { useThemeStore, THEMES } from "@/stores/useThemeStore";
 import {
@@ -23,12 +22,12 @@ export interface GitChangesModalProps {
   initialFilePath?: string | null;
 }
 
-function statusLabel(s: string): { text: string; variant: "success" | "warning" | "destructive" | "outline" } {
+function statusLabel(s: string): { text: string; variant: "success" | "neutral" | "destructive" | "outline" } {
   if (s === "M") return { text: "修改", variant: "outline" };
   if (s === "A") return { text: "新增", variant: "success" };
   if (s === "D") return { text: "删除", variant: "destructive" };
   if (s === "R") return { text: "改名", variant: "outline" };
-  if (s === "?") return { text: "未跟踪", variant: "warning" };
+  if (s === "?") return { text: "未跟踪", variant: "neutral" };
   return { text: s, variant: "outline" };
 }
 
@@ -210,7 +209,7 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({
             ) : detail.binary ? (
               <div className="text-muted-foreground p-3">二进制文件，跳过内容展示。</div>
             ) : view === "split" && detail.after !== null ? (
-              <BlurFade key={selected}>
+              <div key={selected}>
                 <CodeComparison
                   beforeCode={detail.before ?? ""}
                   afterCode={detail.after}
@@ -218,7 +217,7 @@ export const GitChangesModal: React.FC<GitChangesModalProps> = ({
                   filename={detail.file}
                   theme={THEMES[themeId]?.isDark === false ? "light" : "dark"}
                 />
-              </BlurFade>
+              </div>
             ) : (
               <div className="font-mono text-[11px] leading-relaxed">
                 {lines.length === 0 && <div className="text-muted-foreground p-2">暂无文本差异（如纯新增/删除文件请切“前后对照”）。</div>}

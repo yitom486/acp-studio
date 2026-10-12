@@ -21,6 +21,10 @@ const badgeVariants = cva(
           "border-success/30 bg-success/15 text-success",
         warning:
           "border-warning/30 bg-warning/15 text-warning",
+        // 中性“待定”状态（如 git 未跟踪）：虚线描边 + 次要文字色，
+        // 不占用琥珀色（琥珀只留给聚焦/运行中/当前会话这类实时状态）。
+        neutral:
+          "border-dashed border-muted-foreground/50 bg-transparent text-muted-foreground",
       },
     },
     defaultVariants: {
