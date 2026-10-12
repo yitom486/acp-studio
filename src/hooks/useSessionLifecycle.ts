@@ -14,6 +14,7 @@ import {
   type ActivityEvent,
   type AgentSummary,
 } from "@/lib/universal-api";
+import { isSameCwd } from "@/lib/threads";
 import type { SessionItem } from "@/components/universal/Sidebar";
 import type { SessionSettings } from "@/components/universal/SessionSettingsModal";
 
@@ -142,6 +143,10 @@ export function useSessionLifecycle({
       if (!thread || thread.agentId !== agentId || thread.sessionId !== sid) {
         return { resumed: false };
       }
+      // 工作区校验：若该会话记录了所属工作区，且与当前激活工作区不匹配，拒绝跨工作区唤醒
+      if (thread.cwd && st.currentWorkspace && !isSameCwd(thread.cwd, st.currentWorkspace)) {
+        return { resumed: false };
+      }
       try {
         const result: any = await sessionRpc(agentId, "resume", {
           sessionId: sid,
@@ -157,12 +162,15 @@ export function useSessionLifecycle({
         // mark stale, drop the dead binding so the next prompt news a session.
         markThreadStale();
         bindThreadSession(null);
-        st.appendMessage({
-          id: `sys-${Date.now()}-stale`,
-          role: "system",
-          content: `上次会话 (${sid.slice(0, 8)}…) 已失效（agent 重启或会话被清理），将自动新建会话续聊，历史消息保留在上方。`,
-          timestamp: now(),
-        });
+        // 仅在该会话确有真实用户消息时才提示失效，避免空会话或环境切出时刷屏
+        if (thread.messages.some((m) => m.role === "user")) {
+          st.appendMessage({
+            id: `sys-${Date.now()}-stale`,
+            role: "system",
+            content: `上次会话 (${sid.slice(0, 8)}…) 已失效（agent 重启或会话被清理），将自动新建会话续聊，历史消息保留在上方。`,
+            timestamp: now(),
+          });
+        }
         return { resumed: false };
       }
     },

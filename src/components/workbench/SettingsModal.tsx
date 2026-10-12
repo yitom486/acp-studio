@@ -217,10 +217,10 @@ const GatewayPanel: React.FC = () => {
       ) : null}
       <h3 className="text-sm font-semibold mt-5 mb-1">网关跑进 WSL（原生 Linux agent/工具）</h3>
       <pre className="overflow-x-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
-{`# 1. WSL 内（Ubuntu）：进仓库目录，装好 bun，起网关（换个端口，避开本机 3004）
-PORT=4004 bun run dev:server:node
+{`# 1. WSL 内（Ubuntu）：进仓库目录，装好 bun，起网关（高位端口 13005，避开常用端口）
+PORT=13005 bun run dev:server:node
 # 2. 拿 WSL 里 ~/.acp-studio/.gateway-token 的内容
-# 3. 本页基址填 http://127.0.0.1:4004，保存（自动重载），再贴令牌
+# 3. 本页基址填 http://127.0.0.1:13005，保存（自动重载），再贴令牌
 # 4. 工作区直接用 Linux 路径，如 /home/you/proj`}
       </pre>
     </div>

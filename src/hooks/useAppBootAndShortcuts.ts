@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useThemeStore } from "@/stores/useThemeStore";
-import { useStudioStore } from "@/stores/useStudioStore";
+import { useStudioStore, getWorkspaceEnv } from "@/stores/useStudioStore";
 import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 import { validateWorkspace, type AgentSummary } from "@/lib/universal-api";
 
@@ -67,18 +67,24 @@ export function useAppBootAndShortcuts({
   }, [sessionId, activeAgentId, activeThreadId]);
 
   // Gateway default workspace (TanStack Query: cached 5min, retried once).
-  // Applied into the store only when the user has no workspace yet.
-  const workspaceDefaultQuery = useWorkspaceDefaultQuery(!currentWorkspace);
+  // Applied into the store only when the user has no workspace yet, or when in WSL
+  // but holding a legacy Windows mount /mnt/... path.
+  const isWsl = getWorkspaceEnv().startsWith("wsl_");
+  const isMntWorkspace = Boolean(currentWorkspace && /^\/mnt\/[a-zA-Z](\/|$)/i.test(currentWorkspace));
+  const workspaceDefaultQuery = useWorkspaceDefaultQuery(!currentWorkspace || (isWsl && isMntWorkspace));
   useEffect(() => {
     const res = workspaceDefaultQuery.data;
-    if (res?.path && !useStudioStore.getState().currentWorkspace) {
-      useStudioStore.getState().setWorkspace(res.path, res.name);
+    if (res?.path) {
+      const cur = useStudioStore.getState().currentWorkspace;
+      if (!cur || (isWsl && /^\/mnt\/[a-zA-Z](\/|$)/i.test(cur))) {
+        useStudioStore.getState().setWorkspace(res.path, res.name);
+      }
     }
     if (workspaceDefaultQuery.isError) {
       console.warn("[App] 获取默认工作区失败 (已忽略，将保持空工作区):", workspaceDefaultQuery.error);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceDefaultQuery.data, workspaceDefaultQuery.isError]);
+  }, [workspaceDefaultQuery.data, workspaceDefaultQuery.isError, isWsl]);
 
   // Global shortcuts (Ctrl+`, Ctrl+Shift+D, Ctrl+O)
   useEffect(() => {

@@ -60,9 +60,24 @@ function pinLatest(pkg: string): string {
 /** Minimal PATH scan (local copy; keeps presets.ts dependency-free). */
 function findRunnerBin(name: string): string | null {
   const isAbs = path.isAbsolute(name);
-  const dirs = isAbs
+  let dirs = isAbs
     ? [path.dirname(name)]
     : (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+
+  // 在 Linux / WSL 环境下：
+  // 1. 优先扫描 ~/.bun/bin、~/.local/bin、/usr/local/bin
+  // 2. 严格剔除 Windows 挂载盘路径（/mnt/...），绝不把 Windows 的 node.exe / npx 当作 Linux runner
+  if (process.platform === "linux") {
+    const home = process.env.HOME || "";
+    const priority = [
+      home ? path.join(home, ".bun", "bin") : "",
+      home ? path.join(home, ".local", "bin") : "",
+      "/usr/local/bin",
+    ].filter(Boolean);
+    const linuxNativeDirs = dirs.filter((d) => !/^\/mnt\/[a-zA-Z](\/|$)/.test(d));
+    dirs = [...new Set([...priority, ...linuxNativeDirs])];
+  }
+
   const base = isAbs ? path.basename(name) : name;
   const exts =
     process.platform === "win32" && !path.extname(base)

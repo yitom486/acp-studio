@@ -11,13 +11,20 @@
 
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+
+## [0.1.5] - 2026-10-13
+
+### Added
 - 底部状态栏 VSCode 式远程角标：左下 `>< 本机/WSL:xx/远端host`，点开切环境（本机/WSL 发行版 + 最近 WSL 目录/远端网关设置/回到本地）；WSL 发行版来自网关 `wsl -l -q`（5 分钟缓存）；distro 解析抽零依赖单模块，终端徽标同源
+- WSL 原生真环境一键打通：支持一键在目标 WSL 发行版内拉起/直连原生 Headless 网关，默认端口升级为高位专属 13005（避开 3000~3999 常用端口冲突）；自动平滑迁移
+- WSL 纯 Linux 原生工作区：新建会话与默认目录自动解析为纯 Linux 路径（如 `~`、`/home/...`），彻底杜绝 `/mnt/...` 跨系统挂载与性能惩罚
+- WSL 进程环境隔离与加速：严格剔除 Windows PATH 挂载盘污染，优先调度 Linux 原生 `bunx`，解决 Codex Agent 会话建立慢与 npm 远程拉包卡死问题（会话初始化降至 450ms）
+- 内置工作区目录选择器：支持在 WSL Linux 与 Windows 之间无缝浏览与选取目录，支持新建目录、面包屑跳转与键盘导航
 - 工作台流畅 P0：目录悬停 250ms 后台预取一层（命中省一次 RTT）；git status 进行中再调只排队、跑完补一次（watch 风暴不叠请求）；保存加 saving 中态（并发保存合并，失败/冲突必清态）
 - 工作台流畅 P1：`/api/universal/search` 内容搜索（rg --json 优先、无则 walk，`engine` 明示；WSL 经 wsl.exe），文件树搜索条（防抖/过期丢弃，点结果打开并跳行）；顶栏网关健康点（30s 轮询 + 切窗即查，点进网关设置）
 - 终端抽屉藏而不杀：关闭只 `display:none` 隐藏，xterm/WS/shell 跨开关保留，重开零重建（兼修二次打开白屏）；右上 X 只隐藏，新增电源按钮才真正结束 PTY 会话
 - 工具卡片“终端打开”携带执行 cwd：无则回落当前工作区；与现存活会话不同目录时仅提示、不悄悄杀 shell
 - PTY 断线续接：WS 断后 shell 保留 3 分钟，同 id 重连即续接原会话（刷新/闪断不丢状态），到期无续接才杀；重影接管自动关旧端
-- WSL 完整项目能力：工作区指向 `\\wsl$\<distro>\...` 即自动经 `wsl.exe` 跑终端（PTY/`--cd`）/单次执行（`sh -c`）/git，文件读写经 9P 直通零改动；终端徽标 `WSL · <distro>`，Linux 路径误填有明示
 - 远端网关：设置 → 网关可填自定义基址（WSL 内 / SSH 远端的网关），HTTP/WS 全链路跟随、令牌按基址隔离、切基址自动重载；非回环 http 明示嗅探风险
 
 ## [0.1.4] - 2026-10-12
@@ -207,9 +214,10 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.5...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
 [0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
 [0.1.2]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.2
 [0.1.3]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.3
 [0.1.4]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.4
+[0.1.5]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.5

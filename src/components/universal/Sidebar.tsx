@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
+import { isSameCwd, normalizeCwd } from "@/lib/threads";
 import type { AgentSummary } from "@/lib/universal-api";
 import type { RecentWorkspace } from "@/stores/useStudioStore";
 
@@ -326,37 +327,107 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       ? p.sessions.filter((s) => (s.title || s.sessionId).toLowerCase().includes(query))
       : p.sessions;
 
-    const map = new Map<string, SessionItem[]>();
+    const map = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        path?: string;
+        items: SessionItem[];
+        isCurrent: boolean;
+        isCloud?: boolean;
+      }
+    >();
 
-    // Seed recent workspaces to show projects even if no sessions yet
+    // 1. Seed recent workspaces
     if (p.recentWorkspaces && p.recentWorkspaces.length > 0) {
       for (const w of p.recentWorkspaces) {
-        const name = w.name || shortCwd(w.path);
-        if (name && !map.has(name)) {
-          map.set(name, []);
+        const key = normalizeCwd(w.path) || w.path;
+        const name = w.name || shortCwd(w.path) || w.path;
+        const isCurrent = Boolean(p.currentWorkspace && isSameCwd(p.currentWorkspace, w.path));
+        map.set(key, {
+          id: key,
+          name,
+          path: w.path,
+          items: [],
+          isCurrent,
+          isCloud: name.toLowerCase().includes("cli") || name.toLowerCase().includes("cloud"),
+        });
+      }
+    }
+
+    // 2. Seed current workspace if not present in recents
+    if (p.currentWorkspace) {
+      const curKey = normalizeCwd(p.currentWorkspace) || p.currentWorkspace;
+      if (!map.has(curKey)) {
+        const name = shortCwd(p.currentWorkspace) || p.currentWorkspace;
+        map.set(curKey, {
+          id: curKey,
+          name,
+          path: p.currentWorkspace,
+          items: [],
+          isCurrent: true,
+          isCloud: name.toLowerCase().includes("cli") || name.toLowerCase().includes("cloud"),
+        });
+      }
+    }
+
+    // 3. Distribute sessions to matching project
+    for (const sess of filtered) {
+      const sessCwd = sess.cwd ? (normalizeCwd(sess.cwd) || sess.cwd) : null;
+      let matchedKey: string | null = null;
+
+      if (sessCwd) {
+        for (const [key, grp] of map.entries()) {
+          if (grp.path && isSameCwd(grp.path, sess.cwd)) {
+            matchedKey = key;
+            break;
+          }
+        }
+        if (!matchedKey) {
+          const rawPath = sess.cwd || sessCwd;
+          const name = shortCwd(rawPath) || rawPath;
+          const isCurrent = Boolean(p.currentWorkspace && isSameCwd(p.currentWorkspace, rawPath));
+          matchedKey = sessCwd;
+          map.set(matchedKey, {
+            id: matchedKey,
+            name,
+            path: rawPath,
+            items: [],
+            isCurrent,
+            isCloud: name.toLowerCase().includes("cli") || name.toLowerCase().includes("cloud"),
+          });
+        }
+      } else {
+        if (p.currentWorkspace) {
+          matchedKey = normalizeCwd(p.currentWorkspace) || p.currentWorkspace;
+        } else {
+          matchedKey = "general";
+          if (!map.has(matchedKey)) {
+            map.set(matchedKey, {
+              id: "general",
+              name: "General",
+              items: [],
+              isCurrent: false,
+            });
+          }
         }
       }
-    } else if (p.currentWorkspace) {
-      const cur = shortCwd(p.currentWorkspace) || "Workspace";
-      map.set(cur, []);
-    }
 
-    // Distribute sessions
-    for (const sess of filtered) {
-      let grpName = shortCwd(sess.cwd);
-      if (!grpName) {
-        grpName = p.currentWorkspace ? shortCwd(p.currentWorkspace) || "General" : "General";
+      if (matchedKey) {
+        const grp = map.get(matchedKey);
+        if (grp) grp.items.push(sess);
       }
-      const existing = map.get(grpName) || [];
-      existing.push(sess);
-      map.set(grpName, existing);
     }
 
-    return Array.from(map.entries()).map(([name, items]) => ({
-      name,
-      items,
-      isCloud: name.toLowerCase().includes("cli") || name.toLowerCase().includes("cloud"),
-    }));
+    // Sort: 当前激活工作区置顶，其余按名称字母排序
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      if (a.isCurrent && !b.isCurrent) return -1;
+      if (!a.isCurrent && b.isCurrent) return 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    });
+    return list;
   }, [p.sessions, searchQuery, p.recentWorkspaces, p.currentWorkspace]);
 
   const toggleProject = (name: string) => {
@@ -464,36 +535,92 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       {/* 5. Scrollable Project Groups & Conversations Tree */}
       <div className="flex-1 overflow-y-auto px-2 space-y-1.5 py-1">
         {projectGroups.map((grp) => {
-          const isCollapsed = Boolean(collapsedProjects[grp.name]);
+          const isCollapsed = Boolean(collapsedProjects[grp.id || grp.name]);
           return (
-            <div key={grp.name} className="space-y-0.5">
+            <div key={grp.id || grp.name} className="space-y-0.5">
               {/* Project folder row */}
               <div
-                onClick={() => toggleProject(grp.name)}
-                className="flex items-center gap-1.5 px-2 h-7 rounded-md text-xs text-foreground font-medium hover:bg-accent cursor-pointer transition-colors"
+                onClick={() => {
+                  if (grp.path && p.onSelectWorkspace && p.currentWorkspace !== grp.path) {
+                    p.onSelectWorkspace(grp.path, grp.name);
+                  } else {
+                    toggleProject(grp.id || grp.name);
+                  }
+                }}
+                className={`group flex items-center gap-1.5 px-2 h-7 rounded-md text-xs font-medium cursor-pointer transition-colors ${
+                  grp.isCurrent
+                    ? "bg-accent/80 text-foreground font-semibold border border-border/50"
+                    : "text-foreground/80 hover:bg-accent/50 hover:text-foreground border border-transparent"
+                }`}
               >
-                {isCollapsed ? (
-                  <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
-                ) : (
-                  <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
-                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleProject(grp.id || grp.name);
+                  }}
+                  className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="w-3 h-3 shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3 shrink-0" />
+                  )}
+                </button>
                 {grp.isCloud ? (
                   <Cloud className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                 ) : (
-                  <Folder className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <Folder className="w-3.5 h-3.5 text-primary/80 shrink-0" />
                 )}
-                <span className="truncate flex-1">{grp.name}</span>
+                <span className="truncate flex-1 font-medium" title={grp.path || grp.name}>
+                  {grp.name}
+                </span>
+
+                {grp.isCurrent && (
+                  <span className="text-[9.5px] px-1 py-0.2 rounded bg-primary/15 text-primary font-mono font-medium shrink-0">
+                    当前
+                  </span>
+                )}
+
+                {/* 悬停快捷入口：在该工作区新建会话 */}
+                <button
+                  type="button"
+                  title={`在 ${grp.name} 中新建会话`}
+                  aria-label={`在 ${grp.name} 中新建会话`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (grp.path && p.onSelectWorkspace) {
+                      p.onSelectWorkspace(grp.path, grp.name);
+                    }
+                    p.onNewSession();
+                  }}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
               </div>
 
               {/* Child sessions */}
               {!isCollapsed && (
                 <div className="pl-2 space-y-px border-l border-border ml-3.5 my-0.5">
                   {grp.items.length === 0 ? (
-                    <div className="px-2 py-1 text-[11px] text-muted-foreground">
-                      还没有会话
+                    <div className="px-2 py-1.5 text-[11px] text-muted-foreground flex items-center justify-between">
+                      <span>暂无会话</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (grp.path && p.onSelectWorkspace) {
+                            p.onSelectWorkspace(grp.path, grp.name);
+                          }
+                          p.onNewSession();
+                        }}
+                        className="text-[10px] text-primary hover:underline cursor-pointer"
+                      >
+                        + 新建
+                      </button>
                     </div>
                   ) : (() => {
-                    const isExpanded = Boolean(expandedProjects[grp.name]);
+                    const isExpanded = Boolean(expandedProjects[grp.id || grp.name]);
                     const total = grp.items.length;
                     const needsTruncation = total > MAX_VISIBLE_SESSIONS && !isExpanded;
 
@@ -518,7 +645,12 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
                             session={s}
                             active={s.sessionId === p.activeSessionId}
                             supportsFork={p.supportsFork}
-                            onOpen={p.onOpenSession}
+                            onOpen={(sess) => {
+                              if (sess.cwd && p.onSelectWorkspace && p.currentWorkspace !== sess.cwd) {
+                                p.onSelectWorkspace(sess.cwd, grp.name);
+                              }
+                              p.onOpenSession(sess);
+                            }}
                             onFork={p.onForkSession}
                             onDelete={p.onDeleteSession}
                           />
@@ -540,7 +672,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
                               onClick={() =>
                                 setExpandedProjects((prev) => ({
                                   ...prev,
-                                  [grp.name]: !prev[grp.name],
+                                  [grp.id || grp.name]: !prev[grp.id || grp.name],
                                 }))
                               }
                               className="text-[10px] text-muted-foreground/60 hover:text-foreground px-1 py-0.5 rounded transition-colors"

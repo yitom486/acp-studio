@@ -37,7 +37,12 @@ export function parseGatewayBase(raw: string): GatewayBaseParse {
 function readStoredBase(): string {
   try {
     if (typeof localStorage === "undefined") return "";
-    return localStorage.getItem(GATEWAY_BASE_STORAGE_KEY) || "";
+    let val = localStorage.getItem(GATEWAY_BASE_STORAGE_KEY) || "";
+    if (val === "http://127.0.0.1:3005" || val === "http://localhost:3005") {
+      val = "http://127.0.0.1:13005";
+      localStorage.setItem(GATEWAY_BASE_STORAGE_KEY, val);
+    }
+    return val;
   } catch {
     return "";
   }

@@ -161,10 +161,10 @@ interface StudioState {
   resetThread: () => void;
   /** Snapshot the live view into the persisted per-agent thread record. */
   snapshotThread: () => void;
-  /** Restore an agent's latest thread into the live view (instant, no network). */
-  restoreThread: (agentId: string) => ChatThread | null;
-  /** Start a fresh empty thread for an agent. */
-  newThread: (agentId: string) => ChatThread;
+  /** Restore an agent's latest thread into the live view (instant, no network), optionally scoped to a workspace cwd. */
+  restoreThread: (agentId: string, targetCwd?: string | null) => ChatThread | null;
+  /** Start a fresh empty thread for an agent, optionally scoped to a workspace cwd. */
+  newThread: (agentId: string, targetCwd?: string | null) => ChatThread;
   /** MCP servers carried by an agent's live/latest thread (auto new/resume). */
   threadMcpServers: (agentId: string) => unknown[] | undefined;
   /** Bind an ACP sessionId to the live thread (same agent only). */
@@ -204,17 +204,67 @@ const initialThread = {
 
 export const WINDOW_WORKSPACE_KEY = "acp_window_workspace";
 
+/**
+ * 当前所处环境（local / wsl_<distro> / remote_<host>），用于彻底隔离不同系统的工作区与会话
+ */
+export function getWorkspaceEnv(): string {
+  if (typeof localStorage === "undefined") return "local";
+  const distro = localStorage.getItem("acp_wsl_native_distro");
+  const base = localStorage.getItem("acp_gateway_base");
+  if (distro && base) {
+    return `wsl_${distro.trim().toLowerCase()}`;
+  }
+  if (base) {
+    try {
+      const u = new URL(base);
+      return `remote_${u.host.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+    } catch {
+      return "remote";
+    }
+  }
+  return "local";
+}
+
+export function isLocalMode(): boolean {
+  return getWorkspaceEnv() === "local";
+}
+
+export function getWorkspaceStorageKey(): string {
+  return `acp_workspace_${getWorkspaceEnv()}`;
+}
+
 function loadInitialWorkspaces(): { current: string | null; recents: RecentWorkspace[] } {
   try {
     // 多窗口：每个窗口的“当前工作区”优先取地址栏 ?cwd=（新窗口打开文件夹）→ 本窗口 sessionStorage
-    // → 全局上次使用（localStorage，仅作新窗口的默认值）。
+    // → 当前环境上次使用（localStorage 隔离键，仅作新窗口的默认值）。
     const fromUrl = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("cwd") : null;
     const fromWindow = typeof sessionStorage !== "undefined" ? sessionStorage.getItem(WINDOW_WORKSPACE_KEY) : null;
-    const current = fromUrl || fromWindow || localStorage.getItem("acp_current_workspace");
+    const envKey = getWorkspaceStorageKey();
+
+    let current = fromUrl || fromWindow || (typeof localStorage !== "undefined" ? localStorage.getItem(`${envKey}_current`) : null);
+    let raw = typeof localStorage !== "undefined" ? localStorage.getItem(`${envKey}_recents`) : null;
+
+    // 本机 Windows 模式兼容旧存储键
+    if (isLocalMode() && typeof localStorage !== "undefined") {
+      if (!current) current = localStorage.getItem("acp_current_workspace");
+      if (!raw) raw = localStorage.getItem("acp_recent_workspaces");
+    }
+
+    // WSL 原生真环境下：坚决剔除任何 /mnt/... 挂载路径或 Windows 盘符，WSL 模式只认原生 Linux 路径
+    if (getWorkspaceEnv().startsWith("wsl_")) {
+      if (current && (/^\/mnt\/[a-zA-Z](\/|$)/i.test(current) || /^[a-zA-Z]:[\\\/]/i.test(current))) {
+        current = null;
+      }
+    }
+
     if (fromUrl && typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, fromUrl);
-    const raw = localStorage.getItem("acp_recent_workspaces");
     const recents = raw ? JSON.parse(raw) : [];
-    return { current: current || null, recents: Array.isArray(recents) ? recents : [] };
+    const validRecents = Array.isArray(recents)
+      ? (getWorkspaceEnv().startsWith("wsl_")
+          ? recents.filter((r) => r?.path && !/^\/mnt\/[a-zA-Z](\/|$)/i.test(r.path) && !/^[a-zA-Z]:[\\\/]/i.test(r.path))
+          : recents)
+      : [];
+    return { current: current || null, recents: validRecents };
   } catch {
     return { current: null, recents: [] };
   }
@@ -312,20 +362,75 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
 
   setWorkspace: (targetPath, optName) =>
     set((s) => {
+      const isWsl = getWorkspaceEnv().startsWith("wsl_");
+      // 在 WSL 环境下，坚决拒收 Windows 挂载盘 /mnt/... 路径
+      if (isWsl && /^\/mnt\/[a-zA-Z](\/|$)/i.test(targetPath)) {
+        return {};
+      }
       const name = optName || targetPath.split(/[/\\]/).filter(Boolean).pop() || targetPath;
       const prevRecents = Array.isArray(s.recentWorkspaces) ? s.recentWorkspaces : [];
       const filtered = prevRecents.filter((r) => r.path !== targetPath);
       const nextRecents = [{ path: targetPath, name, lastOpened: Date.now() }, ...filtered].slice(0, 8);
+      const envKey = getWorkspaceStorageKey();
       try {
         if (typeof localStorage !== "undefined") {
-          localStorage.setItem("acp_current_workspace", targetPath);
-          localStorage.setItem("acp_recent_workspaces", JSON.stringify(nextRecents));
+          localStorage.setItem(`${envKey}_current`, targetPath);
+          localStorage.setItem(`${envKey}_recents`, JSON.stringify(nextRecents));
+          if (isLocalMode()) {
+            localStorage.setItem("acp_current_workspace", targetPath);
+            localStorage.setItem("acp_recent_workspaces", JSON.stringify(nextRecents));
+          }
         }
         if (typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, targetPath);
         void window.acpStudio?.workbench?.recentAdd(targetPath)?.catch?.(() => {});
       } catch {
         // ignore storage errors
       }
+
+      // 若工作区发生改变，自动切换到目标工作区专属的会话上下文，杜绝跨工作区串话
+      if (s.currentWorkspace !== targetPath) {
+        // 1. 若当前会话有内容，先妥善保存到当前工作区
+        if (s.activeThreadId && s.messages.length > 0) {
+          const cur = s.threads[s.activeThreadId];
+          if (cur) {
+            const updated = {
+              ...cur,
+              messages: s.messages,
+              sessionId: s.sessionId,
+              cwd: s.currentWorkspace,
+              updatedAt: Date.now(),
+            };
+            const nextThreads = pruneThreads({ ...s.threads, [cur.id]: updated }, [cur.id]);
+            saveThreads(nextThreads);
+          }
+        }
+
+        // 2. 检索目标工作区是否已有历史会话
+        const existing = threadForAgent(s.threads, s.activeAgentId, targetPath);
+        if (existing) {
+          return {
+            currentWorkspace: targetPath,
+            recentWorkspaces: nextRecents,
+            ...initialThread,
+            messages: existing.messages.map((m) => ({ ...m })),
+            sessionId: existing.sessionId,
+            availableCommands: cmdsFor(s, s.activeAgentId, existing.sessionId),
+            activeThreadId: existing.id,
+          };
+        } else {
+          // 3. 目标工作区尚无会话：就地清空为崭新的新会话准备状态
+          return {
+            currentWorkspace: targetPath,
+            recentWorkspaces: nextRecents,
+            ...initialThread,
+            sessionId: null,
+            activeThreadId: null,
+            messages: [],
+            input: "",
+          };
+        }
+      }
+
       return { currentWorkspace: targetPath, recentWorkspaces: nextRecents };
     }),
   setTerminalOpen: (v) => set({ terminalOpen: v }),
@@ -451,6 +556,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         id,
         agentId: s.activeAgentId,
         sessionId: s.sessionId,
+        cwd: s.currentWorkspace,
         messages: s.messages,
         // Preserve the thread's MCP servers across snapshots (auto new/resume).
         mcpServers: prev?.mcpServers,
@@ -460,9 +566,10 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       saveThreads(next);
       return { threads: next, activeThreadId: id };
     }),
-  restoreThread: (agentId) => {
+  restoreThread: (agentId, targetCwd) => {
     const s = useStudioStore.getState();
-    const t = threadForAgent(s.threads, agentId);
+    const cwd = targetCwd !== undefined ? targetCwd : s.currentWorkspace;
+    const t = threadForAgent(s.threads, agentId, cwd);
     if (!t) return null;
     set({
       ...initialThread,
@@ -473,16 +580,18 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     });
     return t;
   },
-  newThread: (agentId) => {
+  newThread: (agentId, targetCwd) => {
     // (same NOTE as threadMcpServers: use creator `get()`, not self-reference)
     const s0 = get();
+    const cwd = targetCwd !== undefined ? targetCwd : s0.currentWorkspace;
     // Continuity: a fresh thread inherits the agent's latest MCP servers so
     // auto-created sessions keep working tools until the user changes them.
-    const inherited = threadForAgent(s0.threads, agentId)?.mcpServers;
+    const inherited = threadForAgent(s0.threads, agentId, cwd)?.mcpServers;
     const t: ChatThread = {
       id: newThreadId(),
       agentId,
       sessionId: null,
+      cwd,
       messages: [],
       mcpServers: inherited,
       updatedAt: Date.now(),

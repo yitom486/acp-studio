@@ -84,17 +84,55 @@ export function pruneThreads(
   return out;
 }
 
-/** Latest thread of an agent (null when the agent has no recorded thread). */
+/**
+ * 标准化路径比较（统一反斜杠、去除尾随斜杠、Windows 盘符首字母统一小写）
+ */
+export function normalizeCwd(cwd?: string | null): string {
+  if (!cwd) return "";
+  const cleaned = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  if (/^[a-zA-Z]:/.test(cleaned)) {
+    return cleaned.charAt(0).toLowerCase() + cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+export function isSameCwd(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  return normalizeCwd(a) === normalizeCwd(b);
+}
+
+/** Latest thread of an agent, optionally scoped to a workspace cwd */
 export function threadForAgent(
   threads: Record<string, ChatThread>,
   agentId: string,
+  cwd?: string | null,
 ): ChatThread | null {
   let best: ChatThread | null = null;
+  const target = cwd ? normalizeCwd(cwd) : null;
   for (const t of Object.values(threads)) {
     if (t.agentId !== agentId) continue;
+    if (target) {
+      if (!t.cwd || normalizeCwd(t.cwd) !== target) continue;
+    }
     if (!best || t.updatedAt > best.updatedAt) best = t;
   }
   return best;
+}
+
+/** Get all threads for a specific workspace cwd */
+export function threadsForCwd(
+  threads: Record<string, ChatThread>,
+  cwd: string,
+  agentId?: string,
+): ChatThread[] {
+  const target = normalizeCwd(cwd);
+  if (!target) return [];
+  const list = Object.values(threads).filter((t) => {
+    if (agentId && t.agentId !== agentId) return false;
+    return Boolean(t.cwd && normalizeCwd(t.cwd) === target);
+  });
+  list.sort((a, b) => b.updatedAt - a.updatedAt);
+  return list;
 }
 
 /** Find a recorded thread by exact sessionId for an agent (optimistic instant switch). */

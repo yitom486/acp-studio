@@ -4,7 +4,7 @@ import { Check, FolderOpen, Loader2, Monitor, Play, Server, Terminal } from "luc
 import { useStudioStore } from "@/stores/useStudioStore";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { getGatewayBase, setGatewayBase, setGatewayToken, gatewayHost } from "@/lib/gateway-auth";
-import { listWslDistros, launchWslGateway } from "@/lib/universal-api";
+import { listWslDistros, launchWslGateway, DEFAULT_WSL_GATEWAY_PORT } from "@/lib/universal-api";
 import { parseWslDistro } from "@/lib/wsl-distro";
 import { runCommand } from "@/lib/commands";
 import { cn } from "@/lib/utils";
@@ -72,9 +72,15 @@ export const RemoteButton: React.FC = () => {
     setConnectingDistro(d);
     setConnectError(null);
     try {
-      const res = await launchWslGateway(d, 3005);
+      const res = await launchWslGateway(d, DEFAULT_WSL_GATEWAY_PORT);
       if (res.ok && res.url) {
         localStorage.setItem("acp_wsl_native_distro", d);
+        // 清理 WSL 环境存储中任何遗留的 Windows 挂载 /mnt/ 路径，确保进入纯 Linux 原生工作区
+        const wslKey = `acp_workspace_wsl_${d.trim().toLowerCase()}`;
+        const savedWslCurrent = localStorage.getItem(`${wslKey}_current`);
+        if (savedWslCurrent && (/^\/mnt\/[a-zA-Z](\/|$)/i.test(savedWslCurrent) || /^[a-zA-Z]:[\\\/]/i.test(savedWslCurrent))) {
+          localStorage.removeItem(`${wslKey}_current`);
+        }
         setGatewayBase(res.url);
         if (res.token) {
           setGatewayToken(res.token, true);

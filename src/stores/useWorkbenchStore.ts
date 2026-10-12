@@ -41,6 +41,9 @@ interface WorkbenchState {
   workspacePickerOpen: boolean;
   workspacePickerDistro: string | null;
   workspacePickerInitialPath: string | null;
+  workspacePickerTitle: string | null;
+  workspacePickerConfirmLabel: string | null;
+  workspacePickerOnSelect: ((path: string) => void) | null;
   tabs: EditorTab[];
   activeId: string | null;
   setSidebarOpen: (v: boolean) => void;
@@ -48,7 +51,13 @@ interface WorkbenchState {
   openSettings: (tab?: SettingsTab) => void;
   closeSettings: () => void;
   setPaletteOpen: (v: boolean, query?: string) => void;
-  openWorkspacePicker: (opts?: { distro?: string | null; initialPath?: string | null }) => void;
+  openWorkspacePicker: (opts?: {
+    distro?: string | null;
+    initialPath?: string | null;
+    title?: string | null;
+    confirmLabel?: string | null;
+    onSelect?: (path: string) => void;
+  }) => void;
   closeWorkspacePicker: () => void;
   openTab: (tab: Omit<EditorTab, "preview"> & { preview?: boolean }) => void;
   patchTab: (id: string, patch: Partial<EditorTab>) => void;
@@ -88,6 +97,9 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   workspacePickerOpen: false,
   workspacePickerDistro: null,
   workspacePickerInitialPath: null,
+  workspacePickerTitle: null,
+  workspacePickerConfirmLabel: null,
+  workspacePickerOnSelect: null,
   tabs: [],
   activeId: null,
   setSidebarOpen: (v) => {
@@ -106,12 +118,18 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       workspacePickerOpen: true,
       workspacePickerDistro: opts?.distro ?? null,
       workspacePickerInitialPath: opts?.initialPath ?? null,
+      workspacePickerTitle: opts?.title ?? null,
+      workspacePickerConfirmLabel: opts?.confirmLabel ?? null,
+      workspacePickerOnSelect: opts?.onSelect ?? null,
     }),
   closeWorkspacePicker: () =>
     set({
       workspacePickerOpen: false,
       workspacePickerDistro: null,
       workspacePickerInitialPath: null,
+      workspacePickerTitle: null,
+      workspacePickerConfirmLabel: null,
+      workspacePickerOnSelect: null,
     }),
   openTab: (tab) =>
     set((s) => {

@@ -10,11 +10,26 @@ import { corsHeaders as secureCorsHeaders, ensureGatewayToken, requireAuth } fro
 import { execSync } from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import * as os from "node:os";
 
 export function setupEnv() {
   // 生成/复用网关 token 并注入进程环境，同一机器前后端共享（详见 universal/security.ts）。
   const token = ensureGatewayToken();
   if (!process.env.ACP_GATEWAY_TOKEN) process.env.ACP_GATEWAY_TOKEN = token;
+
+  // 确保在 Linux / WSL 环境下，PATH 始终优先包含 ~/.bun/bin 和 ~/.local/bin，
+  // 避免子进程穿透到 Windows 挂载过来的 /mnt/c/... 中的 node.exe / npx 造成极端慢速与跨系统问题。
+  if (process.platform === "linux") {
+    const home = os.homedir();
+    const bunBin = path.join(home, ".bun", "bin");
+    const localBin = path.join(home, ".local", "bin");
+    const existing = process.env.PATH || "";
+    const parts = existing.split(path.delimiter);
+    const toAdd = [bunBin, localBin, "/usr/local/bin"].filter((p) => !parts.includes(p) && fs.existsSync(p));
+    if (toAdd.length > 0) {
+      process.env.PATH = [...toAdd, existing].join(path.delimiter);
+    }
+  }
 }
 
 function parseArg(key: string): string | null {

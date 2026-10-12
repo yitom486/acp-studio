@@ -129,7 +129,12 @@ export default function App() {
   const sessionsQuery = useSessionsQuery(s.activeAgentId, connected);
   const sessions = sessionsQuery.data ?? [];
   const sessionCwd = sessions.find((x) => x.sessionId === s.sessionId)?.cwd || null;
-  const effectiveCwd = s.currentWorkspace || sessionCwd;
+  const isWsl = Boolean(typeof localStorage !== "undefined" && localStorage.getItem("acp_wsl_native_distro"));
+  const rawEffective = s.currentWorkspace || sessionCwd;
+  // WSL 纯净模式：绝不把 Windows 挂载盘 /mnt/... 当作有效工作区
+  const effectiveCwd = (isWsl && rawEffective && /^\/mnt\/[a-zA-Z](\/|$)/i.test(rawEffective))
+    ? (s.currentWorkspace && !/^\/mnt\//i.test(s.currentWorkspace) ? s.currentWorkspace : null)
+    : rawEffective;
 
   const caps = (activeAgent?.status?.agentCapabilities || {}) as any;
   const sessionCaps = (caps.sessionCapabilities || {}) as Record<string, unknown>;

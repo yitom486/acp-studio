@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { X, FolderGit2, Network, Boxes, FolderOpen } from "lucide-react";
+import { X, FolderGit2, Network, Boxes, FolderOpen, AlertTriangle, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 
 export interface SessionSettings {
   cwd: string;
@@ -23,28 +24,38 @@ const MCP_EXAMPLE = `[
 ]`;
 
 export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = (p) => {
-  const [cwd, setCwd] = useState(p.defaultCwdHint || "");
+  const isWslNative = typeof localStorage !== "undefined" && Boolean(localStorage.getItem("acp_wsl_native_distro"));
+  const wslDistro = typeof localStorage !== "undefined" ? localStorage.getItem("acp_wsl_native_distro") : null;
+  // 在 WSL 环境下，绝对不能采用 /mnt/... 作为默认 cwd hint
+  const effectiveHint = (isWslNative && p.defaultCwdHint && /^\/mnt\/[a-zA-Z](\/|$)/i.test(p.defaultCwdHint))
+    ? ""
+    : (p.defaultCwdHint || "");
+
+  const [cwd, setCwd] = useState(effectiveHint);
   const [extraDirs, setExtraDirs] = useState("");
   const [mcpJson, setMcpJson] = useState("[]");
   const [error, setError] = useState<string | null>(null);
 
+  const openWorkspacePicker = useWorkbenchStore((s) => s.openWorkspacePicker);
+  const isMntPath = /^\/mnt\/[a-zA-Z](\/|$)/i.test(cwd.trim());
+
   useEffect(() => {
-    if (p.isOpen && !cwd && p.defaultCwdHint) {
-      setCwd(p.defaultCwdHint);
+    if (p.isOpen && !cwd && effectiveHint) {
+      setCwd(effectiveHint);
     }
-  }, [p.isOpen, p.defaultCwdHint, cwd]);
+  }, [p.isOpen, effectiveHint, cwd]);
 
   if (!p.isOpen) return null;
 
-  const handleBrowseCwd = async () => {
-    if (window.acpStudio?.openDirectory) {
-      try {
-        const chosen = await window.acpStudio.openDirectory();
-        if (chosen) setCwd(chosen);
-      } catch (err: any) {
-        setError("选择文件夹失败: " + err.message);
-      }
-    }
+  const handleBrowseCwd = () => {
+    openWorkspacePicker({
+      initialPath: cwd || p.defaultCwdHint || undefined,
+      title: isWslNative ? `选择 WSL (${wslDistro || "Ubuntu"}) 工作目录 (cwd)` : "选择会话工作目录 (cwd)",
+      confirmLabel: "选择此目录",
+      onSelect: (chosen) => {
+        setCwd(chosen);
+      },
+    });
   };
 
   const handleCreate = () => {
@@ -77,7 +88,7 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = (p) => 
           </button>
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <span className="flex items-center gap-1.5 font-semibold text-muted-foreground">
             <FolderGit2 className="w-3.5 h-3.5" /> 工作目录 cwd（绝对路径，留空用工作区默认）
           </span>
@@ -85,24 +96,57 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = (p) => 
             <input
               value={cwd}
               onChange={(e) => setCwd(e.target.value)}
-              placeholder={p.defaultCwdHint || "D:/project/..."}
+              placeholder={effectiveHint || (isWslNative || cwd.startsWith("/") ? "~ 或 /home/username/project" : "D:/project/...")}
               spellCheck={false}
               className="flex-1 rounded-lg bg-background border border-border px-3 py-1.5 font-mono text-[11px] outline-none focus:border-primary"
             />
-            {typeof window !== "undefined" && Boolean(window.acpStudio?.openDirectory) && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleBrowseCwd}
-                className="h-8 px-2.5 text-xs gap-1 shrink-0"
-                title="选择本地文件夹"
-              >
-                <FolderOpen className="w-3.5 h-3.5 text-primary" />
-                <span>浏览</span>
-              </Button>
-            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleBrowseCwd}
+              className="h-8 px-2.5 text-xs gap-1 shrink-0"
+              title={isWslNative ? "浏览 WSL 原生 Linux 目录" : "选择工作目录"}
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-primary" />
+              <span>浏览</span>
+            </Button>
           </div>
+
+          {/* WSL 原生快捷项 */}
+          {isWslNative && (
+            <div className="flex items-center gap-1.5 pt-0.5 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Terminal className="w-3 h-3 text-emerald-500" />
+                <span>WSL 原生:</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleBrowseCwd}
+                className="rounded px-1.5 py-0.5 bg-muted hover:bg-accent text-foreground font-mono transition-colors border border-border/40"
+                title="浏览 WSL 原生 Linux 目录"
+              >
+                浏览 ext4 目录…
+              </button>
+            </div>
+          )}
+
+          {/* 检测到 Windows 跨界挂载盘 (/mnt/...) 时的性能警示与一键指引 */}
+          {isMntPath && (
+            <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-500/10 border border-amber-500/25 px-2.5 py-1.5 text-[11px] text-amber-500">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">当前路径在 Windows 挂载盘 (/mnt/...)，跨界 9P I/O 开销较大</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleBrowseCwd}
+                className="underline hover:text-amber-400 font-medium shrink-0 ml-1 text-xs"
+              >
+                选择 WSL 原生目录
+              </button>
+            </div>
+          )}
         </div>
 
         {p.supportsAdditionalDirs && (
@@ -113,7 +157,7 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = (p) => 
               onChange={(e) => setExtraDirs(e.target.value)}
               rows={2}
               spellCheck={false}
-              placeholder={"D:/shared-lib\nD:/product-docs"}
+              placeholder={isWslNative ? "/home/username/shared-lib\n/home/username/docs" : "D:/shared-lib\nD:/product-docs"}
               className="w-full rounded-lg bg-background border border-border px-3 py-1.5 font-mono text-[11px] outline-none focus:border-primary"
             />
           </label>

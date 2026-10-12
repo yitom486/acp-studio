@@ -3,7 +3,7 @@
  * workspace in the UI) and the read-only file browser used by @-mentions.
  */
 import { Hono, type Context } from "hono";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -42,7 +42,9 @@ workspaceRouter.get("/wsl-distros", () => {
   if (process.platform !== "win32") return json({ ok: true, distros: [] as string[] });
   try {
     // 注意：wsl.exe 列表输出是 UTF-16，必须 utf16le 解码，否则全是 \0 间隔的乱码。
+    // 明确传入 stdio: ["ignore", "pipe", "pipe"]，避免 wsl.exe 等待 stdin 造成卡顿超时。
     const r = spawnSync("wsl.exe", ["-l", "-q"], {
+      stdio: ["ignore", "pipe", "pipe"],
       encoding: "utf16le",
       timeout: 10000,
       windowsHide: true,
@@ -66,8 +68,11 @@ workspaceRouter.get("/wsl-distros", () => {
 });
 
 workspaceRouter.get("/default", () => {
-  const cwd = process.cwd();
-  return json({ ok: true, path: cwd, name: path.basename(cwd) });
+  let cwd = process.cwd();
+  if (process.platform === "linux" && /^\/mnt\/[a-zA-Z](\/|$)/.test(cwd)) {
+    cwd = os.homedir();
+  }
+  return json({ ok: true, path: cwd, name: path.basename(cwd) || "home" });
 });
 
 const validateBody = z.looseObject({ path: optStr });
@@ -437,7 +442,7 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
   }
   const body = c.get("body");
   const distro = body.distro.trim();
-  const port = body.port || 3005;
+  const port = body.port || 13005;
   const token = ensureGatewayToken();
 
   // 1. 探针：检查 port 是否已经有健康的网关且令牌匹配
@@ -456,18 +461,65 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
     return json({ ok: true, url: `http://127.0.0.1:${port}`, distro, reused: true, token });
   }
 
+  // 异步执行 WSL 脚本辅助函数：通过 stdio ignore 避免 stdin 挂起，且绝不阻塞 Bun 主事件循环
+  const execWsl = (
+    bashScript: string,
+    timeoutMs = 15000
+  ): Promise<{ stdout: string; stderr: string; code: number | null; error?: Error }> => {
+    return new Promise((resolve) => {
+      let stdout = "";
+      let stderr = "";
+      let finished = false;
+
+      const child = spawn("wsl.exe", ["-d", distro, "--", "bash", "-lc", bashScript], {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+
+      const timer = setTimeout(() => {
+        if (!finished) {
+          finished = true;
+          try {
+            child.kill();
+          } catch {}
+          resolve({
+            stdout,
+            stderr,
+            code: null,
+            error: new Error(`WSL 命令执行超时 (${timeoutMs}ms)`),
+          });
+        }
+      }, timeoutMs);
+
+      child.stdout?.on("data", (chunk) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.stderr?.on("data", (chunk) => {
+        stderr += chunk.toString("utf8");
+      });
+
+      child.on("error", (err) => {
+        if (!finished) {
+          finished = true;
+          clearTimeout(timer);
+          resolve({ stdout, stderr, code: null, error: err });
+        }
+      });
+
+      child.on("close", (code) => {
+        if (!finished) {
+          finished = true;
+          clearTimeout(timer);
+          resolve({ stdout, stderr, code });
+        }
+      });
+    });
+  };
+
   // 2. 检测 WSL 内部的 runtime (bun 或 node)，通过 bash -lc 加载完整环境与 PATH
-  const probeRuntime = spawnSync(
-    "wsl.exe",
-    [
-      "-d",
-      distro,
-      "--",
-      "bash",
-      "-lc",
-      "command -v bun || [ -x ~/.bun/bin/bun ] && echo ~/.bun/bin/bun || command -v node",
-    ],
-    { encoding: "utf8", timeout: 8000, windowsHide: true }
+  const probeRuntime = await execWsl(
+    `export PATH="$HOME/.bun/bin:$PATH" && (command -v bun || [ -x ~/.bun/bin/bun ] && echo ~/.bun/bin/bun || command -v node)`,
+    12000
   );
 
   const runtimeLines = (probeRuntime.stdout || "")
@@ -482,6 +534,13 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
       {
         ok: false,
         error: `WSL 发行版 [${distro}] 内未检测到 Bun 或 Node 环境。\n请在 WSL 中运行: curl -fsSL https://bun.sh/install | bash 进行安装。`,
+        debug: {
+          distro,
+          code: probeRuntime.code,
+          stdout: probeRuntime.stdout,
+          stderr: probeRuntime.stderr,
+          error: probeRuntime.error ? probeRuntime.error.message : null,
+        },
       },
       400
     );
@@ -499,20 +558,16 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
 
   // 4. 以后台守护进程方式在 WSL 内部启动网关（自动同步同一令牌，重定向输入避免终端退出时断开）
   const logFile = `/tmp/acp-wsl-gateway-${port}.log`;
-  const launchScript = `mkdir -p ~/.acp-studio && echo '${token}' > ~/.acp-studio/.gateway-token && cd "${linuxProjectRoot}" && export ACP_GATEWAY_TOKEN='${token}' && export PORT=${port} && export HOST=0.0.0.0 && nohup ${runtime} server/index.ts --port ${port} --host 0.0.0.0 < /dev/null > "${logFile}" 2>&1 & sleep 1`;
+  const launchScript = `mkdir -p ~/.acp-studio && echo '${token}' > ~/.acp-studio/.gateway-token && cd "${linuxProjectRoot}" && export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH" && export ACP_GATEWAY_TOKEN='${token}' && export PORT=${port} && export HOST=0.0.0.0 && nohup ${runtime} server/index.ts --port ${port} --host 0.0.0.0 < /dev/null > "${logFile}" 2>&1 & sleep 1`;
 
-  const launchProc = spawnSync("wsl.exe", ["-d", distro, "--", "bash", "-lc", launchScript], {
-    timeout: 10000,
-    windowsHide: true,
-  });
-
-  if (launchProc.error) {
-    return json({ ok: false, error: `启动 WSL 网关失败: ${launchProc.error.message}` }, 500);
+  const launchResult = await execWsl(launchScript, 10000);
+  if (launchResult.error) {
+    return json({ ok: false, error: `启动 WSL 网关失败: ${launchResult.error.message}` }, 500);
   }
 
-  // 5. 等待网关就绪（轮询最多 8 秒）
+  // 5. 等待网关就绪（轮询最多 10 秒）
   const start = Date.now();
-  while (Date.now() - start < 8000) {
+  while (Date.now() - start < 10000) {
     await new Promise((r) => setTimeout(r, 400));
     if (await probe()) {
       return json({ ok: true, url: `http://127.0.0.1:${port}`, distro, reused: false, token });
@@ -520,11 +575,7 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
   }
 
   // 若超时，读取日志
-  const readLog = spawnSync("wsl.exe", ["-d", distro, "--", "cat", logFile], {
-    encoding: "utf8",
-    timeout: 3000,
-    windowsHide: true,
-  });
+  const readLog = await execWsl(`cat "${logFile}"`, 3000);
   const errLog = (readLog.stdout || "").replace(/\0/g, "").slice(-500);
 
   return json(

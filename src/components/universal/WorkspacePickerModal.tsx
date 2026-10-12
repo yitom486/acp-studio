@@ -24,7 +24,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
-import { browseDirectories, launchWslGateway, type BrowseDirectoriesResult, type BrowseDirectoryEntry } from "@/lib/universal-api";
+import { browseDirectories, launchWslGateway, DEFAULT_WSL_GATEWAY_PORT, type BrowseDirectoriesResult, type BrowseDirectoryEntry } from "@/lib/universal-api";
 import { getGatewayBase, setGatewayBase, setGatewayToken } from "@/lib/gateway-auth";
 import { runCommand } from "@/lib/commands";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,9 @@ export const WorkspacePickerModal: React.FC = () => {
   const open = useWorkbenchStore((s) => s.workspacePickerOpen);
   const targetDistro = useWorkbenchStore((s) => s.workspacePickerDistro);
   const initialPath = useWorkbenchStore((s) => s.workspacePickerInitialPath);
+  const customTitle = useWorkbenchStore((s) => s.workspacePickerTitle);
+  const customConfirmLabel = useWorkbenchStore((s) => s.workspacePickerConfirmLabel);
+  const onSelectCallback = useWorkbenchStore((s) => s.workspacePickerOnSelect);
   const close = useWorkbenchStore((s) => s.closeWorkspacePicker);
 
   const base = getGatewayBase();
@@ -103,12 +106,16 @@ export const WorkspacePickerModal: React.FC = () => {
     return currentPath;
   }, [selectedIndex, filteredEntries, currentPath]);
 
-  // 打开并加载为工作区
+  // 打开并加载为工作区（或触发回调）
   const handleConfirmOpen = (pathOrCurrent?: string) => {
     const target = pathOrCurrent || activeSelectedPath;
     if (!target) return;
     close();
-    void runCommand("workspace.open", target);
+    if (onSelectCallback) {
+      onSelectCallback(target);
+    } else {
+      void runCommand("workspace.open", target);
+    }
   };
 
   // 键盘快捷键监听
@@ -181,7 +188,13 @@ export const WorkspacePickerModal: React.FC = () => {
     if (window.acpStudio?.openDirectory) {
       try {
         const picked = await window.acpStudio.openDirectory({ defaultPath: currentPath || undefined });
-        if (picked) void runCommand("workspace.open", picked);
+        if (picked) {
+          if (onSelectCallback) {
+            onSelectCallback(picked);
+          } else {
+            void runCommand("workspace.open", picked);
+          }
+        }
       } catch {}
     }
   };
@@ -231,7 +244,7 @@ export const WorkspacePickerModal: React.FC = () => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-100"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-100"
       onClick={(e) => {
         if (e.target === e.currentTarget) close();
       }}
@@ -240,13 +253,15 @@ export const WorkspacePickerModal: React.FC = () => {
         className="flex h-[540px] w-full max-w-2xl flex-col rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl overflow-hidden"
         role="dialog"
         aria-modal="true"
-        aria-label="选择工作区文件夹"
+        aria-label={customTitle || "选择工作区文件夹"}
       >
         {/* 头部：标题与环境指示 */}
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/80 px-3.5 bg-muted/20">
           <div className="flex items-center gap-2">
             <Folder className="h-4 w-4 text-primary shrink-0" />
-            <span className="font-semibold text-xs text-foreground tracking-tight">打开工作区文件夹</span>
+            <span className="font-semibold text-xs text-foreground tracking-tight">
+              {customTitle || "打开工作区文件夹"}
+            </span>
             {targetDistro ? (
               <span className="flex items-center gap-1 rounded-sm bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] text-primary font-medium">
                 <Terminal className="h-3 w-3" />
@@ -461,7 +476,7 @@ export const WorkspacePickerModal: React.FC = () => {
                     onClick={async () => {
                       setReconnectingWsl(true);
                       try {
-                        const res = await launchWslGateway(wslNativeDistro, 3005);
+                        const res = await launchWslGateway(wslNativeDistro, DEFAULT_WSL_GATEWAY_PORT);
                         if (res.ok && res.url) {
                           if (res.token) setGatewayToken(res.token, true);
                           await loadPath(undefined, null);
@@ -573,7 +588,7 @@ export const WorkspacePickerModal: React.FC = () => {
               className="flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity shadow-sm"
             >
               <Check className="h-3.5 w-3.5" />
-              <span>打开为工作区</span>
+              <span>{customConfirmLabel || (onSelectCallback ? "选择此目录" : "打开为工作区")}</span>
             </button>
           </div>
         </div>
