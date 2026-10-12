@@ -97,6 +97,8 @@ interface StudioState {
   terminalOpen: boolean;
   /** 聊天卡片“在终端中打开”预填的命令：只填行、不执行，由抽屉消费后清零。 */
   terminalPrefill: string | null;
+  /** 同卡片携带的工具执行 cwd（可空：空即回落工作区）；抽屉消费后清零。 */
+  terminalCwd: string | null;
   gitChangesOpen: boolean;
   gitDiffFile: string | null;
 
@@ -114,6 +116,7 @@ interface StudioState {
   setWorkspace: (path: string, name?: string) => void;
   setTerminalOpen: (v: boolean) => void;
   setTerminalPrefill: (cmd: string | null) => void;
+  setTerminalCwd: (cwd: string | null) => void;
   setGitChangesOpen: (v: boolean, file?: string | null) => void;
   setActiveAgentId: (id: string) => void;
   setConnectingId: (id: string | null) => void;
@@ -301,6 +304,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   recentWorkspaces: initialWorkspaces.recents,
   terminalOpen: false,
   terminalPrefill: null,
+  terminalCwd: null,
   gitChangesOpen: false,
   gitDiffFile: null,
 
@@ -326,6 +330,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
     }),
   setTerminalOpen: (v) => set({ terminalOpen: v }),
   setTerminalPrefill: (cmd) => set({ terminalPrefill: cmd }),
+  setTerminalCwd: (cwd) => set({ terminalCwd: cwd }),
   setGitChangesOpen: (v, file) => set({ gitChangesOpen: v, gitDiffFile: file ?? null }),
 
   setActiveAgentId: (id) => set({ activeAgentId: id }),
@@ -598,6 +603,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       respondingId: null,
       terminalOpen: false,
       terminalPrefill: null,
+      terminalCwd: null,
       gitChangesOpen: false,
       gitDiffFile: null,
     })
@@ -652,6 +658,7 @@ const STUDIO_SHALLOW_SELECTOR = (s: StudioState) => ({
   recentWorkspaces: s.recentWorkspaces,
   terminalOpen: s.terminalOpen,
   terminalPrefill: s.terminalPrefill,
+  terminalCwd: s.terminalCwd,
   gitChangesOpen: s.gitChangesOpen,
   gitDiffFile: s.gitDiffFile,
   // thread bookkeeping
@@ -664,6 +671,7 @@ const STUDIO_SHALLOW_SELECTOR = (s: StudioState) => ({
   setWorkspace: s.setWorkspace,
   setTerminalOpen: s.setTerminalOpen,
   setTerminalPrefill: s.setTerminalPrefill,
+  setTerminalCwd: s.setTerminalCwd,
   setGitChangesOpen: s.setGitChangesOpen,
   setAuthOpen: s.setAuthOpen,
   setSettingsOpen: s.setSettingsOpen,

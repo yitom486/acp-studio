@@ -6,7 +6,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import "@xterm/xterm/css/xterm.css";
-import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder, Square, Search, ChevronUp, ChevronDown, Download, RefreshCw } from "lucide-react";
+import { Terminal as TerminalIcon, X, Maximize2, Minimize2, Trash2, Folder, Square, Search, ChevronUp, ChevronDown, Download, RefreshCw, Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 import { useStudioStore } from "@/stores/useStudioStore";
@@ -212,6 +212,10 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   const [ptyDead, setPtyDead] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const ptyIdRef = useRef<string>("");
+  // 当前 PTY 会话建连时用的 cwd（shell 内 cd 后即漂移，仅用于“卡片 cwd 与会话是否同目录”的诚实提示）。
+  const sessionCwdRef = useRef<string>("");
+  // 卡片携带的工具 cwd 暂存（探活 effect 消费 store 后放这里，供预填 effect 在注入时做 mismatch 提示）。
+  const cardCwdRef = useRef<string | null>(null);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setMode = (m: TerminalMode) => {
     modeRef.current = m;
@@ -283,7 +287,9 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   };
 
   useEffect(() => {
-    if (!isOpen || !containerRef.current) return;
+    if (!containerRef.current) return;
+    // 首创等首次打开（隐藏时容器 0 宽，fit 会量到 0）；已有实例时隐藏也保留在 DOM 内不断开。
+    if (!isOpen && !termRef.current) return;
 
     if (!termRef.current) {
       const vars = readTerminalCssVars();
@@ -630,10 +636,26 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
   // 聊天卡片“在终端中打开”：预填命令到当前行，绝不自动执行。
   // 抽屉刚打开时终端可能还没建好（同一 effect 内创建），轮询等就绪；
   // 若有命令正在跑则保留 prefill，等下一轮就绪再填（3s 上限）。
+  // 卡片 cwd 与现存活会话不同目录时只提示、不切会话（loud 原则，不悄悄杀 shell）。
   useEffect(() => {
     if (!isOpen || !prefill) return;
     let cancelled = false;
     let tries = 0;
+    const consumePrefill = () => {
+      useStudioStore.getState().setTerminalPrefill(null);
+      const cardCwd = cardCwdRef.current;
+      cardCwdRef.current = null;
+      const live = wsRef.current;
+      if (
+        cardCwd &&
+        modeRef.current === "pty" &&
+        live && live.readyState === WebSocket.OPEN &&
+        sessionCwdRef.current &&
+        cardCwd.toLowerCase() !== sessionCwdRef.current.toLowerCase()
+      ) {
+        note(`[工具目录与当前 shell 目录不同，仅填入命令，未切换会话]`);
+      }
+    };
     const attempt = () => {
       if (cancelled) return;
       const term = termRef.current;
@@ -643,7 +665,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
           const ws = wsRef.current;
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(prefill);
-            useStudioStore.getState().setTerminalPrefill(null);
+            consumePrefill();
             return;
           }
         } else if (modeRef.current === "oneshot") {
@@ -653,7 +675,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
           }
           currentLineRef.current = prefill;
           term.write(prefill);
-          useStudioStore.getState().setTerminalPrefill(null);
+          consumePrefill();
           return;
         }
       }
@@ -713,6 +735,18 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     }
   };
 
+  // 显式结束会话：关 WS（服务端随连接杀 shell），置 dead 露出重连入口。
+  // 与右上 X 区分：X 只隐藏，会话保留。
+  const handleKillPty = () => {
+    closePty();
+    sessionCwdRef.current = "";
+    cardCwdRef.current = null;
+    if (modeRef.current === "pty") {
+      setPtyDead(true);
+      note("[PTY 会话已手动结束，点重连新建会话]");
+    }
+  };
+
   const enterOneshotFallback = (reason: string | null) => {
     closePty();
     setMode("oneshot");
@@ -722,13 +756,16 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
 
   // PTY 连接：候选基址逐个试（同源 → 回环直连），全败即回落 oneshot。
   // 每次连接用新 ptyId；服务端同 id 重入会先杀旧会话，天然防重影。
-  const connectPty = () => {
+  // cwdOverride（卡片携带的工具 cwd）优先于当前工作区；建连目录记入 sessionCwdRef。
+  const connectPty = (cwdOverride?: string) => {
     const term = termRef.current;
     if (!term) return;
-    if (!hasCwd) {
+    const sessionCwd = (cwdOverride?.trim() || activeCwd).trim();
+    if (!sessionCwd) {
       enterOneshotFallback("未选择工作目录");
       return;
     }
+    sessionCwdRef.current = sessionCwd;
     ptyIdRef.current = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const ptyId = ptyIdRef.current;
     const bases = ptyWsCandidateBases(window.location.host, window.location.protocol);
@@ -739,7 +776,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
         return;
       }
       let settled = false;
-      const ws = new WebSocket(withTokenQuery(buildPtyWsUrl(bases[i], ptyId, activeCwd, 80, 24)));
+      const ws = new WebSocket(withTokenQuery(buildPtyWsUrl(bases[i], ptyId, sessionCwd, 80, 24)));
       ws.onopen = () => {
         settled = true;
         wsRef.current = ws;
@@ -798,36 +835,65 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     }, 300);
   };
 
-  // 打开即探活：PTY 可用走 WS，不可用（Bun dev）回落单次；关闭即断 WS。
+  // 打开即探活，隐藏只藏不杀：WS/shell 跨开关保留，真卸载才断（见下）。
+  // 卡片 cwd 在此 single-owner 消费：有则切 resolvedCwd + 建连用它，并暂存供预填做 mismatch 提示。
   useEffect(() => {
     if (!isOpen) return;
+    // 活连接仍在：只重排版，不重建（shell 状态零打扰）。
+    const live = wsRef.current;
+    if (modeRef.current === "pty" && live && live.readyState === WebSocket.OPEN) {
+      try {
+        fitAddonRef.current?.fit();
+      } catch {
+        // ignore
+      }
+      notifyPtyResize();
+      return;
+    }
     let cancelled = false;
     setMode("probing");
     setPtyDead(false);
+    const st = useStudioStore.getState();
+    const cardCwd = (st.terminalCwd || "").trim() || null;
+    if (cardCwd) {
+      cardCwdRef.current = cardCwd;
+      setResolvedCwd(cardCwd);
+      st.setTerminalCwd(null);
+    }
+    const connectCwd = cardCwd || activeCwd;
     ptyStatus()
-      .then((st) => {
+      .then((s) => {
         if (cancelled) return;
-        if (st.available) connectPty();
-        else enterOneshotFallback(st.reason);
+        if (s.available) connectPty(connectCwd);
+        else enterOneshotFallback(s.reason);
       })
       .catch(() => {
         if (!cancelled) enterOneshotFallback("网关不可达");
       });
     return () => {
       cancelled = true;
-      closePty();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  // 真卸载才断 WS（隐藏不断，会话保留）。
+  useEffect(() => () => closePty(), []);
+
+  // 藏而不杀：从未打开过才不占 DOM；打开过后关闭只 display:none，
+  // xterm/WS/shell 全保留，重开零重建（兼修“二次打开白屏”：旧代码 return null
+  // 拆掉了 xterm 挂载点，重开又不再 open）。hooks 都在上面，提前 return 安全。
+  const hidden = !isOpen;
+  if (hidden && !termRef.current) return null;
 
   // 最大化：占视口主体（留边），禁用拖拽/缩放。
-  const panelStyle: React.CSSProperties = maximized
+  const basePanelStyle: React.CSSProperties = maximized
     ? { left: 16, right: 16, top: 16, bottom: 16 }
     : geom
       ? { left: geom.x, top: geom.y, width: geom.w, height: geom.h }
       : { right: 16, bottom: 16, width: 640, height: 340 };
+  const panelStyle: React.CSSProperties = hidden
+    ? { ...basePanelStyle, display: "none" }
+    : basePanelStyle;
 
   const resizeHandle = (dir: TerminalResizeDir, className: string, cursor: string) => (
     <div
@@ -841,6 +907,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     <div
       className="fixed z-40 bg-card border border-border rounded-xl shadow-xl flex flex-col overflow-hidden"
       style={panelStyle}
+      aria-hidden={hidden}
     >
       {/* Terminal Title Bar（拖拽手柄；按钮区 stopPropagation 不触发拖动） */}
       <div
@@ -907,6 +974,17 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
               <span className="hidden sm:inline">停止</span>
             </Button>
           )}
+          {mode === "pty" && !ptyDead && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleKillPty}
+              className="h-6 w-6 p-0 hover:text-destructive"
+              title="结束 PTY 会话（右上 X 只隐藏、会话保留；这里才真正杀 shell）"
+            >
+              <Power className="w-3.5 h-3.5" />
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -951,7 +1029,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
             variant="ghost"
             onClick={onClose}
             className="h-6 w-6 p-0 hover:text-destructive"
-            title="收起终端 (快捷键 Ctrl+`)"
+            title="隐藏终端，会话保留（Ctrl+` 切回；杀会话请点电源按钮）"
           >
             <X className="w-3.5 h-3.5" />
           </Button>

@@ -347,6 +347,10 @@ export const TerminalCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
   const openInTerminal = () => {
     if (!cmd) return;
     const st = useStudioStore.getState();
+    // 工具自带的执行目录（有则带，无则空→抽屉回落当前工作区，绝不编造）。
+    const toolCwd =
+      strField(tc.rawInput, ["cwd", "workdir", "workDir", "dir", "directory"]) || null;
+    st.setTerminalCwd(toolCwd);
     st.setTerminalPrefill(cmd);
     st.setTerminalOpen(true);
   };
