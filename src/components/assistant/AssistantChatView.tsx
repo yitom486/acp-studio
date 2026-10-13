@@ -253,7 +253,7 @@ const AcpReasoningView: React.FC<{
 type AcpToolCall = WidgetTool;
 
 /** 单条工具行（未知种类回落；含 Diff 快捷入口 + 内联审批）。 */
-const ToolCallRow: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
+const ToolCallRow: React.FC<{ tc: AcpToolCall }> = React.memo(({ tc }) => {
   const { kind = "", status } = tc;
   const displayTitle = resolveToolDisplayTitle(tc);
   const targetFile = extractFileFromTool(displayTitle) || toolPath(tc);
@@ -287,10 +287,10 @@ const ToolCallRow: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
       <InlineApproval tc={tc} />
     </div>
   );
-};
+});
 
-/** 按工具种类分发富卡片，未知种类回落通用行。 */
-const ToolWidget: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
+/** 按工具种类分发富卡片，未知种类回落通用行。Memoized 避免无关流式更新时重复刷新已完成卡片。 */
+const ToolWidget: React.FC<{ tc: AcpToolCall }> = React.memo(({ tc }) => {
   switch (resolveWidgetKey(tc)) {
     case "terminal":
       return <TerminalCard tc={tc} />;
@@ -303,25 +303,48 @@ const ToolWidget: React.FC<{ tc: AcpToolCall }> = ({ tc }) => {
     default:
       return <ToolCallRow tc={tc} />;
   }
-};
+});
 
 /**
  * 工具折叠组（社区 ToolGroup 模式）：连续工具调用收成一行摘要，
  * 运行时默认展开、完成后自动收起，不再逐条侵入正文。
- * 用户手动切换后尊重用户意图；若再次有新工具运行则重新自动展开。
+ * 限制最大高度约 5 条工具（max-h-[220px]），超出时在内部容器平滑滚动，
+ * 杜绝撑大破坏外部聊天正文排版，避免卡片剧烈忽大忽小；
+ * 状态文案展示成功比例（如 67/68 成功），杜绝少量失败/重试引发恐慌。
  */
-const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = ({ tools, running = false }) => {
-  const activeTools = tools.filter((t) => t.status === "running" || t.status === "pending");
-  const failed = tools.some((t) => t.status === "failed");
+const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = React.memo(({ tools, running = false }) => {
+  const activeTools = React.useMemo(
+    () => tools.filter((t) => t.status === "running" || t.status === "pending"),
+    [tools]
+  );
+  const failedTools = React.useMemo(
+    () => tools.filter((t) => t.status === "failed"),
+    [tools]
+  );
   const anyActive = activeTools.length > 0;
+  const total = tools.length;
+  const failedCount = failedTools.length;
+  const successCount = Math.max(0, total - failedCount);
+
   const [open, setOpen] = React.useState(anyActive);
   const manual = React.useRef(false);
   const prevActive = React.useRef(anyActive);
+
+  // 内部滚动容器：限制最大高度约 5 项，新工具追加时容器内自适应滚动到底部，不影响外部正文
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const userScrolledUp = React.useRef(false);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 36;
+    userScrolledUp.current = !isNearBottom;
+  };
 
   React.useEffect(() => {
     // 当状态从无活动变为有活动（新工具启动）时，重置用户手动标记并自动展开
     if (anyActive && !prevActive.current) {
       manual.current = false;
+      userScrolledUp.current = false;
       setOpen(true);
     }
     // 当所有工具完成（从有活动变为无活动），或当前 AI 回答整体结束（running 变 false）时，自动收起
@@ -337,41 +360,71 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = ({ t
     prevActive.current = anyActive;
   }, [anyActive, running]);
 
+  // 工具列表更新或新工具开始执行时，内部滚动到最底端展示最新活跃工具
+  React.useEffect(() => {
+    if (open && scrollRef.current && !userScrolledUp.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [tools.length, anyActive, open]);
+
   const latest = activeTools.length > 0 ? activeTools[activeTools.length - 1] : null;
   if (!tools || tools.length === 0) return null;
+
   return (
-    <div className="rounded-lg bg-background/70 border border-border overflow-hidden">
+    <div className="rounded-lg bg-background/70 border border-border overflow-hidden transition-[box-shadow,border-color]">
       <button
         type="button"
         onClick={() => {
           manual.current = true;
           setOpen((o) => !o);
         }}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none"
       >
         <Wrench className="w-3.5 h-3.5 text-primary shrink-0" />
-        <span className="font-medium">工具调用 · {tools.length}</span>
+        <span className="font-medium text-foreground">
+          工具调用 · {total}
+        </span>
         {latest ? (
-          <span className="inline-flex items-center text-muted-foreground text-[11px] truncate">正在调用 {resolveToolDisplayTitle(latest)}…</span>
+          <span className="inline-flex items-center text-muted-foreground text-[11px] truncate min-w-0 flex-1">
+            正在调用 {resolveToolDisplayTitle(latest)}…
+          </span>
+        ) : failedCount > 0 ? (
+          <span className="font-mono text-[10px] text-muted-foreground flex items-center gap-1.5 ml-1">
+            <span className={cn(successCount > 0 ? "text-amber-500 font-semibold" : "text-destructive font-semibold")}>
+              {successCount}/{total} 成功
+            </span>
+            <span className="opacity-70">({failedCount} 次失败/重试)</span>
+          </span>
         ) : (
-          <span className="font-mono text-[10px] opacity-70">
-            {failed ? "有失败" : "全部完成"}
+          <span className="font-mono text-[10px] opacity-80 text-emerald-500 font-medium ml-1">
+            全部成功 ({total}/{total})
           </span>
         )}
         <span
           className={cn(
-            "w-2 h-2 rounded-full shrink-0",
-            activeTools.length > 0
+            "w-2 h-2 rounded-full shrink-0 ml-auto",
+            anyActive
               ? "bg-warning animate-pulse"
-              : failed
-                ? "bg-destructive"
-                : "bg-success",
+              : failedCount === 0
+                ? "bg-success"
+                : successCount > 0
+                  ? "bg-amber-500"
+                  : "bg-destructive",
           )}
+          title={
+            anyActive
+              ? "正在执行工具"
+              : failedCount === 0
+                ? "全部工具调用成功"
+                : `${total} 次调用中 ${successCount} 次成功，${failedCount} 次失败/重试`
+          }
         />
         <ChevronDown
-          className={cn("w-3.5 h-3.5 ml-auto transition-transform duration-300", open && "rotate-180")}
+          className={cn("w-3.5 h-3.5 transition-transform duration-300 shrink-0", open && "rotate-180")}
         />
       </button>
+
+      {/* 展开内容：限定最大高度约 5 条工具卡片，内部自适应纵向滚动，杜绝撑大破坏外部聊天布局 */}
       <div
         className={cn(
           "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
@@ -379,7 +432,11 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = ({ t
         )}
       >
         <div className="overflow-hidden">
-          <div className="px-1.5 pb-1.5 space-y-1.5">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="px-1.5 pb-1.5 space-y-1.5 max-h-[220px] overflow-y-auto overscroll-contain"
+          >
             {tools.map((tc) => (
               <ToolWidget key={tc.id} tc={tc} />
             ))}
@@ -388,7 +445,7 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = ({ t
       </div>
     </div>
   );
-};
+});
 
 // ---------- messages ----------
 
@@ -492,6 +549,18 @@ const AssistantWelcome: React.FC<{
   </div>
 );
 
+const USER_MESSAGE_PARTS = {
+  Text: AcpMarkdownText,
+  Image: AcpImagePart,
+};
+
+const ASSISTANT_MESSAGE_PARTS = {
+  Text: AcpMarkdownText,
+  Reasoning: () => null,
+  Image: AcpImagePart,
+  tools: { Fallback: () => null },
+};
+
 const UserMessageView: React.FC = () => {
   const messageId = useAuiState((s) => s.message.id);
   const isEditing = useAuiState((s) => s.message.composer.isEditing);
@@ -509,7 +578,7 @@ const UserMessageView: React.FC = () => {
     <MessagePrimitive.Root className="flex gap-3 justify-end items-start group animate-fade-slide-in">
       <div className="relative max-w-[80%]">
         <div className="rounded-lg bg-secondary text-secondary-foreground px-3.5 py-2 break-words whitespace-pre-wrap text-sm leading-relaxed font-sans">
-          <MessagePrimitive.Parts components={{ Text: AcpMarkdownText, Image: AcpImagePart }} />
+          <MessagePrimitive.Parts components={USER_MESSAGE_PARTS} />
           {/* 底部 meta 单行：常驻挂载，只换透明度，宽高恒定不挤布局 */}
           <div className="flex items-center justify-end gap-0.5 pt-1.5">
             {acp?.timestamp && (
@@ -723,14 +792,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
             </div>
           )}
           <div className="space-y-2">
-            <MessagePrimitive.Parts
-              components={{
-                Text: AcpMarkdownText,
-                Reasoning: () => null,
-                Image: AcpImagePart,
-                tools: { Fallback: () => null },
-              }}
-            />
+            <MessagePrimitive.Parts components={ASSISTANT_MESSAGE_PARTS} />
           </div>
         </>
 

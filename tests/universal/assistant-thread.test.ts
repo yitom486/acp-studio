@@ -458,4 +458,40 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     el.remove();
     useStudioStore.setState({ pendingPerms: [], sessionId: null } as any);
   });
+
+  it("displays success ratio and scroll container for tool calls", async () => {
+    const tools = [
+      { id: "t1", title: "read file 1", status: "completed" },
+      { id: "t2", title: "grep pattern", status: "completed" },
+      { id: "t3", title: "read missing file", status: "failed" },
+    ];
+    useStudioStore.setState({
+      sessionId: "sess1",
+      messages: [
+        {
+          id: "a10",
+          role: "assistant",
+          content: "调用完毕",
+          toolCalls: tools,
+          timestamp: "03:20",
+        },
+      ],
+      isStreaming: false,
+    } as any);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+    });
+    // 展示 2/3 成功比例，而不是纯吓人的“有失败”
+    expect(el.innerHTML).toContain("2/3 成功");
+    expect(el.innerHTML).toContain("1 次失败/重试");
+    expect(el.innerHTML).toContain("max-h-[220px]");
+    root.unmount();
+    el.remove();
+  });
 });
