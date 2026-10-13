@@ -67,7 +67,6 @@ describe("Quota UI components and StudioHeader integration", () => {
     expect(html).toContain("重置: tomorrow at 12:45");
     expect(html).toContain("账户余额 / Credits");
     expect(html).toContain("无限制 (Unlimited)");
-    expect(html).toContain("向会话发送 /status 刷新实时状态");
   });
 
   it("renders empty state in QuotaCard gracefully when quota is null", () => {

@@ -15,10 +15,12 @@
       "electron-dist/**/*",
       "dist/**/*",
       "package.json",
+      "LICENSE",
+      "THIRD-PARTY-NOTICES.txt",
       "node_modules/node-pty/package.json",
       "node_modules/node-pty/lib/**/*",
       "node_modules/node-pty/prebuilds/**/*",
-      "node_modules/node-pty/build/Release/conpty/**/*",
+      "node_modules/node-pty/build/Release/**/*",
       "!node_modules/node-pty/**/*.pdb",
       "!node_modules/node-pty/**/*.map",
       "!node_modules/node-pty/**/*.test.js"
@@ -51,6 +53,7 @@
       "artifactName": "ACP-Studio-${version}.${ext}"
     },
     "directories": {
+      "app": ".acp-tmp/desktop-app",
       "output": "release",
       "buildResources": "build"
     },
@@ -59,6 +62,7 @@
       "node_modules/node-pty/**/*"
     ],
     "npmRebuild": false,
+    "electronLanguages": ["en-US", "zh-CN", "zh-TW"],
     "publish": [
       {
         "provider": "github",
@@ -106,9 +110,10 @@
     "acp:stdio": "bunx @yitom/agy-acp-map@latest",
     "build": "tsc && vite build",
     "build:electron": "bun desktop/build.ts",
-    "package:win": "bunx electron-builder --win nsis dir --publish never",
-    "package:mac": "bunx electron-builder --mac dmg zip --publish never",
-    "package:linux": "bunx electron-builder --linux AppImage deb --publish never",
+    "stage:desktop": "bun desktop/stage.ts",
+    "package:win": "bun desktop/stage.ts win32 && bunx electron-builder --win nsis dir --publish never",
+    "package:mac": "bun desktop/stage.ts darwin && bunx electron-builder --mac dmg zip --publish never",
+    "package:linux": "bun desktop/stage.ts linux && bunx electron-builder --linux AppImage deb --publish never",
     "start:electron": "electron electron-dist/main.cjs",
     "dev:electron": "ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:5188 electron electron-dist/main.cjs",
     "preview": "vite preview",

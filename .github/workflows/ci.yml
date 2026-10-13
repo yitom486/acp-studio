@@ -45,3 +45,6 @@ jobs:
 
       - name: Electron bundle check
         run: bun run build:electron
+
+      - name: Desktop runtime staging check
+        run: bun run stage:desktop

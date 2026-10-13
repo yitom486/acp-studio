@@ -16,20 +16,90 @@ export interface UsageUpdate {
   totalTokens?: number;
 }
 
-/** Pick numeric extras off a raw usage_update (unknown fields never pass).
- * Top level first; agy-style adapters nest the breakdown under `_meta`. */
-function pickUsageExtras(u: any): Partial<UsageUpdate> {
+/** Pick numeric extras off a raw usage_update or done payload (unknown fields never pass).
+ * Top level first; supports multi-agent variants:
+ * - Codex: cachedReadTokens, cachedInputTokens, _meta.quota.token_count
+ * - Claude: cache_read_input_tokens, cacheReadInputTokens
+ * - OpenCode / Standard: cachedTokens
+ */
+export function pickUsageExtras(u: any): Partial<UsageUpdate> {
+  if (!u || typeof u !== "object") return {};
   const out: Partial<UsageUpdate> = {};
-  const meta = u?._meta && typeof u._meta === "object" ? u._meta : {};
-  for (const k of ["cachedTokens", "inputTokens", "outputTokens", "totalTokens"] as const) {
-    const v = u?.[k];
-    if (typeof v === "number" && Number.isFinite(v)) {
-      out[k] = v;
-      continue;
+  const meta = u._meta && typeof u._meta === "object" ? u._meta : {};
+  const tokenCount =
+    meta.quota?.token_count && typeof meta.quota.token_count === "object"
+      ? meta.quota.token_count
+      : {};
+
+  // 1. cachedTokens: 提取缓存命中 token 数
+  const cachedCandidates = [
+    u.cachedTokens,
+    u.cachedReadTokens,
+    u.cachedInputTokens,
+    u.cache_read_input_tokens,
+    u.cacheReadInputTokens,
+    u.cached_tokens,
+    u.prompt_cache_hit_tokens,
+    u.prompt_tokens_details?.cached_tokens,
+    meta.cachedTokens,
+    meta.cachedReadTokens,
+    meta.cachedInputTokens,
+    meta.cached_tokens,
+    meta.prompt_cache_hit_tokens,
+    tokenCount.cachedInputTokens,
+    tokenCount.cachedReadTokens,
+  ];
+  for (const val of cachedCandidates) {
+    if (typeof val === "number" && Number.isFinite(val)) {
+      out.cachedTokens = val;
+      break;
     }
-    const mv = meta[k];
-    if (typeof mv === "number" && Number.isFinite(mv)) out[k] = mv;
   }
+
+  // 2. inputTokens: 提取输入 token 数
+  const inputCandidates = [
+    u.inputTokens,
+    u.input_tokens,
+    u.prompt_tokens,
+    meta.inputTokens,
+    tokenCount.inputTokens,
+  ];
+  for (const val of inputCandidates) {
+    if (typeof val === "number" && Number.isFinite(val)) {
+      out.inputTokens = val;
+      break;
+    }
+  }
+
+  // 3. outputTokens: 提取输出 token 数
+  const outputCandidates = [
+    u.outputTokens,
+    u.output_tokens,
+    u.completion_tokens,
+    meta.outputTokens,
+    tokenCount.outputTokens,
+  ];
+  for (const val of outputCandidates) {
+    if (typeof val === "number" && Number.isFinite(val)) {
+      out.outputTokens = val;
+      break;
+    }
+  }
+
+  // 4. totalTokens: 提取总 token 数
+  const totalCandidates = [
+    u.totalTokens,
+    u.total_tokens,
+    meta.totalTokens,
+    tokenCount.totalTokens,
+  ];
+  for (const val of totalCandidates) {
+    if (typeof val === "number" && Number.isFinite(val)) {
+      out.totalTokens = val;
+      break;
+    }
+  }
+
   return out;
 }
 
@@ -956,6 +1026,18 @@ export async function consumeUniversalChat(
         } else if (payload.type === "done") {
           done = true;
           stopReason = payload.stopReason;
+          const resp = payload.response;
+          if (resp && (resp.usage || resp._meta)) {
+            const rawUsage = resp.usage || {};
+            const extras = pickUsageExtras({ ...rawUsage, _meta: resp._meta });
+            const total = extras.totalTokens ?? rawUsage.totalTokens;
+            handlers.onUsage?.({
+              used: typeof rawUsage.used === "number" ? rawUsage.used : (typeof total === "number" ? total : 0),
+              size: typeof rawUsage.size === "number" ? rawUsage.size : 0,
+              cost: rawUsage.cost,
+              ...extras,
+            });
+          }
           handlers.onDone?.(payload.stopReason, payload.response);
           try {
             await reader.cancel();

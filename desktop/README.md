@@ -36,7 +36,12 @@ electron electron-dist/main.cjs   # main 内起网关并打开窗口
 
 ## 打包
 
-`bunx electron-builder --win nsis dir --publish never`（`package.json#build`）。
+先执行 `bun run build && bun run build:electron`，再执行 `bun run package:win`
+（macOS/Linux 分别用 `package:mac` / `package:linux`）。打包脚本先生成
+`.acp-tmp/desktop-app`：完整复制 `dist` 与 `electron-dist`，发布 manifest 仅声明
+外置原生依赖 `node-pty`，附当前平台/架构的原生运行文件及第三方许可证汇总。
+Mermaid、Markdown、数学公式等前端依赖已编译进 `dist`，不再额外复制其 npm 原始包。
+`bun run stage:desktop` 可以单独检查发布目录；不要跳过 staging 直接调用 builder。
 注意两件事（均已踩坑）：
 
 1. `electron/` 不能作为源码目录名——会与 npm `electron` 包撞名导致

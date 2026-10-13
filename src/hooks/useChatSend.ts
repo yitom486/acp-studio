@@ -10,12 +10,14 @@ import {
   respondPermission,
   respondElicitation,
   isAuthRequiredError,
+  pickUsageExtras,
+  type UsageUpdate,
   type ActivityEvent,
   type AgentSummary,
   type PendingPermission,
   type PendingElicitation,
 } from "@/lib/universal-api";
-import { parseRateLimitsFromStatusText } from "@yitom/acp-client";
+import { parseRateLimitsFromStatusText } from "@/lib/quota-parser";
 
 export interface UseChatSendOptions {
   qc: QueryClient;
@@ -299,8 +301,13 @@ export function useChatSend({
             onSessionInfo: (info) => useStudioStore.getState().setSessionInfo(info),
             onUsage: (u) => {
               const c2 = useStudioStore.getState();
-              c2.setUsage(u);
-              c2.patchMessage(assistantId, { usage: u });
+              const existingSize = c2.usage?.size;
+              const normalized: UsageUpdate = {
+                ...u,
+                size: u.size > 0 ? u.size : (existingSize && existingSize > 0 ? existingSize : u.size),
+              };
+              c2.setUsage(normalized);
+              c2.patchMessage(assistantId, { usage: normalized });
             },
             onQuota: (q) => {
               if (q) useStudioStore.getState().setQuota(q);
@@ -308,7 +315,25 @@ export function useChatSend({
             onActivity: (a) => appendActivityMessage(a, now()),
             onPermissionRequest: (p) => useStudioStore.getState().addPermission(p),
             onElicitationRequest: (e) => useStudioStore.getState().addElicitation(e),
-            onDone: () => stampTurnEnd(assistantId),
+            onDone: (_stopReason, resp) => {
+              if (resp && (resp.usage || resp._meta)) {
+                const extras = pickUsageExtras({ ...(resp.usage || {}), _meta: resp._meta });
+                const c2 = useStudioStore.getState();
+                const cur = c2.usage;
+                if (Object.keys(extras).length > 0) {
+                  const merged: UsageUpdate = {
+                    used: cur?.used ?? (typeof resp.usage?.used === "number" ? resp.usage.used : (extras.totalTokens ?? 0)),
+                    size: cur?.size && cur.size > 0 ? cur.size : (typeof resp.usage?.size === "number" ? resp.usage.size : 0),
+                    cost: resp.usage?.cost ?? cur?.cost,
+                    ...cur,
+                    ...extras,
+                  };
+                  c2.setUsage(merged);
+                  c2.patchMessage(assistantId, { usage: merged });
+                }
+              }
+              stampTurnEnd(assistantId);
+            },
             onError: (err) => {
               // Mid-stream error frame: consumeUniversalChat reports but does
               // NOT throw, so transient ones defer to the resend below.

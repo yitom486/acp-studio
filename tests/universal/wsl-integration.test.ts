@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+// @vitest-environment node
+import { describe, it, expect, beforeEach } from "vitest";
 import { getSystemDirectoryRoots } from "../../server/universal/http/workspace";
 import { getWorkspaceEnv, isLocalMode, getWorkspaceStorageKey, isPosixEnvironment } from "../../src/stores/useStudioStore";
 import { getGatewayBase, setGatewayBase, parseGatewayBase } from "../../src/lib/gateway-auth";
