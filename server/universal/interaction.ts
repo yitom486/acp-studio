@@ -2,6 +2,10 @@ import type { PendingElicitation, PendingPermission } from "./types";
 
 export type SseBroadcaster = (sessionId: string, evt: Record<string, unknown>) => void;
 
+const INTERACTION_TIMEOUT_MS = process.env.ACP_PERMISSION_TIMEOUT_MS
+  ? parseInt(process.env.ACP_PERMISSION_TIMEOUT_MS, 10)
+  : 300_000;
+
 /**
  * Manages pending user interactions requested by the Agent:
  * 1. Permissions (Allow/Deny tool calls)
@@ -107,9 +111,9 @@ export class InteractionManager {
       const timer = setTimeout(() => {
         if (this.pendingPermissions.has(permissionId)) {
           this.pendingPermissions.delete(permissionId);
-          reject(new Error("Permission request timed out after 180s"));
+          reject(new Error(`Permission request timed out after ${Math.round(INTERACTION_TIMEOUT_MS / 1000)}s`));
         }
-      }, 180_000);
+      }, INTERACTION_TIMEOUT_MS);
 
       const wrappedResolve = (outcome: unknown) => {
         clearTimeout(timer);
@@ -166,9 +170,9 @@ export class InteractionManager {
       const timer = setTimeout(() => {
         if (this.pendingElicitations.has(elicitationId)) {
           this.pendingElicitations.delete(elicitationId);
-          reject(new Error("Elicitation timed out after 180s"));
+          reject(new Error(`Elicitation timed out after ${Math.round(INTERACTION_TIMEOUT_MS / 1000)}s`));
         }
-      }, 180_000);
+      }, INTERACTION_TIMEOUT_MS);
 
       this.pendingElicitations.set(elicitationId, {
         elicitationId,

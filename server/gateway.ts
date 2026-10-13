@@ -73,7 +73,7 @@ export function corsHeaders(req?: Request): Record<string, string> {
  * 绝不误杀用户其他进程（见 .agents/rules/no-silent-fallbacks.md：失败要 loud）。
  * 非 win32 直接返回（Unix 由调用方/SO_REUSEADDR 语义处理，不在此杀进程）。
  */
-export function freePortIfOccupied(port: number) {
+export async function freePortIfOccupied(port: number): Promise<void> {
   if (process.platform !== "win32") {
     try {
       const cmd = `fuser ${port}/tcp 2>/dev/null || lsof -ti :${port} 2>/dev/null || (ss -lptn 'sport = :${port}' 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2)`;
@@ -117,20 +117,20 @@ export function freePortIfOccupied(port: number) {
   }
   if (pids.length === 0) return;
   // 健康检查：只有本项目旧实例（带 token 请求返回 ok:true，或返回鉴权拒绝结构）才确认为残留网关。
+  // 原生 in-process fetch：杜绝 curl.exe 命令行暴露 Bearer token。
   let healthy = false;
   try {
     const token = ensureGatewayToken();
-    const probe = execSync(
-      `curl.exe -s -m 3 -H "Authorization: Bearer ${token}" http://127.0.0.1:${port}/api/universal/agents`,
-      {
-        encoding: "utf8",
-        windowsHide: true,
-        timeout: 8000,
-      }
-    );
+    const res = await fetch(`http://127.0.0.1:${port}/api/universal/agents`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: AbortSignal.timeout(3000),
+    });
+    const data = (await res.json().catch(() => null)) as any;
     healthy =
-      /"ok"\s*:\s*true/.test(probe) ||
-      /"error"\s*:\s*"(?:missing-token|invalid-token|unauthorized)"/.test(probe);
+      res.status === 200 ||
+      res.status === 401 ||
+      (data && data.ok === true) ||
+      (data && data.error && /(?:missing-token|invalid-token|unauthorized)/.test(data.error));
   } catch (err) {
     console.warn(`[Server] 端口 ${port} 健康检查探针不通，拒绝自动杀进程: ${(err as Error).message}`);
   }

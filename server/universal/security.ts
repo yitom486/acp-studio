@@ -30,8 +30,15 @@ import * as path from "node:path";
 
 let cachedToken: string | null = null;
 
-/** token 落盘位置（同一机器前后端共享的关键）。 */
+/** token 落盘位置（同一机器前后端共享的关键，支持 ACP_GATEWAY_TOKEN_FILE 与 XDG_STATE_HOME 环境变量覆盖）。 */
 export function gatewayTokenPath(): string {
+  if (process.env.ACP_GATEWAY_TOKEN_FILE) {
+    return path.resolve(process.env.ACP_GATEWAY_TOKEN_FILE);
+  }
+  const stateHome = process.env.XDG_STATE_HOME || process.env.ACP_HOME;
+  if (stateHome) {
+    return path.join(stateHome, ".acp-studio", ".gateway-token");
+  }
   return path.join(os.homedir(), ".acp-studio", ".gateway-token");
 }
 

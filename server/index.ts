@@ -2,7 +2,7 @@ import { setupEnv, PORT, HOST, buildApp, freePortIfOccupied, shutdownBridges } f
 import { gatewayBootstrapUrl, gatewayTokenPreview } from "./universal/security";
 
 setupEnv();
-freePortIfOccupied(PORT);
+await freePortIfOccupied(PORT);
 
 const app = buildApp();
 

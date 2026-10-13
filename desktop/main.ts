@@ -44,7 +44,7 @@ async function startGateway() {
   // createWindow 在其之后执行，同一机器前后端共享同一 token。
   const token = ensureGatewayToken();
   if (!process.env.ACP_GATEWAY_TOKEN) process.env.ACP_GATEWAY_TOKEN = token;
-  freePortIfOccupied(PORT);
+  await freePortIfOccupied(PORT);
   // Packaged layout: frontend lives under <app>/dist, not cwd.
   // Runner era: agents spawn via bunx/npx directly (windowsHide, no shim);
   // only an explicit AGY_HEADLESS_LAUNCHER env opts back into shimmed spawn.

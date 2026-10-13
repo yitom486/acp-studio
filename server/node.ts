@@ -8,7 +8,7 @@ import { gatewayBootstrapUrl, gatewayTokenPreview } from "./universal/security";
 import { attachPtyUpgrade } from "./universal/pty";
 
 setupEnv();
-freePortIfOccupied(PORT);
+await freePortIfOccupied(PORT);
 
 const app = buildApp();
 

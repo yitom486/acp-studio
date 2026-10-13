@@ -181,6 +181,7 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
       components={components}
       componentsByLanguage={byLanguage}
       defer
+      smooth={false}
     />
   );
 });

@@ -653,6 +653,13 @@ const ASSISTANT_MESSAGE_PARTS = {
   tools: { Fallback: () => null },
 };
 
+/** 独立 Memoized 正文容器：隔绝思维链/工具组频繁重排与时间戳跳秒，保护已渲染正文稳定性 */
+const AssistantMessageBody: React.FC = React.memo(() => (
+  <div className="space-y-2">
+    <MessagePrimitive.Parts components={ASSISTANT_MESSAGE_PARTS} />
+  </div>
+));
+
 const UserMessageView: React.FC = () => {
   const messageId = useAuiState((s) => s.message.id);
   const isEditing = useAuiState((s) => s.message.composer.isEditing);
@@ -883,9 +890,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
               )}
             </div>
           )}
-          <div className="space-y-2">
-            <MessagePrimitive.Parts components={ASSISTANT_MESSAGE_PARTS} />
-          </div>
+          <AssistantMessageBody />
         </>
 
         {/* 固定 h-7 槽位：bar 的挂载/卸载只换透明度，不挤布局；

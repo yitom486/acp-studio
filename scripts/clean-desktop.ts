@@ -5,9 +5,14 @@
 import { spawn, execSync } from "node:child_process";
 
 const isWin = process.platform === "win32";
+const gatewayPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 13005;
+const wslPort = process.env.ACP_WSL_PORT ? parseInt(process.env.ACP_WSL_PORT, 10) : 13006;
+const vitePort = process.env.VITE_PORT ? parseInt(process.env.VITE_PORT, 10) : 5188;
+
 const PORTS_TO_CLEAN = [
-  { port: 5188, name: "Vite Dev Server" },
-  { port: 3004, name: "Gateway Server" },
+  { port: vitePort, name: "Vite Dev Server" },
+  { port: gatewayPort, name: "Gateway Server (Host)" },
+  { port: wslPort, name: "WSL Gateway Server" },
 ];
 
 console.log("[clean] 正在检查并清理残留的 Electron 进程与占用端口...");
