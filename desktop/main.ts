@@ -50,6 +50,9 @@ async function startGateway() {
   // only an explicit AGY_HEADLESS_LAUNCHER env opts back into shimmed spawn.
   if (!isDev) {
     process.env.ACP_PUBLIC_DIR = path.join(app.getAppPath(), "dist");
+    try {
+      process.chdir(app.getPath("home"));
+    } catch {}
   }
   const honoApp = buildApp();
   // hostname 127.0.0.1：只绑回环（ACP_PUBLIC_DIR 逻辑不动）。

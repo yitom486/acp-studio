@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { z } from "zod";
-import { dangerousRootReason, ensureGatewayToken } from "../security";
+import { dangerousRootReason, ensureGatewayToken, isAppInstallDir } from "../security";
 import { json, jsonBody, optStr } from "./shared";
 
 export const workspaceRouter = new Hono();
@@ -109,7 +109,7 @@ workspaceRouter.get("/wsl-distros", async () => {
 
 workspaceRouter.get("/default", () => {
   let cwd = process.cwd();
-  if (process.platform === "linux" && /^\/mnt\/[a-zA-Z](\/|$)/.test(cwd)) {
+  if (isAppInstallDir(cwd) || (process.platform === "linux" && /^\/mnt\/[a-zA-Z](\/|$)/.test(cwd))) {
     cwd = os.homedir();
   }
   return json({ ok: true, path: cwd, name: path.basename(cwd) || "home", platform: process.platform });

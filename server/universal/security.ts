@@ -331,6 +331,27 @@ function splitWorkspaceRoots(raw: string): string[] {
 const UNIX_SYSTEM_DIRS = ["/etc", "/proc", "/sys", "/dev", "/boot", "/bin", "/sbin", "/lib", "/lib64", "/usr"];
 const WIN_SYSTEM_DIRS = ["c:\\windows", "c:\\program files", "c:\\program files (x86)", "c:\\programdata"];
 
+export function isAppInstallDir(p: string): boolean {
+  if (!p) return false;
+  const norm = p.replace(/\\/g, "/").toLowerCase();
+  if (
+    norm.includes("appdata/local/programs/acp-studio") ||
+    norm.includes("program files/acp-studio") ||
+    norm.includes("program files (x86)/acp-studio")
+  ) {
+    return true;
+  }
+  try {
+    if (
+      fs.existsSync(path.join(p, "resources", "app.asar")) ||
+      (fs.existsSync(path.join(p, "resources")) && fs.existsSync(path.join(p, "locales")))
+    ) {
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 /**
  * 能不能当“允许写入的根”：文件系统根（`/`、`C:\`）和系统目录不行——
  * 把它们设成根等于放开整台机器。返回拒绝原因，可以时返回 null。
@@ -338,6 +359,7 @@ const WIN_SYSTEM_DIRS = ["c:\\windows", "c:\\program files", "c:\\program files 
 export function dangerousRootReason(p: string): string | null {
   const abs = path.resolve(p);
   if (path.parse(abs).root === abs) return `不能把文件系统根目录 ${abs} 作为工作区`;
+  if (isAppInstallDir(abs)) return `不能把 ACP Studio 应用程序安装目录 ${abs} 作为工作区`;
   const cmp = process.platform === "win32" ? abs.toLowerCase() : abs;
   const sys = process.platform === "win32" ? WIN_SYSTEM_DIRS : UNIX_SYSTEM_DIRS;
   for (const d of sys) {

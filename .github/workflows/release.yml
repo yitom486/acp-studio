@@ -24,14 +24,26 @@ jobs:
             os: windows-latest
             platform: win
             package_script: package:win
+            artifacts: |
+              release/*.exe
+              release/*.blockmap
+              release/latest.yml
           - name: macOS
             os: macos-latest
             platform: mac
             package_script: package:mac
+            artifacts: |
+              release/*.dmg
+              release/*.zip
+              release/latest-mac.yml
           - name: Linux
             os: ubuntu-latest
             platform: linux
             package_script: package:linux
+            artifacts: |
+              release/*.AppImage
+              release/*.deb
+              release/latest-linux.yml
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -62,6 +74,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 发布说明 = CHANGELOG 里与 tag 同版本的小节；找不到就让发版失败
+      - name: Release notes from CHANGELOG
+        run: bun scripts/release-notes.ts "${{ github.ref_name }}" --out release-notes.md
+
+      # 渐进式发布：各平台打包完成立即挂到 GitHub Release，杜绝被慢/排队的 runner 阻塞
+      - name: Publish ${{ matrix.name }} to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ${{ matrix.artifacts }}
+          fail_on_unmatched_files: true
+          body_path: release-notes.md
+
       - name: Upload ${{ matrix.platform }} artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -69,39 +93,3 @@ jobs:
           path: release/*
           if-no-files-found: error
 
-  publish:
-    name: Publish GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      # 发布说明 = CHANGELOG 里与 tag 同版本的小节；找不到就让发版失败
-      - name: Release notes from CHANGELOG
-        run: bun scripts/release-notes.ts "${GITHUB_REF_NAME#v}" --out release-notes.md
-
-      - name: Download all platform artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: release-*
-          path: release
-          merge-multiple: true
-
-      - name: Publish to GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          # 不上传 builder-debug.yml / builder-effective-config.yaml 等调试文件
-          files: |
-            release/*.exe
-            release/*.dmg
-            release/*.zip
-            release/*.AppImage
-            release/*.deb
-            release/*.blockmap
-            release/latest*.yml
-          fail_on_unmatched_files: true
-          body_path: release-notes.md

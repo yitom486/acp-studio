@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, FolderGit2, Network, Boxes, FolderOpen, AlertTriangle, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
+import { isAppInstallPath } from "@/stores/useStudioStore";
 
 export interface SessionSettings {
   cwd: string;
@@ -26,30 +27,40 @@ const MCP_EXAMPLE = `[
 export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = (p) => {
   const isWslNative = typeof localStorage !== "undefined" && Boolean(localStorage.getItem("acp_wsl_native_distro"));
   const wslDistro = typeof localStorage !== "undefined" ? localStorage.getItem("acp_wsl_native_distro") : null;
-  // 在 WSL 环境下，绝对不能采用 /mnt/... 作为默认 cwd hint
-  const effectiveHint = (isWslNative && p.defaultCwdHint && /^\/mnt\/[a-zA-Z](\/|$)/i.test(p.defaultCwdHint))
+  // 过滤掉应用安装目录与 WSL /mnt/... 挂载路径
+  const cleanHint = (isAppInstallPath(p.defaultCwdHint) ? "" : p.defaultCwdHint) || "";
+  const effectiveHint = (isWslNative && cleanHint && /^\/mnt\/[a-zA-Z](\/|$)/i.test(cleanHint))
     ? ""
-    : (p.defaultCwdHint || "");
+    : cleanHint;
 
   const [cwd, setCwd] = useState(effectiveHint);
   const [extraDirs, setExtraDirs] = useState("");
   const [mcpJson, setMcpJson] = useState("[]");
   const [error, setError] = useState<string | null>(null);
 
+  const prevOpenRef = React.useRef(false);
+  const prevHintRef = React.useRef(effectiveHint);
+
   const openWorkspacePicker = useWorkbenchStore((s) => s.openWorkspacePicker);
   const isMntPath = /^\/mnt\/[a-zA-Z](\/|$)/i.test(cwd.trim());
 
   useEffect(() => {
-    if (p.isOpen && !cwd && effectiveHint) {
+    // 弹窗重新开启，或者外部传入的目标工作区改变时，强制同步重置 cwd，彻底消除状态锁死
+    if (p.isOpen && (!prevOpenRef.current || prevHintRef.current !== effectiveHint)) {
       setCwd(effectiveHint);
+      setError(null);
     }
-  }, [p.isOpen, effectiveHint, cwd]);
+    prevOpenRef.current = p.isOpen;
+    prevHintRef.current = effectiveHint;
+  }, [p.isOpen, effectiveHint]);
 
   if (!p.isOpen) return null;
 
   const handleBrowseCwd = () => {
+    const fallbackPath = isAppInstallPath(cwd) ? "" : cwd;
+    const fallbackHint = isAppInstallPath(p.defaultCwdHint) ? "" : p.defaultCwdHint;
     openWorkspacePicker({
-      initialPath: cwd || p.defaultCwdHint || undefined,
+      initialPath: fallbackPath || fallbackHint || undefined,
       title: isWslNative ? `选择 WSL (${wslDistro || "Ubuntu"}) 工作目录 (cwd)` : "选择会话工作目录 (cwd)",
       confirmLabel: "选择此目录",
       onSelect: (chosen) => {

@@ -13,7 +13,7 @@ import { validateWorkspace } from "@/lib/universal-api";
 const CHANGELOG_URL = "https://github.com/yitom486/acp-studio/blob/master/CHANGELOG.md";
 const ISSUES_URL = "https://github.com/yitom486/acp-studio/issues";
 
-export function useWorkbenchCommands(opts: { onNewSession: () => void }) {
+export function useWorkbenchCommands(opts: { onNewSession: (targetCwd?: string) => void }) {
   const { onNewSession } = opts;
   const recents = useStudioStore((s) => s.recentWorkspaces);
 

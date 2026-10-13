@@ -251,6 +251,16 @@ export function getWorkspaceStorageKey(): string {
   return `acp_workspace_${getWorkspaceEnv()}`;
 }
 
+export function isAppInstallPath(p?: string | null): boolean {
+  if (!p) return false;
+  const norm = p.replace(/\\/g, "/").toLowerCase();
+  return (
+    norm.includes("appdata/local/programs/acp-studio") ||
+    norm.includes("program files/acp-studio") ||
+    norm.includes("program files (x86)/acp-studio")
+  );
+}
+
 function loadInitialWorkspaces(): { current: string | null; recents: RecentWorkspace[] } {
   try {
     // 多窗口：每个窗口的“当前工作区”优先取地址栏 ?cwd=（新窗口打开文件夹）→ 本窗口 sessionStorage
@@ -269,6 +279,11 @@ function loadInitialWorkspaces(): { current: string | null; recents: RecentWorks
       if (!raw) raw = localStorage.getItem("acp_recent_workspaces");
     }
 
+    // 绝对不允许将应用程序安装目录作为工作区缓存
+    if (current && isAppInstallPath(current)) {
+      current = null;
+    }
+
     // 路径提纯为当前目标环境的原生格式（若为 POSIX 自动剥离 UNC 包装与残留盘符）
     if (current) {
       current = toEnvironmentNativeCwd(current, isPosix);
@@ -282,7 +297,7 @@ function loadInitialWorkspaces(): { current: string | null; recents: RecentWorks
     const validRecents: RecentWorkspace[] = [];
     if (Array.isArray(recents)) {
       for (const r of recents) {
-        if (!r?.path) continue;
+        if (!r?.path || isAppInstallPath(r.path)) continue;
         const nativePath = toEnvironmentNativeCwd(r.path, isPosix);
         if (isPosix && /^[a-zA-Z]:/.test(nativePath)) continue;
         if (!isPosix && nativePath.startsWith("/") && !/^[a-zA-Z]:/.test(nativePath)) continue;
@@ -422,6 +437,9 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         return {};
       }
       if (!isPosix && cleanPath.startsWith("/") && !/^[a-zA-Z]:/.test(cleanPath)) {
+        return {};
+      }
+      if (isAppInstallPath(cleanPath)) {
         return {};
       }
 

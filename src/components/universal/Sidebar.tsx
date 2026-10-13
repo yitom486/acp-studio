@@ -42,7 +42,7 @@ export interface SidebarProps {
   sessionsLoading: boolean;
   activeSessionId: string | null;
   onRefreshSessions: () => void;
-  onNewSession: () => void;
+  onNewSession: (targetCwd?: string) => void;
   onOpenSession: (s: SessionItem) => void;
   onForkSession: (s: SessionItem) => void;
   onDeleteSession: (s: SessionItem) => void;
@@ -511,7 +511,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       <div className="h-12 px-2 flex items-center gap-1 border-b border-border shrink-0">
         <button
           type="button"
-          onClick={p.onNewSession}
+          onClick={() => p.onNewSession()}
           className="flex-1 h-7 px-2 rounded-md flex items-center gap-2 text-[13px] font-medium text-foreground hover:bg-accent transition-colors cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5 text-muted-foreground" />
@@ -593,7 +593,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
           </button>
           <button
             type="button"
-            onClick={p.onNewSession}
+            onClick={() => p.onNewSession()}
             title="新建会话"
             aria-label="新建会话"
             className="h-5 w-5 rounded flex items-center justify-center hover:text-foreground hover:bg-accent cursor-pointer"
@@ -663,7 +663,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
                     if (grp.path && p.onSelectWorkspace) {
                       p.onSelectWorkspace(grp.path, grp.name);
                     }
-                    p.onNewSession();
+                    p.onNewSession(grp.path);
                   }}
                   className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all shrink-0"
                 >
@@ -683,7 +683,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
                           if (grp.path && p.onSelectWorkspace) {
                             p.onSelectWorkspace(grp.path, grp.name);
                           }
-                          p.onNewSession();
+                          p.onNewSession(grp.path);
                         }}
                         className="text-[10px] text-primary hover:underline cursor-pointer"
                       >
@@ -773,7 +773,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       <div className="p-2 border-t border-border shrink-0">
         <button
           type="button"
-          onClick={p.onOpenSettings || p.onNewSession}
+          onClick={() => (p.onOpenSettings ? p.onOpenSettings() : p.onNewSession())}
           title="设置新会话的工作目录与 MCP 服务"
           className="w-full h-7 flex items-center gap-2 px-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs cursor-pointer"
         >

@@ -222,7 +222,10 @@ export default function App() {
     }
   }, [qc, s.activeAgentId]);
 
-  const handleNewSession = useCallback(() => {
+  const handleNewSession = useCallback((targetCwd?: string) => {
+    if (targetCwd) {
+      useStudioStore.getState().setWorkspace(targetCwd);
+    }
     useStudioStore.getState().setSettingsOpen(true);
   }, []);
 

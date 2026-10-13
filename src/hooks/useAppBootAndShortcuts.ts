@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useThemeStore } from "@/stores/useThemeStore";
-import { useStudioStore, getWorkspaceEnv } from "@/stores/useStudioStore";
+import { useStudioStore, getWorkspaceEnv, isAppInstallPath } from "@/stores/useStudioStore";
 import { useWorkspaceDefaultQuery } from "@/lib/acp-queries";
 import { validateWorkspace, type AgentSummary } from "@/lib/universal-api";
 
@@ -74,9 +74,9 @@ export function useAppBootAndShortcuts({
   const workspaceDefaultQuery = useWorkspaceDefaultQuery(!currentWorkspace || (isWsl && isMntWorkspace));
   useEffect(() => {
     const res = workspaceDefaultQuery.data;
-    if (res?.path) {
+    if (res?.path && !isAppInstallPath(res.path)) {
       const cur = useStudioStore.getState().currentWorkspace;
-      if (!cur || (isWsl && /^\/mnt\/[a-zA-Z](\/|$)/i.test(cur))) {
+      if (!cur || (isWsl && /^\/mnt\/[a-zA-Z](\/|$)/i.test(cur)) || isAppInstallPath(cur)) {
         useStudioStore.getState().setWorkspace(res.path, res.name);
       }
     }
