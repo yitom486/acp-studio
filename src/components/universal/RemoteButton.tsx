@@ -28,8 +28,8 @@ export const RemoteButton: React.FC = () => {
   const distro = currentWorkspace ? parseWslDistro(currentWorkspace) : null;
 
   // 记录是否处于 WSL 原生真环境中 (存储在 localStorage)
-  const isWslNative = Boolean(base && localStorage.getItem("acp_wsl_native_distro"));
-  const wslNativeDistro = localStorage.getItem("acp_wsl_native_distro");
+  const wslNativeDistro = typeof localStorage !== "undefined" ? localStorage.getItem("acp_wsl_native_distro") : null;
+  const isWslNative = Boolean(wslNativeDistro);
 
   const distrosQuery = useQuery({
     queryKey: ["universal", "wsl-distros"],

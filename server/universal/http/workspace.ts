@@ -112,7 +112,7 @@ workspaceRouter.get("/default", () => {
   if (process.platform === "linux" && /^\/mnt\/[a-zA-Z](\/|$)/.test(cwd)) {
     cwd = os.homedir();
   }
-  return json({ ok: true, path: cwd, name: path.basename(cwd) || "home" });
+  return json({ ok: true, path: cwd, name: path.basename(cwd) || "home", platform: process.platform });
 });
 
 const validateBody = z.looseObject({ path: optStr });
@@ -150,9 +150,38 @@ export interface DirectoryRoot {
   distro?: string;
 }
 
-/** 获取快捷根目录列表（磁盘驱动器、用户目录、WSL 实例）。 */
-export function getSystemDirectoryRoots(): DirectoryRoot[] {
+/** 获取快捷根目录列表（磁盘驱动器、用户目录、WSL 实例）。按目标发行版/平台严格隔离。 */
+export function getSystemDirectoryRoots(distro?: string): DirectoryRoot[] {
   const roots: DirectoryRoot[] = [];
+
+  // 1. 若指定了 WSL 发行版，只返回该 WSL 实例内部的专用快捷根，彻底隔离 Windows 驱动器
+  if (distro && process.platform === "win32") {
+    const wslHome = `\\\\wsl.localhost\\${distro}\\home`;
+    let targetPath = `\\\\wsl.localhost\\${distro}`;
+    try {
+      if (fs.existsSync(wslHome)) {
+        const subs = fs.readdirSync(wslHome, { withFileTypes: true });
+        const userDir = subs.find((s) => s.isDirectory() && s.name !== "lost+found");
+        targetPath = userDir ? path.join(wslHome, userDir.name) : wslHome;
+      }
+    } catch {}
+    roots.push({ label: `WSL: ${distro} 家目录 (~)`, path: targetPath, distro });
+    roots.push({ label: `WSL: ${distro} 根目录 (/)`, path: `\\\\wsl.localhost\\${distro}`, distro });
+    return roots;
+  }
+
+  // 2. 若在 Linux/WSL 网关内部原生运行，返回 Linux 专属根目录
+  if (process.platform === "linux") {
+    roots.push({ label: "用户目录 (~)", path: os.homedir() });
+    roots.push({ label: "根目录 (/)", path: "/" });
+    const userHome = path.join("/home");
+    if (fs.existsSync(userHome)) {
+      roots.push({ label: "/home", path: userHome });
+    }
+    return roots;
+  }
+
+  // 3. 宿主机 Windows 环境：返回本地用户目录与驱动器
   const home = os.homedir();
   roots.push({ label: "用户目录 (~)", path: home });
 
@@ -210,12 +239,6 @@ export function getSystemDirectoryRoots(): DirectoryRoot[] {
         }
       }
     } catch {}
-  } else {
-    roots.push({ label: "根目录 (/)", path: "/" });
-    const userHome = path.join("/home");
-    if (fs.existsSync(userHome)) {
-      roots.push({ label: "/home", path: userHome });
-    }
   }
   return roots;
 }
@@ -267,7 +290,7 @@ workspaceRouter.get("/directories", (c) => {
         error: `目录不存在: ${targetDir}`,
         current: os.homedir(),
         parent: null,
-        roots: getSystemDirectoryRoots(),
+        roots: getSystemDirectoryRoots(requestedDistro),
         entries: [],
       },
       404
@@ -355,7 +378,7 @@ workspaceRouter.get("/directories", (c) => {
     displayPath,
     distro,
     parent,
-    roots: getSystemDirectoryRoots(),
+    roots: getSystemDirectoryRoots(distro || requestedDistro),
     entries,
   });
 });
@@ -502,16 +525,21 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
   }
   const body = c.get("body");
   const distro = body.distro.trim();
-  const port = body.port || 13005;
+  // WSL 专用独立端口默认为 13006，彻底避免与 Windows 本地宿主机网关 (13005) 端口冲突
+  const port = body.port || 13006;
   const token = ensureGatewayToken();
 
-  // 1. 探针：检查 port 是否已经有健康的网关且令牌匹配
+  // 1. 探针：检查 port 是否已经有健康的 WSL 原生 Linux 网关且令牌匹配
   const probe = async (): Promise<boolean> => {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/api/universal/workspace/default`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      return res.status === 200;
+      if (res.status !== 200) return false;
+      const data = await res.json().catch(() => null);
+      // 必须是 Linux 平台的真实 WSL 网关，绝不能误判为 Windows 本机宿主
+      if (!data || data.platform !== "linux") return false;
+      return true;
     } catch {
       return false;
     }
@@ -576,9 +604,12 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
     });
   };
 
-  // 2. 检测 WSL 内部的 runtime (bun 或 node)，通过 bash -lc 加载完整环境与 PATH
+  // 纯净 Linux PATH：完全屏蔽 Windows 继承过来的含括号空格路径（如 Program Files (x86)），防止 bash 语法解析错误
+  const cleanLinuxPath = `export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"`;
+
+  // 2. 检测 WSL 内部的 runtime (bun 或 node)
   const probeRuntime = await execWsl(
-    `export PATH="$HOME/.bun/bin:$PATH" && (command -v bun || [ -x ~/.bun/bin/bun ] && echo ~/.bun/bin/bun || command -v node)`,
+    `${cleanLinuxPath} && (command -v bun || [ -x ~/.bun/bin/bun ] && echo ~/.bun/bin/bun || command -v node)`,
     12000
   );
 
@@ -618,7 +649,7 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
 
   // 4. 以后台守护进程方式在 WSL 内部启动网关（自动同步同一令牌，重定向输入避免终端退出时断开）
   const logFile = `/tmp/acp-wsl-gateway-${port}.log`;
-  const launchScript = `mkdir -p ~/.acp-studio && echo '${token}' > ~/.acp-studio/.gateway-token && cd "${linuxProjectRoot}" && export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH" && export ACP_GATEWAY_TOKEN='${token}' && export PORT=${port} && export HOST=0.0.0.0 && nohup ${runtime} server/index.ts --port ${port} --host 0.0.0.0 < /dev/null > "${logFile}" 2>&1 & sleep 1`;
+  const launchScript = `mkdir -p ~/.acp-studio && echo '${token}' > ~/.acp-studio/.gateway-token && cd "${linuxProjectRoot}" && ${cleanLinuxPath} && export ACP_GATEWAY_TOKEN='${token}' && export PORT=${port} && export HOST=0.0.0.0 && nohup ${runtime} server/index.ts --port ${port} --host 0.0.0.0 < /dev/null > "${logFile}" 2>&1 & sleep 1`;
 
   const launchResult = await execWsl(launchScript, 10000);
   if (launchResult.error) {

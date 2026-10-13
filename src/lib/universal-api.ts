@@ -499,7 +499,7 @@ export interface LaunchWslResult {
   error?: string;
 }
 
-export const DEFAULT_WSL_GATEWAY_PORT = 13005;
+export const DEFAULT_WSL_GATEWAY_PORT = 13006;
 
 export async function launchWslGateway(distro: string, port = DEFAULT_WSL_GATEWAY_PORT): Promise<LaunchWslResult> {
   const res = await apiFetch("/api/universal/workspace/wsl-launch", {

@@ -38,17 +38,21 @@ function readStoredBase(): string {
   try {
     if (typeof localStorage === "undefined") return "";
     let val = localStorage.getItem(GATEWAY_BASE_STORAGE_KEY) || "";
-    // 旧版 3004/3005 热门端口，以及当前默认网关 13005 自动收敛为本地同源（空），统一走标准代理
-    if (
-      val === "http://127.0.0.1:3004" ||
-      val === "http://localhost:3004" ||
-      val === "http://127.0.0.1:3005" ||
-      val === "http://localhost:3005" ||
-      val === "http://127.0.0.1:13005" ||
-      val === "http://localhost:13005"
-    ) {
-      val = "";
-      localStorage.removeItem(GATEWAY_BASE_STORAGE_KEY);
+    const isWsl = Boolean(localStorage.getItem("acp_wsl_native_distro"));
+    // 只有在非 WSL 模式下（纯本地 Windows 环境），才将本地默认网关 13005 收敛为空（同源代理）
+    // WSL 原生网关 (13006) 或 WSL 原生模式下的基址绝不清空，必须保留
+    if (!isWsl) {
+      if (
+        val === "http://127.0.0.1:3004" ||
+        val === "http://localhost:3004" ||
+        val === "http://127.0.0.1:3005" ||
+        val === "http://localhost:3005" ||
+        val === "http://127.0.0.1:13005" ||
+        val === "http://localhost:13005"
+      ) {
+        val = "";
+        localStorage.removeItem(GATEWAY_BASE_STORAGE_KEY);
+      }
     }
     return val;
   } catch {

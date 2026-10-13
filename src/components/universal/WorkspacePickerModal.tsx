@@ -40,7 +40,8 @@ export const WorkspacePickerModal: React.FC = () => {
 
   const base = getGatewayBase();
   const wslNativeDistro = typeof localStorage !== "undefined" ? localStorage.getItem("acp_wsl_native_distro") : null;
-  const isWslNative = Boolean(wslNativeDistro && base);
+  const isWslNative = Boolean(wslNativeDistro);
+  const activeDistro = targetDistro || (isWslNative ? wslNativeDistro : null);
   const [reconnectingWsl, setReconnectingWsl] = useState(false);
 
   const [currentPath, setCurrentPath] = useState<string>("");
@@ -64,7 +65,8 @@ export const WorkspacePickerModal: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await browseDirectories({ dir, distro });
+      const effectiveDistro = distro ?? activeDistro;
+      const res = await browseDirectories({ dir, distro: effectiveDistro });
       if (res.ok) {
         setCurrentPath(res.current);
         setDisplayPath(res.displayPath || res.current);
@@ -88,8 +90,8 @@ export const WorkspacePickerModal: React.FC = () => {
     if (!open) return;
     setManualInputOpen(false);
     setManualInputPath("");
-    void loadPath(initialPath || undefined, targetDistro);
-  }, [open, targetDistro, initialPath]);
+    void loadPath(initialPath || undefined, activeDistro);
+  }, [open, activeDistro, initialPath]);
 
   // 过滤后的目录列表
   const filteredEntries = useMemo(() => {

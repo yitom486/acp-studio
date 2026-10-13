@@ -213,10 +213,11 @@ export const WINDOW_WORKSPACE_KEY = "acp_window_workspace";
 export function getWorkspaceEnv(): string {
   if (typeof localStorage === "undefined") return "local";
   const distro = localStorage.getItem("acp_wsl_native_distro");
-  const base = localStorage.getItem("acp_gateway_base");
-  if (distro && base) {
+  // 只要设置了 WSL 发行版，即视为 WSL 原生真环境，彻底隔离工作区、历史与会话
+  if (distro && distro.trim()) {
     return `wsl_${distro.trim().toLowerCase()}`;
   }
+  const base = localStorage.getItem("acp_gateway_base");
   if (base) {
     try {
       const u = new URL(base);
@@ -262,10 +263,11 @@ function loadInitialWorkspaces(): { current: string | null; recents: RecentWorks
 
     if (fromUrl && typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, fromUrl);
     const recents = raw ? JSON.parse(raw) : [];
+    const isWsl = getWorkspaceEnv().startsWith("wsl_");
     const validRecents = Array.isArray(recents)
-      ? (getWorkspaceEnv().startsWith("wsl_")
+      ? (isWsl
           ? recents.filter((r) => r?.path && !/^\/mnt\/[a-zA-Z](\/|$)/i.test(r.path) && !/^[a-zA-Z]:[\\\/]/i.test(r.path))
-          : recents)
+          : recents.filter((r) => r?.path && !r.path.startsWith("/home/")))
       : [];
     return { current: current || null, recents: validRecents };
   } catch {
@@ -366,8 +368,12 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   setWorkspace: (targetPath, optName) =>
     set((s) => {
       const isWsl = getWorkspaceEnv().startsWith("wsl_");
-      // 在 WSL 环境下，坚决拒收 Windows 挂载盘 /mnt/... 路径
-      if (isWsl && /^\/mnt\/[a-zA-Z](\/|$)/i.test(targetPath)) {
+      // 在 WSL 环境下，坚决拒收 Windows 挂载盘 /mnt/... 路径或 Windows 盘符
+      if (isWsl && (/^\/mnt\/[a-zA-Z](\/|$)/i.test(targetPath) || /^[a-zA-Z]:[\\\/]/i.test(targetPath))) {
+        return {};
+      }
+      // 在 Windows 环境下，坚决拒收纯 Linux 路径
+      if (!isWsl && targetPath.startsWith("/home/")) {
         return {};
       }
       const name = optName || targetPath.split(/[/\\]/).filter(Boolean).pop() || targetPath;

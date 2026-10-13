@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { isSameCwd, normalizeCwd } from "@/lib/threads";
 import type { AgentSummary } from "@/lib/universal-api";
-import type { RecentWorkspace } from "@/stores/useStudioStore";
+import { getWorkspaceEnv, type RecentWorkspace } from "@/stores/useStudioStore";
 
 export interface SessionItem {
   sessionId: string;
@@ -327,6 +327,25 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       ? p.sessions.filter((s) => (s.title || s.sessionId).toLowerCase().includes(query))
       : p.sessions;
 
+    const env = getWorkspaceEnv();
+    const isWsl = env.startsWith("wsl_");
+
+    // 跨环境路径严格过滤器：
+    // 在 WSL 环境下坚决剔除任何 Windows 盘符 (C:\, D:\) 与 /mnt/ 挂载路径；
+    // 在 Windows 环境下坚决剔除纯 Linux 路径 (/home/...)
+    const isPathMatchingEnv = (pathStr?: string | null): boolean => {
+      if (!pathStr) return false;
+      const isWin = /^[a-zA-Z]:[\\\/]/i.test(pathStr) || /^\/mnt\/[a-zA-Z](\/|$)/i.test(pathStr);
+      if (isWsl) {
+        return !isWin;
+      } else {
+        if (pathStr.startsWith("/home/") || pathStr.startsWith("/root/")) {
+          return false;
+        }
+        return true;
+      }
+    };
+
     const map = new Map<
       string,
       {
@@ -339,9 +358,10 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       }
     >();
 
-    // 1. Seed recent workspaces
+    // 1. Seed recent workspaces (仅加载属于当前环境的工程)
     if (p.recentWorkspaces && p.recentWorkspaces.length > 0) {
       for (const w of p.recentWorkspaces) {
+        if (!isPathMatchingEnv(w.path)) continue;
         const key = normalizeCwd(w.path) || w.path;
         const name = w.name || shortCwd(w.path) || w.path;
         const isCurrent = Boolean(p.currentWorkspace && isSameCwd(p.currentWorkspace, w.path));
@@ -357,7 +377,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
     }
 
     // 2. Seed current workspace if not present in recents
-    if (p.currentWorkspace) {
+    if (p.currentWorkspace && isPathMatchingEnv(p.currentWorkspace)) {
       const curKey = normalizeCwd(p.currentWorkspace) || p.currentWorkspace;
       if (!map.has(curKey)) {
         const name = shortCwd(p.currentWorkspace) || p.currentWorkspace;
@@ -375,6 +395,11 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
     // 3. Distribute sessions to matching project
     for (const sess of filtered) {
       const sessCwd = sess.cwd ? (normalizeCwd(sess.cwd) || sess.cwd) : null;
+      // 若历史会话关联的目录与当前环境不符，坚决在当前视图中隐藏，绝不反向污染生成跨系统项目
+      if (sessCwd && !isPathMatchingEnv(sessCwd)) {
+        continue;
+      }
+
       let matchedKey: string | null = null;
 
       if (sessCwd) {
@@ -399,7 +424,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
           });
         }
       } else {
-        if (p.currentWorkspace) {
+        if (p.currentWorkspace && isPathMatchingEnv(p.currentWorkspace)) {
           matchedKey = normalizeCwd(p.currentWorkspace) || p.currentWorkspace;
         } else {
           matchedKey = "general";
