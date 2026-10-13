@@ -97,10 +97,26 @@ export function useSessionLifecycle({
         const reqCwd = st.currentWorkspace || undefined;
         // Auto-created sessions inherit the agent thread's MCP servers.
         const autoServers = st.threadMcpServers(agentId);
+
+        // Auto-prune uncommitted empty draft: if leaving behind an empty session with 0 user messages,
+        // delete it from the agent so abandoned zero-message sessions don't clutter the sidebar.
+        const prevSid = st.sessionId;
+        const prevHasUserMsg = st.messages.some((m) => m.role === "user");
+        if (prevSid && !prevHasUserMsg) {
+          void sessionRpc(agentId, "delete", { sessionId: prevSid }).catch(() => {});
+        }
+
         const res: any = await sessionNew(agentId, {
           ...(reqCwd ? { cwd: reqCwd } : {}),
           ...(autoServers?.length ? { mcpServers: autoServers } : {}),
         });
+
+        // Strict isolation: if starting a new session and previous view had messages or was forced,
+        // create a brand-new thread so previous session's history NEVER leaks into the new session!
+        if (prevHasUserMsg || force || st.messages.length > 0) {
+          newThread(agentId, reqCwd);
+        }
+
         st.applySessionResult(res);
         bindThreadSession(useStudioStore.getState().sessionId, reqCwd, autoServers);
         st.setAuthOk(agentId, true);
@@ -161,11 +177,9 @@ export function useSessionLifecycle({
         });
         return { resumed: true, result };
       } catch {
-        // Visible degrade (no silent fallback): keep cached messages on screen,
-        // mark stale, drop the dead binding so the next prompt news a session.
+        // Visible degrade: mark stale, but PRESERVE the thread's binding and messages
+        // as a read-only historical record. Never hijack it with a fake new session!
         markThreadStale();
-        bindThreadSession(null);
-        // 仅在该会话确有真实用户消息时才提示失效，且严格去重，避免重复刷屏
         const sidPrefix = sid.slice(0, 8);
         const alreadyNotified =
           thread.messages.some(
@@ -178,7 +192,7 @@ export function useSessionLifecycle({
           st.appendMessage({
             id: `sys-${Date.now()}-stale`,
             role: "system",
-            content: `上次会话 (${sidPrefix}…) 已失效（agent 重启或会话被清理），将自动新建会话续聊，历史消息保留在上方。`,
+            content: `会话 (${sidPrefix}…) 在 Agent 端已失效或已过期（当前为历史记录视图）。点击上方「+ 新会话」可开启独立新会话。`,
             timestamp: now(),
           });
         }
@@ -211,8 +225,16 @@ export function useSessionLifecycle({
         ensuredRef.current = agentId;
         return sid;
       }
-      // 2. no binding (or resume failed and binding was dropped) -> create
-      const sid = await ensureSession(agentId, true);
+      // 2. Strict Session Isolation:
+      // If the current active thread failed to resume (marked stale),
+      // leave it as an isolated read-only historical transcript.
+      const thread = cur.activeThreadId ? cur.threads[cur.activeThreadId] : undefined;
+      if (thread?.stale) {
+        ensuredRef.current = agentId;
+        return null;
+      }
+      // 3. no binding and no history (clean draft) -> create fresh session
+      const sid = await ensureSession(agentId, false);
       if (sid) ensuredRef.current = agentId;
       return sid;
     },
@@ -295,6 +317,14 @@ export function useSessionLifecycle({
         const known = agentsRef.current.find((a) => a.id === agentId)?.status?.connected;
         if (!known) await connectAgent(agentId);
         const reqCwd = settings.cwd || st.currentWorkspace || undefined;
+
+        // Auto-cleanup discarded empty draft if leaving one behind
+        const prevSid = st.sessionId;
+        const prevHasUserMsg = st.messages.some((m) => m.role === "user");
+        if (prevSid && !prevHasUserMsg) {
+          void sessionRpc(agentId, "delete", { sessionId: prevSid }).catch(() => {});
+        }
+
         const res: any = await sessionNew(agentId, {
           ...(reqCwd ? { cwd: reqCwd } : {}),
           ...(settings.additionalDirectories.length > 0
@@ -303,7 +333,7 @@ export function useSessionLifecycle({
           mcpServers: settings.mcpServers,
         });
         // 先开新线程，再应用新会话的 modes/models/config
-        newThread(agentId);
+        newThread(agentId, reqCwd);
         st.applySessionResult(res);
         bindThreadSession(
           useStudioStore.getState().sessionId,
@@ -338,6 +368,13 @@ export function useSessionLifecycle({
       const st = useStudioStore.getState();
       if (st.isStreaming) return;
       const agentId = st.activeAgentId;
+
+      // Auto-cleanup abandoned empty draft when switching to another session
+      const prevSid = st.sessionId;
+      const prevHasUserMsg = st.messages.some((m) => m.role === "user");
+      if (prevSid && prevSid !== item.sessionId && !prevHasUserMsg) {
+        void sessionRpc(agentId, "delete", { sessionId: prevSid }).catch(() => {});
+      }
 
       // 1. 乐观渲染：0ms 瞬间把会话切换到主视口（本地缓存历史立即可见，无全屏菊花阻塞）
       st.optimisticOpenSession(agentId, item.sessionId, item.title, item.cwd);
@@ -592,7 +629,7 @@ export function useSessionLifecycle({
     }
     if (
       !confirm(
-        `清理「${agentId}」下无对话记录、超过1小时、且当前未打开的空会话？\n（将跳过 ${bound.size} 个已绑定会话，逐个删除，失败逐条报告）`
+        `清理「${agentId}」下无对话记录的零会话？\n（将跳过 ${bound.size} 个正在使用或本地有记录的会话，逐个删除，失败逐条报告）`
       )
     )
       return;

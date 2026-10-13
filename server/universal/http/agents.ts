@@ -146,20 +146,20 @@ agentsRouter.post("/:agentId/providers/:action{list|set|disable}", jsonBody(anyB
   }
 });
 
-const emptySessionsBody = z.looseObject({ exceptIds: z.array(z.unknown()).nullish() });
+const emptySessionsBody = z.looseObject({
+  exceptIds: z.array(z.unknown()).nullish(),
+  maxAgeMs: z.number().nullish(),
+});
 
 agentsRouter.delete("/:agentId/sessions/empty", jsonBody(emptySessionsBody), async (c) => {
-  // One-click cleanup of abandoned empty sessions. Strict and loud:
-  // only rows the agent marks as turn-less AND old AND unbound are
+  // One-click cleanup of abandoned empty sessions across any connected agent.
+  // Strict and loud: only rows marked as turn-less AND old AND unbound are
   // deleted; every skip/failure is reported, never silently swallowed.
-  // Currently only meaningful for agy-acp-map (conversationId semantics).
   const agentId = c.req.param("agentId");
-  if (agentId !== "antigravity-stdio" && agentId !== "agy") {
-    return json({ ok: false, error: `Agent '${agentId}' 不支持空会话判定（仅 Antigravity 桥提供 conversationId 语义）。` }, 501);
-  }
   try {
     const body = c.get("body");
     const exceptIds = Array.isArray(body.exceptIds) ? body.exceptIds.map(String) : [];
+    const maxAgeMs = typeof body.maxAgeMs === "number" ? body.maxAgeMs : undefined;
     const { selectEmptySessions } = await import("../agent-installer");
     const conn = universalRegistry.connFor(agentId);
     // One-click must work even when disconnected: connect on demand
@@ -178,7 +178,10 @@ agentsRouter.delete("/:agentId/sessions/empty", jsonBody(emptySessionsBody), asy
         break;
       }
     }
-    const { deletable, kept } = selectEmptySessions(sessions, { exceptIds });
+    const { deletable, kept } = selectEmptySessions(sessions, {
+      exceptIds,
+      ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
+    });
     const deleted: string[] = [];
     const errors: Array<{ sessionId: string; error: string }> = [];
     for (const d of deletable) {
@@ -186,7 +189,13 @@ agentsRouter.delete("/:agentId/sessions/empty", jsonBody(emptySessionsBody), asy
         await conn.deleteSession({ sessionId: d.sessionId });
         deleted.push(d.sessionId);
       } catch (err) {
-        errors.push({ sessionId: d.sessionId, error: (err as Error).message });
+        // Fall back to closeSession if agent does not implement delete
+        try {
+          await conn.closeSession({ sessionId: d.sessionId });
+          deleted.push(d.sessionId);
+        } catch (closeErr) {
+          errors.push({ sessionId: d.sessionId, error: (err as Error).message });
+        }
       }
     }
     return json({ ok: errors.length === 0, deleted, kept, errors });

@@ -140,6 +140,38 @@ describe("Controller hooks & App invariants", () => {
       unmount();
     });
 
+    it("keeps dead threads isolated without polluting new sessions with old history", async () => {
+      const st = useStudioStore.getState();
+      st.setActiveAgentId("opencode");
+      st.newThread("opencode");
+      st.bindThreadSession("sess-dead", "/test/path");
+      st.appendMessage({ id: "user-1", role: "user", content: "old message", timestamp: "10:00" });
+      st.markThreadStale();
+
+      const qc = new QueryClient();
+      const agents = [{ id: "opencode", name: "opencode", status: { connected: true } } as any];
+      const agentsRef = { current: agents };
+      const applyDefaultConfigOptions = vi.fn(async () => {});
+
+      let hook: any;
+      const { unmount } = renderTestHook(() => {
+        hook = useSessionLifecycle({
+          qc,
+          agents,
+          agentsRef,
+          applyDefaultConfigOptions,
+        });
+        return hook;
+      });
+
+      // resolveSession on a stale thread with history does not fabricate a fake new session over the old messages
+      const sid = await hook.resolveSession("opencode");
+      expect(sid).toBeNull();
+      expect(useStudioStore.getState().threads[useStudioStore.getState().activeThreadId!]?.stale).toBe(true);
+      expect(useStudioStore.getState().messages).toHaveLength(1);
+      unmount();
+    });
+
     it("guards against race conditions in optimisticOpenSession", async () => {
       const st = useStudioStore.getState();
       st.setActiveAgentId("opencode");

@@ -61,6 +61,17 @@ describe("agent-installer (offline)", () => {
     );
     expect(deletable.map((d) => d.sessionId).sort()).toEqual(["empty-old", "empty-old-nodate"]);
     expect(kept).toBe(4);
+
+    const titledTest = selectEmptySessions(
+      [
+        { sessionId: "titled-sess", title: "扫后端端口", updatedAt: old },
+        { sessionId: "default-title-sess", title: "New session - 2026-10-13T20:00:00Z", updatedAt: old },
+        { sessionId: "zh-default-sess", title: "新会话 - 2026-10-13", updatedAt: old },
+      ],
+      { now: NOW },
+    );
+    expect(titledTest.deletable.map((d) => d.sessionId).sort()).toEqual(["default-title-sess", "zh-default-sess"]);
+    expect(titledTest.kept).toBe(1);
   });
 
   test("latestTtlMs honors ACP_LATEST_TTL_MS (default 10min)", () => {

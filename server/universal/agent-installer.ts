@@ -599,16 +599,22 @@ export interface EmptySessionPick {
   reason: string;
 }
 
+export function isDefaultEmptySessionTitle(title?: string | null): boolean {
+  if (!title) return true;
+  const t = title.trim();
+  if (!t) return true;
+  return /^(New session|新会话)(\s*-\s*|\s*$)/i.test(t);
+}
+
 /**
  * Pick deletable empty sessions. Strict on purpose (fail-safe toward KEEP):
  * - sessionId missing/blank -> keep (never touch unidentifiable rows);
  * - listed in exceptIds (live-bound threads, current view) -> keep;
- * - has conversationId (a turn completed at least once) -> keep;
+ * - has conversationId (a turn completed at least once, agy bridge) -> keep;
+ * - has custom/agent-generated title (not default 'New session - ...' / '新会话') -> keep;
  * - updated within maxAgeMs -> keep (a fresh session awaiting first prompt
  *   looks exactly like an abandoned one);
  * - otherwise -> delete candidate ("no turns recorded").
- * NOTE: `conversationId` is bridge semantics (agy-acp-map); callers must
- * only apply this to agents whose list output carries that meaning.
  */
 export function selectEmptySessions(
   sessions: ListedSession[],
@@ -626,6 +632,11 @@ export function selectEmptySessions(
       continue;
     }
     if (s.conversationId) {
+      kept++;
+      continue;
+    }
+    const title = typeof s?.title === "string" ? s.title : null;
+    if (title && !isDefaultEmptySessionTitle(title)) {
       kept++;
       continue;
     }

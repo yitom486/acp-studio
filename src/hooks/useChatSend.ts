@@ -161,6 +161,12 @@ export function useChatSend({
       st.setInput("");
       st.setAttachments([]);
 
+      // If currently active thread was marked stale (historical view), start fresh thread for this prompt
+      const curThread0 = st.activeThreadId ? st.threads[st.activeThreadId] : undefined;
+      if (curThread0?.stale) {
+        st.newThread(agentId);
+      }
+
       const assistantId = "asst-" + Date.now();
       // 发出的图片也显示在用户消息里（与历史回放一致）
       const sentImages = st.attachments
