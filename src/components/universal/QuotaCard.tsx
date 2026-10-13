@@ -9,7 +9,6 @@ import {
   Gauge,
   AlertTriangle,
   CheckCircle2,
-  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -110,8 +109,6 @@ export interface QuotaCardProps {
   agentId?: string;
   onRefresh?: () => void;
   refreshing?: boolean;
-  onSendStatus?: () => void;
-  canSendStatus?: boolean;
   className?: string;
 }
 
@@ -121,8 +118,6 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
   agentId,
   onRefresh,
   refreshing = false,
-  onSendStatus,
-  canSendStatus = false,
   className,
 }) => {
   if (!quota) {
@@ -147,7 +142,7 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
           )}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          暂未探测到本地额度数据。可连接后输入 <span className="font-mono text-foreground">/status</span> 刷新。
+          暂未探测到本地额度数据。可点击右上角按钮重新探测。
         </p>
       </div>
     );
@@ -261,10 +256,10 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
           <div className="p-2.5 rounded-md bg-muted/40 border border-border/50 text-[11px] space-y-1">
             <div className="flex items-center gap-1.5 text-foreground font-medium text-[11px]">
               <Clock className="w-3.5 h-3.5 text-primary" />
-              <span>5 小时速率限制 (动态数据)</span>
+              <span>动态额度</span>
             </div>
             <p className="text-[10px] text-muted-foreground leading-relaxed">
-              Codex 实时额度（使用率/重置时间）由远端按会话返回。点击下方按钮发送 <code className="text-foreground bg-muted px-1 py-0.2 rounded font-mono">/status</code> 即可自动在此及顶栏呈现 5h 环形进度条。
+              暂未拉取到速率限制窗口，可点击右上角探测按钮刷新。
             </p>
           </div>
         )}
@@ -285,25 +280,13 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
               </span>
             ) : (
               <span>
-                {credits.currency ? `${credits.currency} ` : ""}
-                {credits.balance}
+                {credits.currency ? `${credits.currency} ` : (!isNaN(Number(credits.balance)) ? "$" : "")}
+                {!isNaN(Number(credits.balance))
+                  ? Number(credits.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                  : credits.balance}
               </span>
             )}
           </span>
-        </div>
-      )}
-
-      {/* 快捷操作：若会话在线，一键发送 /status */}
-      {canSendStatus && onSendStatus && (
-        <div className="pt-1 border-t border-border/50">
-          <button
-            type="button"
-            onClick={onSendStatus}
-            className="w-full flex items-center justify-center gap-1.5 px-2 py-1 rounded bg-muted/50 hover:bg-muted text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Send className="w-3 h-3" />
-            <span>向会话发送 /status 刷新实时状态</span>
-          </button>
         </div>
       )}
     </div>

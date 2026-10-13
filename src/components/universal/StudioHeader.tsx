@@ -139,11 +139,6 @@ export const AgentStatusChip: React.FC<{
     }
   }, [open, activeAgentId, handleRefreshQuota]);
 
-  const handleSendStatus = () => {
-    setInput("/status");
-    setOpen(false);
-  };
-
   return (
     <div ref={ref} className="relative flex items-center gap-1.5 min-w-0">
       <button
@@ -226,19 +221,7 @@ export const AgentStatusChip: React.FC<{
               agentId={activeAgentId}
               refreshing={refreshingQuota}
               onRefresh={handleRefreshQuota}
-              canSendStatus={Boolean(connected && (sessionId || useStudioStore.getState().sessionId))}
-              onSendStatus={handleSendStatus}
             />
-            {caps?.sessionCapabilities && (
-              <div className="pt-1.5 border-t border-border/60">
-                <div className="text-[10px] text-foreground font-medium mb-1">会话能力</div>
-                <div className="flex flex-wrap gap-1">
-                  {Object.keys(caps.sessionCapabilities).map((k) => (
-                    <span key={k} className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">{k}</span>
-                  ))}
-                </div>
-              </div>
-            )}
             <div className="pt-2 flex items-center gap-1.5">
               {!connected ? (
                 <Button size="sm" onClick={() => { onConnect(); }} disabled={connecting} className="h-7 px-2.5 text-xs gap-1.5">

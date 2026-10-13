@@ -127,7 +127,18 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
 }
 
 export function convertAcpMessages(messages: Message[]): ThreadMessageLike[] {
-  return messages.map(convertAcpMessage);
+  const filtered: Message[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role === "system") {
+      const prev = filtered[filtered.length - 1];
+      if (prev && prev.role === "system" && prev.content?.trim() === msg.content?.trim()) {
+        continue; // 连续重复的系统提示直接去重折叠
+      }
+    }
+    filtered.push(msg);
+  }
+  return filtered.map(convertAcpMessage);
 }
 
 /** Extract plain text from an assistant-ui AppendMessage (for onNew/onEdit). */

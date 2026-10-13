@@ -162,12 +162,20 @@ export function useSessionLifecycle({
         // mark stale, drop the dead binding so the next prompt news a session.
         markThreadStale();
         bindThreadSession(null);
-        // 仅在该会话确有真实用户消息时才提示失效，避免空会话或环境切出时刷屏
-        if (thread.messages.some((m) => m.role === "user")) {
+        // 仅在该会话确有真实用户消息时才提示失效，且严格去重，避免重复刷屏
+        const sidPrefix = sid.slice(0, 8);
+        const alreadyNotified =
+          thread.messages.some(
+            (m) => m.role === "system" && m.content.includes(sidPrefix)
+          ) ||
+          st.messages.some(
+            (m) => m.role === "system" && m.content.includes(sidPrefix)
+          );
+        if (thread.messages.some((m) => m.role === "user") && !alreadyNotified) {
           st.appendMessage({
             id: `sys-${Date.now()}-stale`,
             role: "system",
-            content: `上次会话 (${sid.slice(0, 8)}…) 已失效（agent 重启或会话被清理），将自动新建会话续聊，历史消息保留在上方。`,
+            content: `上次会话 (${sidPrefix}…) 已失效（agent 重启或会话被清理），将自动新建会话续聊，历史消息保留在上方。`,
             timestamp: now(),
           });
         }

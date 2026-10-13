@@ -23,6 +23,7 @@ import {
   Bot,
   User,
   Wrench,
+  Info,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -373,9 +374,9 @@ const SUGGESTIONS = [
     hint: "会写文件",
   },
   {
-    title: "查看智能体状态与额度",
-    prompt: "/status",
-    hint: "/status",
+    title: "生成代码改进建议",
+    prompt: "请通读当前核心代码，分析潜在的架构坏味道、性能瓶颈并给出重构建议。",
+    hint: "架构分析",
   },
 ];
 
@@ -753,9 +754,25 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
   );
 };
 
+const SystemMessageView: React.FC = () => {
+  const messageId = useAuiState((s) => s.message.id);
+  const acp = useStudioStore((s) => s.messages.find((m) => m.id === messageId));
+  const content = acp?.content || "";
+
+  return (
+    <MessagePrimitive.Root className="w-full flex items-center justify-center my-3 px-4 select-none animate-fade-slide-in">
+      <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-muted/60 border border-border/70 text-muted-foreground text-xs shadow-xs max-w-xl text-center">
+        <Info className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+        <span className="leading-relaxed">{content}</span>
+      </div>
+    </MessagePrimitive.Root>
+  );
+};
+
 const ThreadMessageRouter: React.FC<{ agentName: string; cwd?: string | null }> = ({ agentName, cwd }) => {
   const role = useAuiState((s) => s.message.role);
   if (role === "user") return <UserMessageView />;
+  if (role === "system") return <SystemMessageView />;
   return <AssistantMessageView agentName={agentName} cwd={cwd} />;
 };
 
