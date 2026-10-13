@@ -72,7 +72,10 @@ export function useSessionLifecycle({
       await sessionRpc(agentId, "list", {});
       useStudioStore.getState().setAuthOk(agentId, true);
     } catch (e: any) {
-      useStudioStore.getState().setAuthOk(agentId, isAuthRequiredError(e) ? false : null);
+      const isAuthErr = isAuthRequiredError(e);
+      // agy / antigravity-stdio 是官方桥接，无认证协议拦截，复用本地凭据
+      const isAgy = agentId === "antigravity-stdio" || agentId === "agy";
+      useStudioStore.getState().setAuthOk(agentId, isAuthErr ? false : (isAgy ? true : null));
     }
   }, []);
 

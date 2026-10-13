@@ -354,8 +354,32 @@ function persistAutoUpdate(map: Record<string, boolean>): void {
   }
 }
 
+const ACTIVE_AGENT_KEY = "acp_active_agent_id_v1";
+
+function loadInitialActiveAgentId(): string {
+  try {
+    if (typeof localStorage === "undefined") return "codex";
+    const saved = localStorage.getItem(ACTIVE_AGENT_KEY);
+    if (saved && typeof saved === "string" && saved.trim()) {
+      return saved.trim();
+    }
+    return "codex";
+  } catch {
+    return "codex";
+  }
+}
+
+function persistActiveAgentId(id: string): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(ACTIVE_AGENT_KEY, id);
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export const useStudioStore = create<StudioState>()((set, get) => ({
-  activeAgentId: "codex",
+  activeAgentId: loadInitialActiveAgentId(),
   connectingId: null,
   authOk: {},
   sessionId: null,
@@ -472,7 +496,10 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   setTerminalCwd: (cwd) => set({ terminalCwd: cwd }),
   setGitChangesOpen: (v, file) => set({ gitChangesOpen: v, gitDiffFile: file ?? null }),
 
-  setActiveAgentId: (id) => set({ activeAgentId: id }),
+  setActiveAgentId: (id) => {
+    persistActiveAgentId(id);
+    set({ activeAgentId: id });
+  },
   setConnectingId: (id) => set({ connectingId: id }),
   setAuthOk: (agentId, ok) => set((s) => ({ authOk: { ...s.authOk, [agentId]: ok } })),
   setSessionId: (id) =>

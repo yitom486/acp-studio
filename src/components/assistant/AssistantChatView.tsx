@@ -71,14 +71,49 @@ export interface AssistantChatViewProps {
 
 // ---------- part renderers (Text 由 AcpMarkdownText 直供 primitive) ----------
 
-/** 流式等待中的克制微点。 */
+/** 流式等待中的灵动跳跃微点。 */
 const BouncingDots: React.FC = () => (
-  <span className="inline-flex items-center gap-1 opacity-70" aria-hidden>
-    <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-    <span className="w-1.5 h-1.5 rounded-full bg-primary/70" />
-    <span className="w-1.5 h-1.5 rounded-full bg-primary/40" />
+  <span className="inline-flex items-center gap-1 opacity-80" aria-hidden>
+    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bouncing-dot [animation-delay:0ms]" />
+    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bouncing-dot [animation-delay:160ms]" />
+    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bouncing-dot [animation-delay:320ms]" />
   </span>
 );
+
+/** 智能体首 Token 到达前的多阶段灵动思考指示器 */
+const ThinkingStateCapsule: React.FC = () => {
+  const [elapsed, setElapsed] = React.useState(0);
+  React.useEffect(() => {
+    const start = Date.now();
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 100) / 10);
+    }, 100);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getStatusText = (s: number) => {
+    if (s < 2.5) return "正在思考…";
+    if (s < 6) return "正在分析代码与上下文…";
+    if (s < 12) return "正在规划执行方案…";
+    return "正在组织语言生成回复…";
+  };
+
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-border/80 bg-card px-3.5 py-2 shadow-xs transition-all duration-300">
+      <span className="relative flex h-2 w-2 shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+      </span>
+      <span className="inline-flex items-center text-muted-foreground text-xs font-medium">
+        {getStatusText(elapsed)}
+      </span>
+      <span className="font-mono text-[10px] text-muted-foreground/60 tabular-nums">
+        {elapsed.toFixed(1)}s
+      </span>
+      <BouncingDots />
+    </div>
+  );
+};
 
 /**
  * 上下文用量面板：窗口占用 % + 进度条常显，点击展开本轮运行时明细。
@@ -597,11 +632,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
         <div className="shrink-0 w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center text-foreground mt-0.5 shadow-xs">
           <Bot className="w-4 h-4 text-primary" />
         </div>
-        <div className="flex items-center gap-2.5 rounded-lg border border-border/80 bg-card px-3.5 py-2 shadow-xs">
-          <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-          <span className="inline-flex items-center text-muted-foreground text-xs font-medium">正在思考…</span>
-          <BouncingDots />
-        </div>
+        <ThinkingStateCapsule />
       </MessagePrimitive.Root>
     );
   }

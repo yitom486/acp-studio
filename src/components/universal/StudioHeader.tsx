@@ -110,13 +110,19 @@ export const AgentStatusChip: React.FC<{
   }, [open]);
 
   const active = agents.find((a) => a.id === activeAgentId);
-  const quota = storeQuota || active?.status?.quota;
+  const isMatchingStoreQuota =
+    storeQuota &&
+    (storeQuota.runtimeId === activeAgentId ||
+      (activeAgentId === "antigravity-stdio" && (storeQuota.runtimeId === "agy" || storeQuota.runtimeId === "antigravity-stdio")) ||
+      (activeAgentId === "agy" && (storeQuota.runtimeId === "agy" || storeQuota.runtimeId === "antigravity-stdio")));
+  const quota = isMatchingStoreQuota ? storeQuota : (active?.status?.quota ?? null);
   const connected = Boolean(active?.status?.connected);
   const caps = active?.status?.agentCapabilities as any;
   const proto = active?.status?.protocolVersion;
   const agentInfo = active?.status?.agentInfo as any;
   const pid = active?.status?.pid;
-  const dot = connecting ? "bg-warning animate-pulse" : connected ? "bg-success" : "bg-muted-foreground/40";
+  const isAuthed = authOk === true || (authOk !== false && quota?.status === "ok");
+  const dot = connected ? "bg-success" : connecting ? "bg-warning animate-pulse" : "bg-muted-foreground/40";
 
   const handleRefreshQuota = useCallback(async () => {
     setRefreshingQuota(true);
@@ -147,7 +153,7 @@ export const AgentStatusChip: React.FC<{
         aria-haspopup="dialog"
         aria-expanded={open}
         data-testid="agent-chip"
-        title={`${active?.title || activeAgentId} · ${connecting ? "连接中" : connected ? "已连接" : "未连接"}${connected && authOk === true ? " · 已认证" : ""}${quota?.primaryWindow ? ` · 5h限额: ${quota.primaryWindow.percentLeft}%` : ""}`}
+        title={`${active?.title || activeAgentId} · ${connected ? "已连接" : connecting ? "连接中" : "未连接"}${connected && isAuthed ? " · 已认证" : ""}${quota?.primaryWindow ? ` · 5h限额: ${quota.primaryWindow.percentLeft}%` : ""}`}
         className="h-7 min-w-0 max-w-[240px] flex items-center gap-1.5 rounded-md border border-transparent hover:border-border hover:bg-muted pl-2 pr-1.5 text-[13px] font-medium text-foreground"
       >
         <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
@@ -162,7 +168,7 @@ export const AgentStatusChip: React.FC<{
             {quota.account.plan}
           </span>
         ) : null}
-        {connected && authOk === true && <ShieldCheck className="w-3 h-3 text-success shrink-0" aria-label="已认证" />}
+        {connected && isAuthed && <ShieldCheck className="w-3 h-3 text-success shrink-0" aria-label="已认证" />}
         {connected && authOk === false && <ShieldAlert className="w-3 h-3 text-warning shrink-0" aria-label="需认证" />}
         <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
       </button>
@@ -200,18 +206,34 @@ export const AgentStatusChip: React.FC<{
             </div>
             <div className="flex items-center gap-1.5">
               <PlugZap className={cn("w-3 h-3", connected ? "text-success" : "text-muted-foreground")} />
-              <span>{connecting ? "连接中…" : connected ? "已连接" : "未连接"}</span>
+              <span>{connected ? "已连接" : connecting ? "连接中…" : "未连接"}</span>
               {connected && pid ? <span className="font-mono">· pid {pid}</span> : null}
               {agentInfo?.version && <span className="font-mono">· v{agentInfo.version}</span>}
             </div>
             {connected && (
               <div className="flex items-center gap-1.5">
-                {authOk === true ? (
-                  <><ShieldCheck className="w-3 h-3 text-success" /><span>已认证（复用本地登录凭据）</span></>
+                {isAuthed ? (
+                  <>
+                    <ShieldCheck className="w-3 h-3 text-success shrink-0" />
+                    <span>
+                      已认证
+                      {quota?.account?.email || quota?.account?.name ? (
+                        <>（账号: <strong className="font-mono text-foreground font-medium">{quota.account.email || quota.account.name}</strong>）</>
+                      ) : (
+                        "（复用本地登录凭据）"
+                      )}
+                    </span>
+                  </>
                 ) : authOk === false ? (
-                  <><ShieldAlert className="w-3 h-3 text-warning" /><span>需要登录认证</span></>
+                  <>
+                    <ShieldAlert className="w-3 h-3 text-warning shrink-0" />
+                    <span>需要登录认证</span>
+                  </>
                 ) : (
-                  <><ShieldCheck className="w-3 h-3" /><span>认证状态未知</span></>
+                  <>
+                    <ShieldCheck className="w-3 h-3 shrink-0" />
+                    <span>认证状态探测中</span>
+                  </>
                 )}
               </div>
             )}

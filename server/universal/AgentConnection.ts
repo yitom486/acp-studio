@@ -3,6 +3,7 @@ import { Readable, Writable } from "node:stream";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
+import * as os from "node:os";
 import * as acp from "@agentclientprotocol/sdk";
 import {
   QuotaCache,
@@ -172,6 +173,52 @@ export function whichCommand(command: string): string | null {
   return null;
 }
 
+function resolveAntigravityAccount(): { email?: string; name?: string } {
+  // 1. 优先环境变量
+  if (process.env.GOOGLE_ACCOUNT?.trim()) {
+    const email = process.env.GOOGLE_ACCOUNT.trim();
+    return { email, name: email.split("@")[0] };
+  }
+  if (process.env.ANTIGRAVITY_ACCOUNT?.trim()) {
+    const email = process.env.ANTIGRAVITY_ACCOUNT.trim();
+    return { email, name: email.split("@")[0] };
+  }
+  // 2. 跨平台探测 Antigravity 本地凭据 app_storage.json
+  const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || "";
+  const candidates = [
+    // Windows AppData Roaming
+    process.env.APPDATA ? path.join(process.env.APPDATA, "Antigravity", "app_storage.json") : null,
+    // Linux ~/.config
+    path.join(home, ".config", "Antigravity", "app_storage.json"),
+    // macOS Library
+    path.join(home, "Library", "Application Support", "Antigravity", "app_storage.json"),
+  ].filter(Boolean) as string[];
+
+  for (const file of candidates) {
+    try {
+      if (fs.existsSync(file)) {
+        const raw = fs.readFileSync(file, "utf8");
+        const json = JSON.parse(raw);
+        const username = json["jetski.onboarding.lastLoginUsername"];
+        if (username && typeof username === "string" && username.trim()) {
+          const u = username.trim();
+          return {
+            email: u,
+            name: u.includes("@") ? u.split("@")[0] : u,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  // 3. 回落系统用户名
+  const osUser = process.env.USERNAME || process.env.USER;
+  if (osUser?.trim()) {
+    return { name: osUser.trim() };
+  }
+  return {};
+}
+
 /**
  * One long-lived stdio connection to a generic ACP agent.
  * Uses @agentclientprotocol/sdk `client().connect(stream)` (persistent),
@@ -232,6 +279,45 @@ export class UniversalAgentConnection {
         q = (await codexAdapter.probeQuota?.()) ?? null;
       } else if (id === "antigravity-stdio" || id === "agy") {
         q = (await agyAdapter.probeQuota?.()) ?? null;
+        const acc = resolveAntigravityAccount();
+        if (!q && (acc.email || acc.name)) {
+          q = {
+            runtimeId: "agy",
+            provider: "Google Antigravity",
+            account: {
+              email: acc.email,
+              name: acc.name || "Google Developer",
+              plan: "Antigravity / Gemini",
+              type: "gemini",
+            },
+            primaryWindow: {
+              label: "5-Hour limit",
+              percentLeft: 100,
+              usedPercent: 0,
+              windowDurationMins: 300,
+            },
+            secondaryWindow: {
+              label: "Weekly limit",
+              percentLeft: 100,
+              usedPercent: 0,
+              windowDurationMins: 10080,
+            },
+            credits: {
+              unlimited: true,
+              balance: "unlimited",
+            },
+            status: "ok",
+            updatedAt: Date.now(),
+          };
+        } else if (q && (acc.email || acc.name)) {
+          q.account = {
+            ...(q.account || {}),
+            email: acc.email || q.account?.email,
+            name: acc.name || q.account?.name || "Google Developer",
+            plan: q.account?.plan || "Antigravity / Gemini",
+            type: "gemini",
+          };
+        }
       } else if (id === "claude") {
         q = (await claudeAdapter.probeQuota?.()) ?? null;
       } else if (id === "opencode" || id === "opencode-v2") {
@@ -282,7 +368,17 @@ export class UniversalAgentConnection {
       // a convenience alias so clients don't need to dig into `_meta`.
       authStatus: (init?._meta as Record<string, unknown> | undefined)?.authStatus ?? capsMeta?.authStatus ?? null,
       meta: init?._meta ?? null,
-      quota: this.lastQuota,
+      quota: (() => {
+        let q = this.lastQuota;
+        const aid = this.profile.id;
+        if ((aid === "antigravity-stdio" || aid === "agy") && q?.account && !q.account.email) {
+          const acc = resolveAntigravityAccount();
+          if (acc.email) {
+            q = { ...q, account: { ...q.account, email: acc.email, name: acc.name || q.account.name } };
+          }
+        }
+        return q;
+      })(),
       lastError: this.lastError,
       startedAt: this.startedAt,
     };
@@ -447,8 +543,18 @@ export class UniversalAgentConnection {
         this.stderrTail.push(t);
         if (this.stderrTail.length > 50) this.stderrTail.shift();
       }
-      // Keep agent logs visible but clearly tagged
-      process.stderr.write(`[ACP:${this.profile.id}] ${text}`);
+      // 分流清洗：常规 trace 日志（如 [ACP-PROC]、[ACP-SDK]、warmup 等协议运行日志）
+      // 写入 stdout，避免 VS Code / 终端无条件将 stderr 渲染为全红报错；
+      // 只有真正的致命异常（fatal、crash、exception、panic 等）才打入 process.stderr。
+      const isRealError =
+        /fatal|uncaught|unhandledrejection|panic|syntaxerror|referenceerror|\berror:\s/i.test(text) &&
+        !/\[ACP-(?:PROC|SDK)\]|stdout line received|warmup|child exited|subprocess started/i.test(text);
+
+      if (isRealError) {
+        process.stderr.write(`[ACP:${this.profile.id}] ${text}`);
+      } else {
+        process.stdout.write(`[ACP:${this.profile.id}] ${text}`);
+      }
     });
 
     if (!proc.stdin || !proc.stdout) {

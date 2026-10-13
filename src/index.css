@@ -468,3 +468,18 @@ code, pre, kbd, samp {
 .acp-wysiwyg .ProseMirror hr { border: none; border-top: 1px solid hsl(var(--border)); margin: 1.2em 0; }
 .acp-wysiwyg .ProseMirror li > p { margin: 0.15em 0; }
 .acp-wysiwyg .ProseMirror .selectedCell { background: hsl(var(--accent)); }
+
+/* 正在思考 / 流式等待跳跃动效 */
+@keyframes bouncing-dot {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+.animate-bouncing-dot {
+  animation: bouncing-dot 1.2s infinite ease-in-out both;
+}
