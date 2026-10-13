@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 
 export interface QuotaLimitWindow {
   label: string;
+  group?: string;
   percentLeft: number;
   usedPercent?: number;
   used?: number | string;
@@ -160,10 +161,40 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
   if (cleanPlan) {
     if (cleanPlan.includes("OpenCode Go") || (cleanTitle.toLowerCase().includes("opencode") && cleanPlan.includes("Go"))) {
       cleanPlan = "OpenCode Go";
+    } else if (cleanPlan === "Antigravity / Gemini" || cleanPlan.toLowerCase() === "gemini") {
+      cleanPlan = "Google AI Pro";
     } else if (cleanPlan.includes("(")) {
       cleanPlan = cleanPlan.replace(/\s*\([^)]*\)/g, "").trim();
     }
   }
+
+  // 聚合并分组所有配额窗口（支持官方自带模型组与外部模型组）
+  const groupedWindows = React.useMemo(() => {
+    const all = [
+      primaryWindow,
+      secondaryWindow,
+      ...(extraWindows || []),
+    ].filter((w): w is QuotaLimitWindow => Boolean(w));
+
+    if (all.length === 0) return [];
+
+    const hasAnyGroup = all.some((w) => Boolean(w.group));
+    if (!hasAnyGroup) {
+      return [{ groupName: "", windows: all }];
+    }
+
+    const map = new Map<string, QuotaLimitWindow[]>();
+    for (const w of all) {
+      const g = w.group || "其他模型";
+      if (!map.has(g)) map.set(g, []);
+      map.get(g)!.push(w);
+    }
+
+    return Array.from(map.entries()).map(([groupName, windows]) => ({
+      groupName,
+      windows,
+    }));
+  }, [primaryWindow, secondaryWindow, extraWindows]);
 
   const renderLimitBar = (window: QuotaLimitWindow, key: string) => {
     const left = Math.max(0, Math.min(100, Math.round(window.percentLeft ?? 100)));
@@ -287,11 +318,31 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
       )}
 
       {/* 限额窗口 */}
-      <div className="space-y-2">
-        {primaryWindow && renderLimitBar(primaryWindow, "primary")}
-        {secondaryWindow && renderLimitBar(secondaryWindow, "secondary")}
-        {extraWindows && extraWindows.map((w, idx) => renderLimitBar(w, `extra-${idx}`))}
-        {!primaryWindow && !secondaryWindow && (!extraWindows || extraWindows.length === 0) && (
+      <div className="space-y-3">
+        {groupedWindows.map(({ groupName, windows }) => {
+          const isGemini = groupName.toLowerCase().includes("gemini");
+          const isThirdParty =
+            groupName.toLowerCase().includes("claude") || groupName.toLowerCase().includes("gpt");
+          return (
+            <div key={groupName || "default"} className="space-y-1.5">
+              {groupName && (
+                <div className="flex items-center justify-between text-[11px] font-medium text-foreground/85 pb-0.5 border-b border-border/40">
+                  <span className="flex items-center gap-1.5 font-semibold">
+                    <Sparkles className={cn("w-3 h-3", isGemini ? "text-emerald-500" : "text-sky-500")} />
+                    {groupName}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {isGemini ? "官方内置模型 (Flash / Pro)" : isThirdParty ? "外部扩展模型 (Opus / Sonnet / GPT)" : "模型配额"}
+                  </span>
+                </div>
+              )}
+              <div className="space-y-2">
+                {windows.map((w, idx) => renderLimitBar(w, `${groupName}-${idx}`))}
+              </div>
+            </div>
+          );
+        })}
+        {groupedWindows.length === 0 && (
           <div className="p-2.5 rounded-md bg-muted/40 border border-border/50 text-[11px] space-y-1">
             <div className="flex items-center gap-1.5 text-foreground font-medium text-[11px]">
               <Clock className="w-3.5 h-3.5 text-primary" />

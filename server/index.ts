@@ -33,3 +33,5 @@ console.log(`[Server] gateway token: ${gatewayTokenPreview()} (full token in ~/.
 // 前端读取后存 localStorage 并从地址栏抹掉）；只打到本机终端，不写入任何文件。
 console.log(`[Server] open the UI with:  ${gatewayBootstrapUrl("http://localhost:5188")}  (vite dev)`);
 console.log(`[Server]              or:  ${gatewayBootstrapUrl(`http://127.0.0.1:${PORT}`)}  (built dist)`);
+// Antigravity quota live probe updated
+

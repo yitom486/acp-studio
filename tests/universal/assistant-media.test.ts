@@ -110,11 +110,11 @@ describe("chat images and SVG", () => {
     await act(async () => {
       (img as HTMLElement).closest("button")!.click();
     });
-    expect(el.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(el.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     root.unmount();
     el.remove();
     useStudioStore.setState({ messages: [], isStreaming: false } as any);

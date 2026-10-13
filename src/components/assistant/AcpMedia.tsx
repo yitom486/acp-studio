@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Download, ImageOff, X, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import type { ImageMessagePartComponent } from "@assistant-ui/react";
 import { cn } from "@/lib/utils";
+import { useLightboxViewport } from "@/hooks/useLightboxViewport";
 
 /**
  * 聊天图片：agent 图片 part 与 markdown 图片共用。
@@ -14,64 +16,14 @@ const ImageLightbox: React.FC<{ src: string; alt: string; onClose: () => void }>
   alt,
   onClose,
 }) => {
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const { canvasRef, scale, setScale, position, isDragging, reset, pointerHandlers } = useLightboxViewport(onClose);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "+" || e.key === "=") setScale((s) => Math.min(4, +(s + 0.25).toFixed(2)));
-      else if (e.key === "-") setScale((s) => Math.max(0.25, +(s - 0.25).toFixed(2)));
-      else if (e.key === "0") {
-        setScale(1);
-        setPosition({ x: 0, y: 0 });
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY < 0 ? 0.15 : -0.15;
-    setScale((prev) => Math.min(4, Math.max(0.25, +(prev + delta).toFixed(2))));
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setPosition({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
-    });
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  const handleReset = () => {
-    setScale(1);
-    setPosition({ x: 0, y: 0 });
-  };
-
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-md animate-fade-slide-in select-none"
       onClick={onClose}
       role="dialog"
+      aria-modal="true"
       aria-label={alt || "图片预览"}
     >
       {/* 顶部工具栏 */}
@@ -107,7 +59,7 @@ const ImageLightbox: React.FC<{ src: string; alt: string; onClose: () => void }>
           </button>
           <button
             type="button"
-            onClick={handleReset}
+            onClick={reset}
             className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
             title="重置缩放 (0)"
           >
@@ -138,29 +90,29 @@ const ImageLightbox: React.FC<{ src: string; alt: string; onClose: () => void }>
 
       {/* 主画布视口 */}
       <div
+        ref={canvasRef}
+        data-lightbox-canvas
         className={cn(
-          "flex-1 relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing p-4 md:p-8",
+          "flex-1 relative overflow-hidden overscroll-none touch-none flex items-center justify-center cursor-grab active:cursor-grabbing p-4 md:p-8",
           isDragging && "cursor-grabbing"
         )}
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onDoubleClick={handleReset}
+        {...pointerHandlers}
+        onDoubleClick={reset}
         onClick={(e) => e.stopPropagation()}
       >
         <img
           src={src}
           alt={alt || "图片"}
           draggable={false}
-          className="max-w-full max-h-[85vh] object-contain rounded-xl border border-border shadow-2xl transition-transform duration-75 ease-out select-none pointer-events-none"
+          className={cn("max-w-full max-h-[85vh] object-contain rounded-xl border border-border shadow-2xl select-none pointer-events-none", isDragging ? "transition-none" : "transition-transform duration-75 ease-out")}
           style={{
             transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
             transformOrigin: "center center",
           }}
         />
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

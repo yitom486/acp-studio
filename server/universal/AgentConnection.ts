@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
@@ -173,6 +173,10 @@ export function whichCommand(command: string): string | null {
   return null;
 }
 
+const isWSL =
+  process.platform === "linux" &&
+  (os.release().toLowerCase().includes("microsoft") || Boolean(process.env.WSL_DISTRO_NAME));
+
 function resolveAntigravityAccount(): { email?: string; name?: string } {
   // 1. 优先环境变量
   if (process.env.GOOGLE_ACCOUNT?.trim()) {
@@ -193,6 +197,18 @@ function resolveAntigravityAccount(): { email?: string; name?: string } {
     // macOS Library
     path.join(home, "Library", "Application Support", "Antigravity", "app_storage.json"),
   ].filter(Boolean) as string[];
+
+  if (isWSL) {
+    try {
+      const usersDir = "/mnt/c/Users";
+      if (fs.existsSync(usersDir)) {
+        for (const u of fs.readdirSync(usersDir)) {
+          if (u === "Public" || u === "Default" || u.startsWith(".")) continue;
+          candidates.push(path.join(usersDir, u, "AppData", "Roaming", "Antigravity", "app_storage.json"));
+        }
+      }
+    } catch {}
+  }
 
   for (const file of candidates) {
     try {
@@ -217,6 +233,204 @@ function resolveAntigravityAccount(): { email?: string; name?: string } {
     return { name: osUser.trim() };
   }
   return {};
+}
+
+async function probeAntigravityLiveQuota(): Promise<AcpAgentQuota | null> {
+  const acc = resolveAntigravityAccount();
+  let lsInfo: { port: number; csrfToken: string } | null = null;
+  try {
+    let out = "";
+    if (process.platform === "win32") {
+      out = execFileSync(
+        "powershell",
+        [
+          "-NoProfile",
+          "-Command",
+          'Get-CimInstance Win32_Process | Where-Object { $_.Name -like "*language_server*" } | Select-Object -ExpandProperty CommandLine',
+        ],
+        { encoding: "utf8", timeout: 4000, windowsHide: true }
+      );
+    } else if (isWSL) {
+      out = execFileSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-Command",
+          'Get-CimInstance Win32_Process | Where-Object { $_.Name -like "*language_server*" } | Select-Object -ExpandProperty CommandLine',
+        ],
+        { encoding: "utf8", timeout: 4000 }
+      );
+    } else {
+      out = execFileSync("ps", ["aux"], { encoding: "utf8", timeout: 4000 });
+    }
+    const lines = out.split(/\r?\n/);
+    for (const l of lines) {
+      const portMatch = l.match(/--https_server_port\s+(\d+)/);
+      const csrfMatch = l.match(/--csrf_token\s+([a-f0-9\-]+)/);
+      if (portMatch && csrfMatch) {
+        lsInfo = { port: parseInt(portMatch[1], 10), csrfToken: csrfMatch[1] };
+        break;
+      }
+    }
+  } catch (err) {
+    console.debug("[UniversalACP] Failed to detect language server process:", err);
+  }
+
+  if (lsInfo) {
+    try {
+      let data: any = null;
+      if (isWSL) {
+        const raw = execFileSync(
+          "curl.exe",
+          [
+            "-k",
+            "-s",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            `x-codeium-csrf-token: ${lsInfo.csrfToken}`,
+            "-d",
+            "{}",
+            `https://127.0.0.1:${lsInfo.port}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`,
+          ],
+          { encoding: "utf8", timeout: 4000 }
+        );
+        data = JSON.parse(raw);
+      } else {
+        const prevReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+        try {
+          const res = await fetch(
+            `https://127.0.0.1:${lsInfo.port}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-codeium-csrf-token": lsInfo.csrfToken,
+              },
+              body: JSON.stringify({}),
+              signal: AbortSignal.timeout(4000),
+              tls: { rejectUnauthorized: false },
+            } as any
+          );
+          if (res.ok) {
+            data = await res.json();
+          }
+        } finally {
+          if (prevReject !== undefined) {
+            process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevReject;
+          } else {
+            delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+          }
+        }
+      }
+
+      if (data?.response?.groups) {
+        const groups = (data.response.groups || []) as Array<{
+          displayName: string;
+          description?: string;
+          buckets?: Array<{
+            bucketId?: string;
+            displayName: string;
+            description?: string;
+            window?: string;
+            remainingFraction?: number;
+            resetTime?: string;
+          }>;
+        }>;
+
+        const formatReset = (isoStr?: string, fallbackDesc?: string) => {
+          if (fallbackDesc && fallbackDesc.includes("it will fully refresh in ")) {
+            const m = fallbackDesc.match(/it will fully refresh in (.+?)\.?$/);
+            if (m?.[1]) return `Resets in ${m[1].trim()}`;
+          }
+          if (!isoStr) return undefined;
+          const diffMs = new Date(isoStr).getTime() - Date.now();
+          if (diffMs <= 0) return "已重置";
+          const totalMins = Math.floor(diffMs / 60000);
+          const hours = Math.floor(totalMins / 60);
+          const days = Math.floor(hours / 24);
+          if (days > 0) return `Resets in ${days}d ${hours % 24}h`;
+          return `Resets in ${hours}h ${totalMins % 60}m`;
+        };
+
+        const toWindow = (b: any, groupName: string, label: string, durMins: number) => {
+          if (!b) return undefined;
+          const frac = typeof b.remainingFraction === "number" ? b.remainingFraction : 1;
+          const percentLeft = Math.max(0, Math.min(100, Math.round(frac * 100)));
+          const usedPercent = 100 - percentLeft;
+          return {
+            label,
+            group: groupName,
+            percentLeft,
+            usedPercent,
+            windowDurationMins: durMins,
+            resetsAt: formatReset(b.resetTime, b.description),
+          };
+        };
+
+        const geminiGroup = groups.find((g) => g.displayName?.toLowerCase().includes("gemini"));
+        const thirdPartyGroup = groups.find((g) =>
+          g.displayName?.toLowerCase().includes("claude") || g.displayName?.toLowerCase().includes("gpt")
+        );
+
+        const gemini5h = geminiGroup?.buckets?.find(
+          (b) => b.displayName?.toLowerCase().includes("five hour") || b.bucketId?.includes("5h") || b.window === "5h"
+        );
+        const geminiWeekly = geminiGroup?.buckets?.find(
+          (b) => b.displayName?.toLowerCase().includes("weekly") || b.bucketId?.includes("weekly") || b.window === "weekly"
+        );
+
+        const tp5h = thirdPartyGroup?.buckets?.find(
+          (b) => b.displayName?.toLowerCase().includes("five hour") || b.bucketId?.includes("5h") || b.window === "5h"
+        );
+        const tpWeekly = thirdPartyGroup?.buckets?.find(
+          (b) => b.displayName?.toLowerCase().includes("weekly") || b.bucketId?.includes("weekly") || b.window === "weekly"
+        );
+
+        const primaryWindow = toWindow(gemini5h, "Gemini Models", "5-Hour limit", 300) || {
+          label: "5-Hour limit",
+          group: "Gemini Models",
+          percentLeft: 100,
+          usedPercent: 0,
+          windowDurationMins: 300,
+        };
+
+        const secondaryWindow = toWindow(geminiWeekly, "Gemini Models", "Weekly limit", 10080);
+
+        const extraWindows = [
+          toWindow(tp5h, "Claude and GPT models", "5-Hour limit", 300),
+          toWindow(tpWeekly, "Claude and GPT models", "Weekly limit", 10080),
+        ].filter(Boolean) as any[];
+
+        const quota: AcpAgentQuota = {
+          runtimeId: "agy",
+          provider: "Google Antigravity",
+          account: {
+            email: acc.email,
+            name: acc.name || "Google Developer",
+            plan: "Google AI Pro",
+            type: "gemini",
+          },
+          primaryWindow,
+          secondaryWindow,
+          extraWindows: extraWindows.length > 0 ? extraWindows : undefined,
+          credits: {
+            unlimited: true,
+            balance: "unlimited",
+          },
+          status: "ok",
+          updatedAt: Date.now(),
+        };
+        return quota;
+      }
+    } catch (err) {
+      console.debug("[UniversalACP] Failed to retrieve Antigravity live quota:", err);
+    }
+  }
+  return null;
 }
 
 function readOpencodeCredentials(): {
@@ -439,7 +653,7 @@ export class UniversalAgentConnection {
       if (id === "codex") {
         q = (await codexAdapter.probeQuota?.()) ?? null;
       } else if (id === "antigravity-stdio" || id === "agy") {
-        q = (await agyAdapter.probeQuota?.()) ?? null;
+        q = (await probeAntigravityLiveQuota()) ?? (await agyAdapter.probeQuota?.()) ?? null;
         const acc = resolveAntigravityAccount();
         if (!q && (acc.email || acc.name)) {
           q = {
@@ -448,21 +662,39 @@ export class UniversalAgentConnection {
             account: {
               email: acc.email,
               name: acc.name || "Google Developer",
-              plan: "Antigravity / Gemini",
+              plan: "Google AI Pro",
               type: "gemini",
             },
             primaryWindow: {
               label: "5-Hour limit",
+              group: "Gemini Models",
               percentLeft: 100,
               usedPercent: 0,
               windowDurationMins: 300,
             },
             secondaryWindow: {
               label: "Weekly limit",
+              group: "Gemini Models",
               percentLeft: 100,
               usedPercent: 0,
               windowDurationMins: 10080,
             },
+            extraWindows: [
+              {
+                label: "5-Hour limit",
+                group: "Claude and GPT models",
+                percentLeft: 100,
+                usedPercent: 0,
+                windowDurationMins: 300,
+              },
+              {
+                label: "Weekly limit",
+                group: "Claude and GPT models",
+                percentLeft: 100,
+                usedPercent: 0,
+                windowDurationMins: 10080,
+              },
+            ],
             credits: {
               unlimited: true,
               balance: "unlimited",
@@ -475,7 +707,7 @@ export class UniversalAgentConnection {
             ...(q.account || {}),
             email: acc.email || q.account?.email,
             name: acc.name || q.account?.name || "Google Developer",
-            plan: q.account?.plan || "Antigravity / Gemini",
+            plan: q.account?.plan || "Google AI Pro",
             type: "gemini",
           };
         }

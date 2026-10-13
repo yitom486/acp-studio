@@ -1,7 +1,9 @@
 import React, { useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 import mermaid from "mermaid";
 import { cn } from "@/lib/utils";
 import { Maximize2, ZoomIn, ZoomOut, RotateCcw, Copy, Check, X } from "lucide-react";
+import { useLightboxViewport } from "@/hooks/useLightboxViewport";
 
 /**
  * Mermaid diagram renderer — lives behind React.lazy so the ~MB
@@ -29,54 +31,8 @@ interface MermaidLightboxProps {
 }
 
 const MermaidLightbox: React.FC<MermaidLightboxProps> = ({ svg, code, onClose }) => {
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const { canvasRef, scale, setScale, position, isDragging, reset, pointerHandlers } = useLightboxViewport(onClose);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "+" || e.key === "=") setScale((s) => Math.min(4, +(s + 0.25).toFixed(2)));
-      else if (e.key === "-") setScale((s) => Math.max(0.25, +(s - 0.25).toFixed(2)));
-      else if (e.key === "0") {
-        setScale(1);
-        setPosition({ x: 0, y: 0 });
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [onClose]);
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY < 0 ? 0.15 : -0.15;
-    setScale((prev) => Math.min(4, Math.max(0.25, +(prev + delta).toFixed(2))));
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setPosition({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
-    });
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
 
   const handleCopy = async () => {
     try {
@@ -86,16 +42,12 @@ const MermaidLightbox: React.FC<MermaidLightboxProps> = ({ svg, code, onClose })
     } catch {}
   };
 
-  const handleReset = () => {
-    setScale(1);
-    setPosition({ x: 0, y: 0 });
-  };
-
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[100] flex flex-col bg-background/95 backdrop-blur-md animate-fade-slide-in select-none"
       onClick={onClose}
       role="dialog"
+      aria-modal="true"
       aria-label="Mermaid 图表放大预览"
     >
       {/* 顶部工具栏 */}
@@ -131,7 +83,7 @@ const MermaidLightbox: React.FC<MermaidLightboxProps> = ({ svg, code, onClose })
           </button>
           <button
             type="button"
-            onClick={handleReset}
+            onClick={reset}
             className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
             title="重置缩放与位置 (0)"
           >
@@ -161,19 +113,18 @@ const MermaidLightbox: React.FC<MermaidLightboxProps> = ({ svg, code, onClose })
 
       {/* 主画布视口 */}
       <div
+        ref={canvasRef}
+        data-lightbox-canvas
         className={cn(
-          "flex-1 relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing",
+          "flex-1 relative overflow-hidden overscroll-none touch-none flex items-center justify-center cursor-grab active:cursor-grabbing",
           isDragging && "cursor-grabbing"
         )}
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onDoubleClick={handleReset}
+        {...pointerHandlers}
+        onDoubleClick={reset}
         onClick={(e) => e.stopPropagation()}
       >
         <div
-          className="transition-transform duration-75 ease-out select-none flex items-center justify-center p-8 max-w-none"
+          className={cn("select-none flex items-center justify-center p-8 max-w-none", isDragging ? "transition-none" : "transition-transform duration-75 ease-out")}
           style={{
             transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
             transformOrigin: "center center",
@@ -181,7 +132,8 @@ const MermaidLightbox: React.FC<MermaidLightboxProps> = ({ svg, code, onClose })
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
