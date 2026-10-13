@@ -37,6 +37,12 @@ export class UniversalRegistry {
     for (const p of BUILTIN_AGENTS) this.profiles.set(p.id, { ...p });
     for (const p of loadExtraProfilesFromEnv()) this.profiles.set(p.id, p);
     for (const p of loadCustomProfilesFromFile()) this.profiles.set(p.id, { ...p, builtin: false });
+    // 启动时预热连接实例，让各智能体的本地凭证与配额探针（如 @yitom/acp-client 的 probeCodexQuota）立即异步预热
+    for (const p of this.profiles.values()) {
+      try {
+        this.connFor(p.id);
+      } catch {}
+    }
   }
 
   /** Re-read env + file customs (tests / external edits). Drops in-memory customs. */

@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot,
   Plug,
@@ -118,7 +118,7 @@ export const AgentStatusChip: React.FC<{
   const pid = active?.status?.pid;
   const dot = connecting ? "bg-warning animate-pulse" : connected ? "bg-success" : "bg-muted-foreground/40";
 
-  const handleRefreshQuota = async () => {
+  const handleRefreshQuota = useCallback(async () => {
     setRefreshingQuota(true);
     try {
       const res = await agentQuota(activeAgentId);
@@ -130,7 +130,14 @@ export const AgentStatusChip: React.FC<{
     } finally {
       setRefreshingQuota(false);
     }
-  };
+  }, [activeAgentId, setQuota]);
+
+  // 展开智能体卡片时，自动静默触发最新配额探测（无需用户手动点击刷新）
+  useEffect(() => {
+    if (open && activeAgentId) {
+      void handleRefreshQuota();
+    }
+  }, [open, activeAgentId, handleRefreshQuota]);
 
   const handleSendStatus = () => {
     setInput("/status");

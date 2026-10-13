@@ -75,16 +75,15 @@ export function corsHeaders(req?: Request): Record<string, string> {
 export function freePortIfOccupied(port: number) {
   if (process.platform !== "win32") {
     try {
-      const pidOut = execSync(`lsof -ti :${port} 2>/dev/null || fuser ${port}/tcp 2>/dev/null`, {
-        encoding: "utf8",
-      }).trim();
+      const cmd = `fuser ${port}/tcp 2>/dev/null || lsof -ti :${port} 2>/dev/null || (ss -lptn 'sport = :${port}' 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2)`;
+      const pidOut = execSync(cmd, { encoding: "utf8", shell: "/bin/sh" }).trim();
       const pids = pidOut
         .split(/\s+/)
         .map((p) => p.trim())
         .filter((p) => /^\d+$/.test(p) && p !== String(process.pid));
       for (const pid of pids) {
         try {
-          process.kill(parseInt(pid), "SIGKILL");
+          process.kill(parseInt(pid, 10), "SIGKILL");
         } catch {}
       }
     } catch {}
