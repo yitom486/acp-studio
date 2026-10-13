@@ -72,7 +72,7 @@
         "@types/react-dom": "^19.0.0",
         "@types/ws": "^8.18.2",
         "@vitejs/plugin-react": "^4.3.4",
-        "@yitom/acp-client": "0.1.4",
+        "@yitom/acp-client": "^0.1.5",
         "bun-types": "^1.4.2",
         "concurrently": "^10.0.5",
         "electron": "^44.4.3",
@@ -830,7 +830,7 @@
 
     "@xterm/xterm": ["@xterm/xterm@6.0.0", "", {}, "sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg=="],
 
-    "@yitom/acp-client": ["@yitom/acp-client@0.1.4", "", { "dependencies": { "@agentclientprotocol/sdk": "^1.0.0" }, "bin": { "acp-engine": "dist/sidecar.cjs" } }, "sha512-qJoWTncOboCb26kNJChE6LlA6qkaSDtUGLDJKdPesTgdLQEjMyLTREQ0L7YU5o1OlNFQXcTeOlUGL+HW4fqZHw=="],
+    "@yitom/acp-client": ["@yitom/acp-client@0.1.5", "", { "dependencies": { "@agentclientprotocol/sdk": "^1.0.0" }, "bin": { "acp-engine": "dist/sidecar.cjs" } }, "sha512-9uGifPBroXk87PdWuBD+3vkfxW67q2ci1Q8gE8mzQbZg58wO6xWD51OIaVWxh4O0IFl3YQr2DDbkFpW1r7lmhg=="],
 
     "abbrev": ["abbrev@4.0.0", "", {}, "sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA=="],
 

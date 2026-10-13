@@ -53,6 +53,7 @@ export interface AgentSummary {
     /** initialize._meta.authStatus passthrough (e.g. codex), null when unknown */
     authStatus?: unknown;
     meta?: Record<string, any> | null;
+    quota?: any;
     lastError?: string | null;
   };
 }
@@ -392,7 +393,7 @@ export async function ptyResize(ptyId: string, cols: number, rows: number): Prom
 }
 
 /** WS 基址候选（纯函数，可测）：自定义远端基址优先，同源次之（prod 与 ws 代理环境），直连回环兜底（vite dev 代理不转 WS）。 */
-export function ptyWsCandidateBases(host: string, protocol: string, gatewayPort = 3004, customBase = ""): string[] {
+export function ptyWsCandidateBases(host: string, protocol: string, gatewayPort = 13005, customBase = ""): string[] {
   const wsProto = protocol === "https:" ? "wss:" : "ws:";
   const out: string[] = [];
   const push = (u: string) => {
@@ -629,6 +630,7 @@ export interface UniversalHandlers {
   onConfigUpdate?: (option: any) => void;
   onSessionInfo?: (info: any) => void;
   onUsage?: (usage: UsageUpdate) => void;
+  onQuota?: (quota: any) => void;
   /** fs/terminal/compaction and any unrecognized update kinds land here. */
   onActivity?: (a: ActivityEvent) => void;
   onPermissionRequest?: (p: PendingPermission) => void;
@@ -666,6 +668,11 @@ export async function connectAgent(agentId: string) {
 
 export async function agentStatus(agentId: string) {
   const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/status`);
+  return res.json();
+}
+
+export async function agentQuota(agentId: string) {
+  const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/quota`);
   return res.json();
 }
 
@@ -858,6 +865,9 @@ export async function consumeUniversalChat(
           payload = JSON.parse(trimmed.slice(6));
         } catch {
           continue;
+        }
+        if (payload.quota) {
+          handlers.onQuota?.(payload.quota);
         }
         if (payload.type === "start" && payload.sessionId) {
           sessionId = payload.sessionId;

@@ -38,29 +38,69 @@ export function parseWslDistros(raw: string): string[] {
   return out;
 }
 
-workspaceRouter.get("/wsl-distros", () => {
-  if (process.platform !== "win32") return json({ ok: true, distros: [] as string[] });
-  try {
-    // 注意：wsl.exe 列表输出是 UTF-16，必须 utf16le 解码，否则全是 \0 间隔的乱码。
-    // 明确传入 stdio: ["ignore", "pipe", "pipe"]，避免 wsl.exe 等待 stdin 造成卡顿超时。
-    const r = spawnSync("wsl.exe", ["-l", "-q"], {
+let cachedDistros: { time: number; list: string[] } | null = null;
+let inFlightDistros: Promise<string[]> | null = null;
+
+export async function getWslDistrosAsync(force = false): Promise<string[]> {
+  if (process.platform !== "win32") return [];
+  if (!force && cachedDistros && Date.now() - cachedDistros.time < 60_000) {
+    return cachedDistros.list;
+  }
+  if (inFlightDistros) return inFlightDistros;
+
+  inFlightDistros = new Promise<string[]>((resolve, reject) => {
+    const child = spawn("wsl.exe", ["-l", "-q"], {
       stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf16le",
-      timeout: 10000,
       windowsHide: true,
     });
-    if (r.error) {
-      const msg = String((r.error as any)?.message || r.error);
-      // ENOENT = 本机没装 WSL：给安装指引，不报含糊的“不可用”
-      if (/ENOENT/i.test(msg)) {
-        return json(
-          { ok: false, error: "本机未安装 WSL：请在管理员 PowerShell 跑 wsl --install，装好发行版后重启网关" },
-          500
-        );
+    const chunks: Buffer[] = [];
+    child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch {}
+      if (cachedDistros?.list?.length) {
+        resolve(cachedDistros.list);
+      } else {
+        reject(new Error("wsl.exe 调用超时 (25s)，可能是 WSL 虚拟机冷启动唤醒中，请稍后重试"));
       }
-      return json({ ok: false, error: `wsl 调用失败：${msg}` }, 500);
-    }
-    const distros = parseWslDistros(typeof r.stdout === "string" ? r.stdout : "");
+    }, 25_000);
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        const text = Buffer.concat(chunks).toString("utf16le");
+        const list = parseWslDistros(text);
+        cachedDistros = { time: Date.now(), list };
+        resolve(list);
+      } else {
+        if (cachedDistros?.list?.length) {
+          resolve(cachedDistros.list);
+        } else {
+          reject(new Error(`wsl.exe 退出异常 (code: ${code})`));
+        }
+      }
+    });
+
+    child.on("error", (err: any) => {
+      clearTimeout(timer);
+      const msg = String(err?.message || err);
+      if (/ENOENT/i.test(msg)) {
+        reject(new Error("本机未安装 WSL：请在管理员 PowerShell 跑 wsl --install，装好发行版后重启网关"));
+      } else {
+        reject(new Error(`wsl 调用失败: ${msg}`));
+      }
+    });
+  }).finally(() => {
+    inFlightDistros = null;
+  });
+
+  return inFlightDistros;
+}
+
+workspaceRouter.get("/wsl-distros", async () => {
+  if (process.platform !== "win32") return json({ ok: true, distros: [] as string[] });
+  try {
+    const distros = await getWslDistrosAsync();
     return json({ ok: true, distros });
   } catch (err) {
     return json({ ok: false, error: (err as Error).message || "获取 WSL 发行版失败" }, 500);
@@ -128,13 +168,8 @@ export function getSystemDirectoryRoots(): DirectoryRoot[] {
     }
     // 快速探测已安装的 WSL 发行版
     try {
-      const r = spawnSync("wsl.exe", ["-l", "-q"], {
-        encoding: "utf16le",
-        timeout: 3000,
-        windowsHide: true,
-      });
-      if (!r.error && r.stdout) {
-        const distros = parseWslDistros(String(r.stdout));
+      const distros = cachedDistros?.list || [];
+      if (distros.length > 0) {
         for (const d of distros) {
           const wslHome = `\\\\wsl.localhost\\${d}\\home`;
           const wslRoot = `\\\\wsl.localhost\\${d}`;
@@ -147,6 +182,31 @@ export function getSystemDirectoryRoots(): DirectoryRoot[] {
             }
           } catch {}
           roots.push({ label: `WSL: ${d}`, path: targetPath, distro: d });
+        }
+      } else {
+        const r = spawnSync("wsl.exe", ["-l", "-q"], {
+          encoding: "utf16le",
+          timeout: 3000,
+          windowsHide: true,
+        });
+        if (!r.error && r.stdout) {
+          const parsed = parseWslDistros(String(r.stdout));
+          if (parsed.length > 0) {
+            cachedDistros = { time: Date.now(), list: parsed };
+            for (const d of parsed) {
+              const wslHome = `\\\\wsl.localhost\\${d}\\home`;
+              const wslRoot = `\\\\wsl.localhost\\${d}`;
+              let targetPath = wslRoot;
+              try {
+                if (fs.existsSync(wslHome)) {
+                  const subs = fs.readdirSync(wslHome, { withFileTypes: true });
+                  const userDir = subs.find((s) => s.isDirectory() && s.name !== "lost+found");
+                  targetPath = userDir ? path.join(wslHome, userDir.name) : wslHome;
+                }
+              } catch {}
+              roots.push({ label: `WSL: ${d}`, path: targetPath, distro: d });
+            }
+          }
         }
       }
     } catch {}

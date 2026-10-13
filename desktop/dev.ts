@@ -15,7 +15,7 @@ import * as fs from "node:fs";
 
 const isWin = process.platform === "win32";
 const VITE_PORT = 5188;
-const GATEWAY_PORT = 3004;
+const GATEWAY_PORT = 13005;
 
 const children: ChildProcess[] = [];
 let isExiting = false;

@@ -22,10 +22,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { AgentSummary } from "@/lib/universal-api";
+import { agentQuota, type AgentSummary } from "@/lib/universal-api";
 import { WorkspaceDropdown } from "./WorkspaceDropdown";
 import { GatewayDot } from "./GatewayDot";
-import type { RecentWorkspace } from "@/stores/useStudioStore";
+import { useStudioStore, type RecentWorkspace } from "@/stores/useStudioStore";
+import { QuotaCard, QuotaRing } from "./QuotaCard";
 
 export interface StudioHeaderProps {
   /** 编辑器打开时聊天栏变窄：隐藏中间的会话标题，避免挤压重叠 */
@@ -86,9 +87,16 @@ export const AgentStatusChip: React.FC<{
   onOpenAuth: () => void;
   onLogout: () => void;
   authOk?: boolean | null;
-}> = ({ agents, activeAgentId, onSelectAgent, onConnect, connecting, onOpenAuth, onLogout, authOk }) => {
+  sessionId?: string | null;
+}> = ({ agents, activeAgentId, onSelectAgent, onConnect, connecting, onOpenAuth, onLogout, authOk, sessionId }) => {
   const [open, setOpen] = useState(false);
+  const [refreshingQuota, setRefreshingQuota] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  const storeQuota = useStudioStore((s) => s.quota);
+  const setQuota = useStudioStore((s) => s.setQuota);
+  const setInput = useStudioStore((s) => s.setInput);
+
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
@@ -100,13 +108,35 @@ export const AgentStatusChip: React.FC<{
       document.removeEventListener("keydown", k);
     };
   }, [open]);
+
   const active = agents.find((a) => a.id === activeAgentId);
+  const quota = storeQuota || active?.status?.quota;
   const connected = Boolean(active?.status?.connected);
   const caps = active?.status?.agentCapabilities as any;
   const proto = active?.status?.protocolVersion;
   const agentInfo = active?.status?.agentInfo as any;
   const pid = active?.status?.pid;
   const dot = connecting ? "bg-warning animate-pulse" : connected ? "bg-success" : "bg-muted-foreground/40";
+
+  const handleRefreshQuota = async () => {
+    setRefreshingQuota(true);
+    try {
+      const res = await agentQuota(activeAgentId);
+      if (res?.ok && res.quota) {
+        setQuota(res.quota);
+      }
+    } catch (e) {
+      console.warn("探测配额失败:", e);
+    } finally {
+      setRefreshingQuota(false);
+    }
+  };
+
+  const handleSendStatus = () => {
+    setInput("/status");
+    setOpen(false);
+  };
+
   return (
     <div ref={ref} className="relative flex items-center gap-1.5 min-w-0">
       <button
@@ -115,11 +145,14 @@ export const AgentStatusChip: React.FC<{
         aria-haspopup="dialog"
         aria-expanded={open}
         data-testid="agent-chip"
-        title={`${active?.title || activeAgentId} · ${connecting ? "连接中" : connected ? "已连接" : "未连接"}${connected && authOk === true ? " · 已认证" : ""}`}
-        className="h-7 min-w-0 max-w-[220px] flex items-center gap-1.5 rounded-md border border-transparent hover:border-border hover:bg-muted pl-2 pr-1.5 text-[13px] font-medium text-foreground"
+        title={`${active?.title || activeAgentId} · ${connecting ? "连接中" : connected ? "已连接" : "未连接"}${connected && authOk === true ? " · 已认证" : ""}${quota?.primaryWindow ? ` · 5h限额: ${quota.primaryWindow.percentLeft}%` : ""}`}
+        className="h-7 min-w-0 max-w-[240px] flex items-center gap-1.5 rounded-md border border-transparent hover:border-border hover:bg-muted pl-2 pr-1.5 text-[13px] font-medium text-foreground"
       >
         <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
         <span className="truncate">{active?.title || activeAgentId}</span>
+        {quota?.primaryWindow && (
+          <QuotaRing percentLeft={quota.primaryWindow.percentLeft} size={14} className="shrink-0" />
+        )}
         {connected && authOk === true && <ShieldCheck className="w-3 h-3 text-success shrink-0" aria-label="已认证" />}
         {connected && authOk === false && <ShieldAlert className="w-3 h-3 text-warning shrink-0" aria-label="需认证" />}
         <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
@@ -131,7 +164,7 @@ export const AgentStatusChip: React.FC<{
         </Button>
       )}
       {open && (
-        <div role="dialog" aria-label="智能体状态" className="absolute left-0 top-full mt-1.5 w-72 rounded-lg border border-border bg-popover shadow-lg text-xs z-50 whitespace-normal">
+        <div role="dialog" aria-label="智能体状态" className="absolute left-0 top-full mt-1.5 w-80 rounded-lg border border-border bg-popover shadow-lg text-xs z-50 whitespace-normal">
           <div className="p-1 max-h-56 overflow-y-auto border-b border-border/60">
             {agents.map((a) => (
               <button
@@ -142,6 +175,11 @@ export const AgentStatusChip: React.FC<{
               >
                 <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", a.status?.connected ? "bg-success" : "bg-muted-foreground/30")} />
                 <span className="truncate flex-1">{a.title}</span>
+                {a.status?.quota?.primaryWindow && (
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    {a.status.quota.primaryWindow.percentLeft}%
+                  </span>
+                )}
                 {a.status?.connected && <span className="text-[10px] text-success">已连接</span>}
               </button>
             ))}
@@ -168,6 +206,15 @@ export const AgentStatusChip: React.FC<{
                 )}
               </div>
             )}
+            <QuotaCard
+              quota={quota}
+              agentTitle={active?.title}
+              agentId={activeAgentId}
+              refreshing={refreshingQuota}
+              onRefresh={handleRefreshQuota}
+              canSendStatus={Boolean(connected && (sessionId || useStudioStore.getState().sessionId))}
+              onSendStatus={handleSendStatus}
+            />
             {caps?.sessionCapabilities && (
               <div className="pt-1.5 border-t border-border/60">
                 <div className="text-[10px] text-foreground font-medium mb-1">会话能力</div>
@@ -271,6 +318,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
           onOpenAuth={onOpenAuth}
           onLogout={onLogout}
           authOk={authOk}
+          sessionId={sessionId}
         />
         <GatewayDot />
         <div className="min-w-0 hidden @lg:block">

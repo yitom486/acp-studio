@@ -39,15 +39,17 @@ export interface AgentStatus {
   authMethods?: Array<{ id: string; name?: string; description?: string; type?: string }> | null;
   /** `initialize._meta.authStatus` passthrough (e.g. codex), null when unknown. */
   authStatus?: unknown;
-  /** Raw `initialize._meta` passthrough, null when unknown. */
+  /** `initialize._meta` passthrough, null when unknown. */
   meta?: Record<string, unknown> | null;
+  quota?: unknown;
   lastError?: string | null;
   startedAt?: string | null;
 }
 
 export type UniversalSseEvent =
   | { type: "start"; agentId: string; sessionId: string }
-  | { type: "update"; agentId: string; sessionId: string; update: Record<string, unknown> }
+  | { type: "update"; agentId: string; sessionId: string; update: Record<string, unknown>; quota?: unknown }
+  | { type: "quota_update"; agentId: string; sessionId?: string; quota: unknown }
   | {
       type: "permission_request";
       agentId: string;

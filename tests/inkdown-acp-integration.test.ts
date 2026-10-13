@@ -26,9 +26,9 @@ import {
 } from "@yitom/acp-client";
 
 describe("@yitom/acp-client integration in antigravity-acp", () => {
-  it("exports BUILTIN_ACP_RUNTIMES with 8 official runtime definitions", () => {
+  it("exports BUILTIN_ACP_RUNTIMES with 9 official runtime definitions", () => {
     expect(Array.isArray(BUILTIN_ACP_RUNTIMES)).toBe(true);
-    expect(BUILTIN_ACP_RUNTIMES.length).toBe(8);
+    expect(BUILTIN_ACP_RUNTIMES.length).toBe(9);
 
     const runtimeIds = BUILTIN_ACP_RUNTIMES.map((r) => r.id);
     expect(runtimeIds).toContain("codex-acp");
@@ -38,6 +38,7 @@ describe("@yitom/acp-client integration in antigravity-acp", () => {
     expect(runtimeIds).toContain("gemini");
     expect(runtimeIds).toContain("copilot");
     expect(runtimeIds).toContain("opencode");
+    expect(runtimeIds).toContain("opencode-v2");
     expect(runtimeIds).toContain("agy");
 
     for (const r of BUILTIN_ACP_RUNTIMES) {

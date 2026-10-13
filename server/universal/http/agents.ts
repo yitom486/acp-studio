@@ -96,6 +96,16 @@ agentsRouter.get("/:agentId/status", (c) => {
   }
 });
 
+agentsRouter.get("/:agentId/quota", async (c) => {
+  try {
+    const conn = universalRegistry.connFor(c.req.param("agentId"));
+    const quota = await conn.probeQuotaBackground();
+    return json({ ok: true, quota: quota || conn.status().quota });
+  } catch (err) {
+    return json({ ok: false, error: (err as Error).message }, 404);
+  }
+});
+
 const authenticateBody = z.looseObject({ methodId: optStr, method: optStr });
 
 agentsRouter.post("/:agentId/authenticate", jsonBody(authenticateBody), async (c) => {
@@ -144,7 +154,7 @@ agentsRouter.delete("/:agentId/sessions/empty", jsonBody(emptySessionsBody), asy
   // deleted; every skip/failure is reported, never silently swallowed.
   // Currently only meaningful for agy-acp-map (conversationId semantics).
   const agentId = c.req.param("agentId");
-  if (agentId !== "antigravity-stdio") {
+  if (agentId !== "antigravity-stdio" && agentId !== "agy") {
     return json({ ok: false, error: `Agent '${agentId}' 不支持空会话判定（仅 Antigravity 桥提供 conversationId 语义）。` }, 501);
   }
   try {

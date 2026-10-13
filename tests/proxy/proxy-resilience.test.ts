@@ -7,7 +7,7 @@ describe("Vite Proxy Network Resilience Configuration", () => {
     const proxy = config.server?.proxy?.["/api"];
 
     expect(proxy).toBeDefined();
-    expect(proxy.target).toBe("http://localhost:3004");
+    expect(proxy.target).toBe("http://localhost:13005");
     expect(proxy.changeOrigin).toBe(true);
     // ws MUST be false to prevent http-proxy from treating SSE long-polling/streams as WebSocket upgrades
     expect(proxy.ws).toBe(false);

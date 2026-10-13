@@ -38,9 +38,17 @@ function readStoredBase(): string {
   try {
     if (typeof localStorage === "undefined") return "";
     let val = localStorage.getItem(GATEWAY_BASE_STORAGE_KEY) || "";
-    if (val === "http://127.0.0.1:3005" || val === "http://localhost:3005") {
-      val = "http://127.0.0.1:13005";
-      localStorage.setItem(GATEWAY_BASE_STORAGE_KEY, val);
+    // 旧版 3004/3005 热门端口，以及当前默认网关 13005 自动收敛为本地同源（空），统一走标准代理
+    if (
+      val === "http://127.0.0.1:3004" ||
+      val === "http://localhost:3004" ||
+      val === "http://127.0.0.1:3005" ||
+      val === "http://localhost:3005" ||
+      val === "http://127.0.0.1:13005" ||
+      val === "http://localhost:13005"
+    ) {
+      val = "";
+      localStorage.removeItem(GATEWAY_BASE_STORAGE_KEY);
     }
     return val;
   } catch {
@@ -185,10 +193,31 @@ export type GatewayAuthState = "ok" | "unauthorized" | "unreachable";
  * 网关没起 / 网络错 → "unreachable"（照常进应用，由各处请求自己报错）。
  */
 export async function verifyGatewayToken(): Promise<GatewayAuthState> {
+  const currentBase = getGatewayBase();
   let res: Response;
   try {
     res = await apiFetch("/api/universal/agents");
   } catch (err) {
+    // 自动自愈保护：如果用户之前设置了自定义/WSL远端基址（例如 13005），但此时远端挂了，
+    // 而同源本地网关（3004 / Vite 代理）正常存活，自动回落至本地网关，
+    // 避免“上次切了 WSL，下次 Windows 启动直接卡死在不可达”
+    if (currentBase) {
+      try {
+        const localCheck = await fetch("/api/universal/agents", {
+          headers: withGatewayAuth().headers,
+        });
+        if (localCheck.ok || localCheck.status === 401) {
+          console.warn(`[GatewayAuth] 远端网关 (${currentBase}) 不可达，但本地网关正常运行。自动回落至本地网关。`);
+          setGatewayBase("");
+          if (typeof localStorage !== "undefined") {
+            localStorage.removeItem("acp_wsl_native_distro");
+          }
+          return verifyGatewayToken();
+        }
+      } catch {
+        // 本地也没起，维持 unreachable
+      }
+    }
     console.warn("[GatewayAuth] 网关不可达，先进入应用（请求会各自报错）:", err);
     return "unreachable";
   }

@@ -72,6 +72,7 @@ interface StudioState {
   /** Commands per ACP session (agentId:sessionId) — survives thread/session switches. */
   commandsBySession: Record<string, SlashCommand[]>;
   usage: UsageState | null;
+  quota: any | null;
   sessionInfo: any;
   // thread
   messages: Message[];
@@ -132,6 +133,7 @@ interface StudioState {
   /** Store commands for a session (defaults to the current one); updates the view when it is current. */
   setAvailableCommands: (c: unknown, sessionId?: string | null) => void;
   setUsage: (u: UsageState | null) => void;
+  setQuota: (q: any | null) => void;
   setSessionInfo: (info: any) => void;
   setMessages: (m: Message[]) => void;
   appendMessage: (m: Message) => void;
@@ -196,6 +198,7 @@ const initialThread = {
   configOptions: null as any[] | null,
   availableCommands: [] as SlashCommand[],
   usage: null as UsageState | null,
+  quota: null as any | null,
   sessionInfo: null as any,
   pendingPerms: [] as PendingPermission[],
   pendingElic: [] as PendingElicitation[],
@@ -482,6 +485,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
       return sid === s.sessionId ? { commandsBySession: map, availableCommands: list } : { commandsBySession: map };
     }),
   setUsage: (u) => set({ usage: u }),
+  setQuota: (q) => set({ quota: q }),
   setSessionInfo: (info) => set({ sessionInfo: info }),
   setMessages: (m) => set({ messages: m }),
   appendMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
@@ -746,6 +750,7 @@ const STUDIO_SHALLOW_SELECTOR = (s: StudioState) => ({
   configOptions: s.configOptions,
   availableCommands: s.availableCommands,
   usage: s.usage,
+  quota: s.quota,
   sessionInfo: s.sessionInfo,
   // composer / busy
   input: s.input,
@@ -789,6 +794,7 @@ const STUDIO_SHALLOW_SELECTOR = (s: StudioState) => ({
   setInput: s.setInput,
   setAttachments: s.setAttachments,
   setMessages: s.setMessages,
+  setQuota: s.setQuota,
 });
 
 export type StudioShallow = ReturnType<typeof STUDIO_SHALLOW_SELECTOR>;

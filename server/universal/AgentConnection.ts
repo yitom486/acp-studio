@@ -4,6 +4,15 @@ import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
+import {
+  QuotaCache,
+  type AcpAgentQuota,
+  codexAdapter,
+  agyAdapter,
+  claudeAdapter,
+  opencodeAdapter,
+  cursorAdapter,
+} from "@yitom/acp-client";
 import type { AgentProfile, PendingElicitation, PendingPermission } from "./types";
 import { dangerousRootReason, getWorkspaceRoots, isPathAllowed } from "./security";
 
@@ -206,9 +215,38 @@ export class UniversalAgentConnection {
    * frontend can serialize/queue instead of interleaving turns.
    */
   private promptLocks = new Set<string>();
+  private quotaCache = new QuotaCache();
+  private lastQuota: AcpAgentQuota | null = null;
 
   constructor(profile: AgentProfile) {
     this.profile = profile;
+    // Initial best-effort probe based on profile
+    this.probeQuotaBackground();
+  }
+
+  async probeQuotaBackground(): Promise<AcpAgentQuota | null> {
+    try {
+      const id = this.profile.id;
+      let q: AcpAgentQuota | null = null;
+      if (id === "codex") {
+        q = (await codexAdapter.probeQuota?.()) ?? null;
+      } else if (id === "antigravity-stdio" || id === "agy") {
+        q = (await agyAdapter.probeQuota?.()) ?? null;
+      } else if (id === "claude") {
+        q = (await claudeAdapter.probeQuota?.()) ?? null;
+      } else if (id === "opencode" || id === "opencode-v2") {
+        q = (await opencodeAdapter.probeQuota?.()) ?? null;
+      } else if (id === "cursor-cli") {
+        q = (await cursorAdapter.probeQuota?.()) ?? null;
+      }
+      if (q) {
+        this.lastQuota = q;
+        this.quotaCache.set(q);
+      }
+      return q;
+    } catch {
+      return null;
+    }
   }
 
   get connected(): boolean {
@@ -244,6 +282,7 @@ export class UniversalAgentConnection {
       // a convenience alias so clients don't need to dig into `_meta`.
       authStatus: (init?._meta as Record<string, unknown> | undefined)?.authStatus ?? capsMeta?.authStatus ?? null,
       meta: init?._meta ?? null,
+      quota: this.lastQuota,
       lastError: this.lastError,
       startedAt: this.startedAt,
     };
@@ -465,11 +504,16 @@ export class UniversalAgentConnection {
           const list = (params.update as { availableCommands?: unknown }).availableCommands;
           self.sessionCommands.set(params.sessionId, Array.isArray(list) ? list : []);
         }
+        const observed = self.quotaCache.observe(params, self.profile.id);
+        if (observed) {
+          self.lastQuota = observed;
+        }
         self.broadcast(params.sessionId, {
           type: "update",
           agentId: self.profile.id,
           sessionId: params.sessionId,
           update: params.update,
+          quota: self.lastQuota,
         });
       })
       .onNotification(acp.methods.client.elicitation.complete, async () => {
@@ -496,6 +540,7 @@ export class UniversalAgentConnection {
       console.log(
         `[UniversalACP:${this.profile.id}] initialize ok protocol=${(this.initResult as unknown as { protocolVersion?: number }).protocolVersion}`
       );
+      this.probeQuotaBackground();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err ?? "ACP connection failed");
       const stderr = this.stderrTail.length ? `. stderr: ${this.stderrTail.slice(-5).join(" | ")}` : "";

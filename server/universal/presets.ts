@@ -133,9 +133,9 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
   },
   {
     id: "antigravity-stdio",
-    name: "antigravity-acp-stdio",
-    title: "Antigravity (stdio)",
-    description: "Antigravity ACP bridge via bunx/npx (@yitom/agy-acp-map@latest, stdio).",
+    name: "agy-acp",
+    title: "Antigravity (agy)",
+    description: "Google Antigravity ACP bridge via @yitom/agy-acp-map (stdio).",
     homepage: "https://antigravity.google",
     builtin: true,
     ...resolveAntigravity(),

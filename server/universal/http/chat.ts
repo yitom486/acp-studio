@@ -119,7 +119,7 @@ chatRouter.post("/", jsonBody(chatBody), async (c) => {
           },
           { signal: aborter.signal }
         )) as { stopReason?: string } | undefined;
-        send({ type: "done", agentId, sessionId, stopReason: res?.stopReason || "end_turn", response: res });
+        send({ type: "done", agentId, sessionId, stopReason: res?.stopReason || "end_turn", response: res, quota: conn.status().quota });
       } catch (err) {
         const msg = (err as Error).message || "prompt failed";
         // Mutex: same-session concurrent prompt() throws `... (409)` in

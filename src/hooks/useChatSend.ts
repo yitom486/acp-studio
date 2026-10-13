@@ -301,6 +301,9 @@ export function useChatSend({
               c2.setUsage(u);
               c2.patchMessage(assistantId, { usage: u });
             },
+            onQuota: (q) => {
+              if (q) useStudioStore.getState().setQuota(q);
+            },
             onActivity: (a) => appendActivityMessage(a, now()),
             onPermissionRequest: (p) => useStudioStore.getState().addPermission(p),
             onElicitationRequest: (e) => useStudioStore.getState().addElicitation(e),
