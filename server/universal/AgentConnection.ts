@@ -1,13 +1,11 @@
-import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as fs from "node:fs";
-import * as fsp from "node:fs/promises";
-import * as path from "node:path";
-import * as os from "node:os";
 import * as acp from "@agentclientprotocol/sdk";
 import {
   QuotaCache,
   type AcpAgentQuota,
+  AcpTerminalManager,
   codexAdapter,
   agyAdapter,
   claudeAdapter,
@@ -15,590 +13,31 @@ import {
   cursorAdapter,
 } from "@yitom/acp-client";
 import type { AgentProfile, PendingElicitation, PendingPermission } from "./types";
-import { dangerousRootReason, getWorkspaceRoots, isPathAllowed } from "./security";
+import {
+  findHeadlessLauncher,
+  isRuntimeBinary,
+  RUNTIME_BASENAMES,
+  spawnCrossPlatform,
+  whichCommand,
+} from "./platform/spawn";
+import { InteractionManager } from "./interaction";
+import { FsGuard } from "./fs-guard";
+
+// Re-export platform helpers for external consumers & test compatibility
+export {
+  findHeadlessLauncher,
+  isRuntimeBinary,
+  RUNTIME_BASENAMES,
+  whichCommand,
+};
 
 export type SseSend = (evt: Record<string, unknown>) => void;
-
-interface TerminalRecord {
-  id: string;
-  proc: ChildProcess;
-  output: string;
-  outputBytes: number;
-  exited?: { code: number | null; signal: string | null };
-  cwd: string;
-}
-
-/**
- * Native Windows headless launcher (GUI-subsystem shim that spawns console
- * binaries with CREATE_NO_WINDOW + stdio passthrough).
- * Runner era: package-runner binaries (bunx/npx/node/…) spawn directly with
- * windowsHide and bypass the launcher (see spawnCrossPlatform), so a missing
- * launcher is the normal case — only an explicit AGY_HEADLESS_LAUNCHER env
- * opts back into shimmed spawning. Debug-level when absent, never loud.
- */
-let cachedLauncher: string | null | undefined;
-export function findHeadlessLauncher(): string | null {
-  if (cachedLauncher !== undefined) return cachedLauncher;
-  cachedLauncher = null;
-  const p = process.env.AGY_HEADLESS_LAUNCHER;
-  if (p && fs.existsSync(p)) {
-    cachedLauncher = p;
-    return cachedLauncher;
-  }
-  console.debug("[UniversalACP] no headless launcher configured; runners spawn directly with windowsHide.");
-  return cachedLauncher;
-}
-
-function isLauncherItself(command: string, launcher: string): boolean {
-  if (path.basename(command).toLowerCase() === "agy-headless.exe") return true;
-  try {
-    return path.resolve(command) === path.resolve(launcher);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Runtime binaries that must NEVER go through agy-headless.exe launcher.
- * The launcher only proxies real console business exes (e.g. agy-acp-win-x64.exe);
- * proxying a language runtime (bun/node/npm/...) makes the launcher try to
- * exec it as a payload and surfaces as `Access is denied` (mock tests hit this
- * with `bun.exe run <fixture>`). Case-insensitive basename match, with and
- * without Windows extension.
- */
-export const RUNTIME_BASENAMES = new Set([
-  "bun",
-  "bun.exe",
-  "bunx",
-  "bunx.exe",
-  "bunx.cmd",
-  "node",
-  "node.exe",
-  "npm",
-  "npm.cmd",
-  "npm.exe",
-  "npx",
-  "npx.cmd",
-  "npx.exe",
-  "python",
-  "python.exe",
-  "python3",
-  "python3.exe",
-  "pip",
-  "pip.exe",
-  "uv",
-  "uv.exe",
-  "deno",
-  "deno.exe",
-]);
-
-export function isRuntimeBinary(command: string): boolean {
-  try {
-    return RUNTIME_BASENAMES.has(path.basename(command).toLowerCase());
-  } catch (err) {
-    console.error(`[UniversalACP] isRuntimeBinary check failed for ${command}: ${(err as Error).message}`);
-    return false;
-  }
-}
-
-/**
- * Cross-runtime spawn (Bun *and* Node) with zero console flash on Windows.
- * Console binaries (.exe/.cmd/.bat) go through the native headless launcher
- * when available (works under every runtime, unlike windowsHide under Bun);
- * .cmd/.bat additionally fall back to shell:true for Node's EINVAL.
- * Runtime binaries (bun/node/npm/...) bypass the launcher entirely.
- */
-function spawnCrossPlatform(command: string, args: string[], opts: SpawnOptions): ChildProcess {
-  if (isRuntimeBinary(command)) {
-    // Runtimes manage their own stdio/console; launcher proxy would break them.
-    if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
-      const line = [command, ...args]
-        .map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a))
-        .join(" ");
-      return spawn(line, { ...opts, shell: true });
-    }
-    return spawn(command, args, opts);
-  }
-  if (process.platform === "win32" && /\.(exe|cmd|bat)$/i.test(command)) {
-    const launcher = findHeadlessLauncher();
-    if (launcher && !isLauncherItself(command, launcher)) {
-      return spawn(launcher, [command, ...args], { ...opts, shell: false });
-    }
-    if (/\.(cmd|bat)$/i.test(command)) {
-      const line = [command, ...args]
-        .map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a))
-        .join(" ");
-      return spawn(line, { ...opts, shell: true });
-    }
-  }
-  return spawn(command, args, opts);
-}
-
-/**
- * Resolve a command the way the OS would (PATH scan, PATHEXT on Windows).
- * Returns the absolute path or null — used to fail fast with the preset's
- * installHint instead of a cryptic ENOENT/EINVAL from spawn.
- */
-export function whichCommand(command: string): string | null {
-  if (!command) return null;
-  const isAbs = path.isAbsolute(command);
-  const dirs = isAbs
-    ? [path.dirname(command)]
-    : (process.env.PATH || "").split(path.delimiter).filter(Boolean);
-  const base = isAbs ? path.basename(command) : command;
-  const exts =
-    process.platform === "win32" && !path.extname(base)
-      ? ["", ".exe", ".cmd", ".bat", ".ps1"]
-      : [""];
-  for (const dir of dirs) {
-    for (const ext of exts) {
-      const full = path.join(dir, base + ext);
-      try {
-        fs.accessSync(full, fs.constants.X_OK);
-        return full;
-      } catch {
-        // try next
-      }
-    }
-  }
-  // Absolute path that exists but isn't executable-flagged (Windows has no X_OK).
-  if (isAbs) {
-    try {
-      fs.accessSync(command, fs.constants.F_OK);
-      return command;
-    } catch {
-      // miss
-    }
-  }
-  return null;
-}
-
-const isWSL =
-  process.platform === "linux" &&
-  (os.release().toLowerCase().includes("microsoft") || Boolean(process.env.WSL_DISTRO_NAME));
-
-function resolveAntigravityAccount(): { email?: string; name?: string } {
-  // 1. 优先环境变量
-  if (process.env.GOOGLE_ACCOUNT?.trim()) {
-    const email = process.env.GOOGLE_ACCOUNT.trim();
-    return { email, name: email.split("@")[0] };
-  }
-  if (process.env.ANTIGRAVITY_ACCOUNT?.trim()) {
-    const email = process.env.ANTIGRAVITY_ACCOUNT.trim();
-    return { email, name: email.split("@")[0] };
-  }
-  // 2. 跨平台探测 Antigravity 本地凭据 app_storage.json
-  const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || "";
-  const candidates = [
-    // Windows AppData Roaming
-    process.env.APPDATA ? path.join(process.env.APPDATA, "Antigravity", "app_storage.json") : null,
-    // Linux ~/.config
-    path.join(home, ".config", "Antigravity", "app_storage.json"),
-    // macOS Library
-    path.join(home, "Library", "Application Support", "Antigravity", "app_storage.json"),
-  ].filter(Boolean) as string[];
-
-  if (isWSL) {
-    try {
-      const usersDir = "/mnt/c/Users";
-      if (fs.existsSync(usersDir)) {
-        for (const u of fs.readdirSync(usersDir)) {
-          if (u === "Public" || u === "Default" || u.startsWith(".")) continue;
-          candidates.push(path.join(usersDir, u, "AppData", "Roaming", "Antigravity", "app_storage.json"));
-        }
-      }
-    } catch {}
-  }
-
-  for (const file of candidates) {
-    try {
-      if (fs.existsSync(file)) {
-        const raw = fs.readFileSync(file, "utf8");
-        const json = JSON.parse(raw);
-        const username = json["jetski.onboarding.lastLoginUsername"];
-        if (username && typeof username === "string" && username.trim()) {
-          const u = username.trim();
-          return {
-            email: u,
-            name: u.includes("@") ? u.split("@")[0] : u,
-          };
-        }
-      }
-    } catch {}
-  }
-
-  // 3. 回落系统用户名
-  const osUser = process.env.USERNAME || process.env.USER;
-  if (osUser?.trim()) {
-    return { name: osUser.trim() };
-  }
-  return {};
-}
-
-async function probeAntigravityLiveQuota(): Promise<AcpAgentQuota | null> {
-  const acc = resolveAntigravityAccount();
-  let lsInfo: { port: number; csrfToken: string } | null = null;
-  try {
-    let out = "";
-    if (process.platform === "win32") {
-      out = execFileSync(
-        "powershell",
-        [
-          "-NoProfile",
-          "-Command",
-          'Get-CimInstance Win32_Process | Where-Object { $_.Name -like "*language_server*" } | Select-Object -ExpandProperty CommandLine',
-        ],
-        { encoding: "utf8", timeout: 4000, windowsHide: true }
-      );
-    } else if (isWSL) {
-      out = execFileSync(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-Command",
-          'Get-CimInstance Win32_Process | Where-Object { $_.Name -like "*language_server*" } | Select-Object -ExpandProperty CommandLine',
-        ],
-        { encoding: "utf8", timeout: 4000 }
-      );
-    } else {
-      out = execFileSync("ps", ["aux"], { encoding: "utf8", timeout: 4000 });
-    }
-    const lines = out.split(/\r?\n/);
-    for (const l of lines) {
-      const portMatch = l.match(/--https_server_port\s+(\d+)/);
-      const csrfMatch = l.match(/--csrf_token\s+([a-f0-9\-]+)/);
-      if (portMatch && csrfMatch) {
-        lsInfo = { port: parseInt(portMatch[1], 10), csrfToken: csrfMatch[1] };
-        break;
-      }
-    }
-  } catch (err) {
-    console.debug("[UniversalACP] Failed to detect language server process:", err);
-  }
-
-  if (lsInfo) {
-    try {
-      let data: any = null;
-      if (isWSL) {
-        const raw = execFileSync(
-          "curl.exe",
-          [
-            "-k",
-            "-s",
-            "-X",
-            "POST",
-            "-H",
-            "Content-Type: application/json",
-            "-H",
-            `x-codeium-csrf-token: ${lsInfo.csrfToken}`,
-            "-d",
-            "{}",
-            `https://127.0.0.1:${lsInfo.port}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`,
-          ],
-          { encoding: "utf8", timeout: 4000 }
-        );
-        data = JSON.parse(raw);
-      } else {
-        const prevReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-        try {
-          const res = await fetch(
-            `https://127.0.0.1:${lsInfo.port}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-codeium-csrf-token": lsInfo.csrfToken,
-              },
-              body: JSON.stringify({}),
-              signal: AbortSignal.timeout(4000),
-              tls: { rejectUnauthorized: false },
-            } as any
-          );
-          if (res.ok) {
-            data = await res.json();
-          }
-        } finally {
-          if (prevReject !== undefined) {
-            process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevReject;
-          } else {
-            delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-          }
-        }
-      }
-
-      if (data?.response?.groups) {
-        const groups = (data.response.groups || []) as Array<{
-          displayName: string;
-          description?: string;
-          buckets?: Array<{
-            bucketId?: string;
-            displayName: string;
-            description?: string;
-            window?: string;
-            remainingFraction?: number;
-            resetTime?: string;
-          }>;
-        }>;
-
-        const formatReset = (isoStr?: string, fallbackDesc?: string) => {
-          if (fallbackDesc && fallbackDesc.includes("it will fully refresh in ")) {
-            const m = fallbackDesc.match(/it will fully refresh in (.+?)\.?$/);
-            if (m?.[1]) return `Resets in ${m[1].trim()}`;
-          }
-          if (!isoStr) return undefined;
-          const diffMs = new Date(isoStr).getTime() - Date.now();
-          if (diffMs <= 0) return "已重置";
-          const totalMins = Math.floor(diffMs / 60000);
-          const hours = Math.floor(totalMins / 60);
-          const days = Math.floor(hours / 24);
-          if (days > 0) return `Resets in ${days}d ${hours % 24}h`;
-          return `Resets in ${hours}h ${totalMins % 60}m`;
-        };
-
-        const toWindow = (b: any, groupName: string, label: string, durMins: number) => {
-          if (!b) return undefined;
-          const frac = typeof b.remainingFraction === "number" ? b.remainingFraction : 1;
-          const percentLeft = Math.max(0, Math.min(100, Math.round(frac * 100)));
-          const usedPercent = 100 - percentLeft;
-          return {
-            label,
-            group: groupName,
-            percentLeft,
-            usedPercent,
-            windowDurationMins: durMins,
-            resetsAt: formatReset(b.resetTime, b.description),
-          };
-        };
-
-        const geminiGroup = groups.find((g) => g.displayName?.toLowerCase().includes("gemini"));
-        const thirdPartyGroup = groups.find((g) =>
-          g.displayName?.toLowerCase().includes("claude") || g.displayName?.toLowerCase().includes("gpt")
-        );
-
-        const gemini5h = geminiGroup?.buckets?.find(
-          (b) => b.displayName?.toLowerCase().includes("five hour") || b.bucketId?.includes("5h") || b.window === "5h"
-        );
-        const geminiWeekly = geminiGroup?.buckets?.find(
-          (b) => b.displayName?.toLowerCase().includes("weekly") || b.bucketId?.includes("weekly") || b.window === "weekly"
-        );
-
-        const tp5h = thirdPartyGroup?.buckets?.find(
-          (b) => b.displayName?.toLowerCase().includes("five hour") || b.bucketId?.includes("5h") || b.window === "5h"
-        );
-        const tpWeekly = thirdPartyGroup?.buckets?.find(
-          (b) => b.displayName?.toLowerCase().includes("weekly") || b.bucketId?.includes("weekly") || b.window === "weekly"
-        );
-
-        const primaryWindow = toWindow(gemini5h, "Gemini Models", "5-Hour limit", 300) || {
-          label: "5-Hour limit",
-          group: "Gemini Models",
-          percentLeft: 100,
-          usedPercent: 0,
-          windowDurationMins: 300,
-        };
-
-        const secondaryWindow = toWindow(geminiWeekly, "Gemini Models", "Weekly limit", 10080);
-
-        const extraWindows = [
-          toWindow(tp5h, "Claude and GPT models", "5-Hour limit", 300),
-          toWindow(tpWeekly, "Claude and GPT models", "Weekly limit", 10080),
-        ].filter(Boolean) as any[];
-
-        const quota: AcpAgentQuota = {
-          runtimeId: "agy",
-          provider: "Google Antigravity",
-          account: {
-            email: acc.email,
-            name: acc.name || "Google Developer",
-            plan: "Google AI Pro",
-            type: "gemini",
-          },
-          primaryWindow,
-          secondaryWindow,
-          extraWindows: extraWindows.length > 0 ? extraWindows : undefined,
-          credits: {
-            unlimited: true,
-            balance: "unlimited",
-          },
-          status: "ok",
-          updatedAt: Date.now(),
-        };
-        return quota;
-      }
-    } catch (err) {
-      console.debug("[UniversalACP] Failed to retrieve Antigravity live quota:", err);
-    }
-  }
-  return null;
-}
-
-function readOpencodeCredentials(): {
-  email?: string;
-  name?: string;
-  token?: string;
-  orgId?: string;
-  accountId?: string;
-} {
-  const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || "";
-  const dbPaths = [
-    path.join(home, ".local", "share", "opencode", "opencode.db"),
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "opencode", "opencode.db") : null,
-    path.join(home, ".config", "opencode", "opencode.db"),
-  ].filter(Boolean) as string[];
-
-  for (const dbPath of dbPaths) {
-    if (!fs.existsSync(dbPath)) continue;
-    try {
-      let rows: Array<{ integration_id: string; value: string }> = [];
-      if (typeof (process.versions as any)?.bun !== "undefined") {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { Database } = require("bun:sqlite");
-        const db = new Database(dbPath, { readonly: true });
-        rows = db.query("SELECT integration_id, value FROM credential").all() as any;
-        db.close();
-      } else {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { DatabaseSync } = require("node:sqlite");
-        const db = new DatabaseSync(dbPath, { readOnly: true });
-        rows = db.prepare("SELECT integration_id, value FROM credential").all() as any;
-        db.close();
-      }
-
-      const opencodeCred = rows.find((r) => r.integration_id === "opencode");
-      if (opencodeCred?.value) {
-        const parsed = JSON.parse(opencodeCred.value);
-        const meta = parsed.metadata || {};
-        return {
-          email: meta.email || undefined,
-          name: meta.email ? meta.email.split("@")[0] : meta.orgName || undefined,
-          token: parsed.access || undefined,
-          orgId: meta.orgID || undefined,
-          accountId: meta.accountID || undefined,
-        };
-      }
-    } catch {
-      try {
-        const buf = fs.readFileSync(dbPath, "utf8");
-        const emailMatch = buf.match(/"email"\s*:\s*"([^"]+)"/);
-        const tokenMatch = buf.match(/"access"\s*:\s*"(st_[a-zA-Z0-9_\-]+)"/);
-        const orgMatch = buf.match(/"orgID"\s*:\s*"(wrk_[a-zA-Z0-9_\-]+)"/);
-        const accMatch = buf.match(/"accountID"\s*:\s*"(acc_[a-zA-Z0-9_\-]+)"/);
-        if (emailMatch || tokenMatch) {
-          return {
-            email: emailMatch?.[1],
-            name: emailMatch?.[1]?.split("@")[0],
-            token: tokenMatch?.[1],
-            orgId: orgMatch?.[1],
-            accountId: accMatch?.[1],
-          };
-        }
-      } catch {}
-    }
-  }
-  return {};
-}
-
-async function probeOpencodeGoQuota(): Promise<AcpAgentQuota | null> {
-  const creds = readOpencodeCredentials();
-  if (!creds.token || !creds.orgId) return null;
-
-  try {
-    const res = await fetch("https://opencode.ai/console/api/go/status", {
-      headers: {
-        Authorization: `Bearer ${creds.token}`,
-        "x-opencode-org-id": creds.orgId,
-        "x-opencode-account-id": creds.accountId || "",
-      },
-      signal: AbortSignal.timeout(4000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as any;
-    const meters = data?.access?.meters;
-    if (!meters) return null;
-
-    const formatReset = (isoStr?: string) => {
-      if (!isoStr) return undefined;
-      const diffMs = new Date(isoStr).getTime() - Date.now();
-      if (diffMs <= 0) return "已重置";
-      const totalMins = Math.floor(diffMs / 60000);
-      const hours = Math.floor(totalMins / 60);
-      const days = Math.floor(hours / 24);
-      if (days > 0) {
-        const remH = hours % 24;
-        return `Resets in ${days}d ${remH}h`;
-      }
-      const remM = totalMins % 60;
-      return `Resets in ${hours}h ${remM}m`;
-    };
-
-    const calcWindow = (m: any, label: string, durMins: number) => {
-      if (!m || !m.limitMicroCents) return undefined;
-      const limit = Number(m.limitMicroCents);
-      const used = Number(m.usedMicroCents || 0);
-      const usedPercent = limit > 0 ? Math.round((used / limit) * 100) : 0;
-      const percentLeft = Math.max(0, 100 - usedPercent);
-      return {
-        label,
-        usedPercent,
-        percentLeft,
-        windowDurationMins: durMins,
-        resetsAt: formatReset(m.resetsAt),
-      };
-    };
-
-    const rolling = calcWindow(meters.fiveHour, "Rolling", 300);
-    const weekly = calcWindow(meters.week, "Weekly", 10080);
-    const monthly = calcWindow(meters.month, "Monthly", 43200);
-
-    let creditBalance = "$0.00";
-    try {
-      const bRes = await fetch("https://opencode.ai/console/api/billing/status", {
-        headers: {
-          Authorization: `Bearer ${creds.token}`,
-          "x-opencode-org-id": creds.orgId,
-          "x-opencode-account-id": creds.accountId || "",
-        },
-        signal: AbortSignal.timeout(2000),
-      });
-      if (bRes.ok) {
-        const bData = await bRes.json() as any;
-        const availMicro = Number(bData.availableMicroCents || 0);
-        creditBalance = `$${(availMicro / 100000000).toFixed(2)}`;
-      }
-    } catch {}
-
-    const quota: AcpAgentQuota = {
-      runtimeId: "opencode",
-      provider: "OpenCode",
-      account: {
-        email: creds.email,
-        name: creds.name || "OpenCode User",
-        plan: "OpenCode Go",
-        type: "opencode",
-      },
-      primaryWindow: rolling,
-      secondaryWindow: weekly,
-      extraWindows: monthly ? [monthly] : undefined,
-      credits: {
-        balance: creditBalance,
-        currency: "USD",
-        unlimited: false,
-      },
-      status: "ok",
-      updatedAt: Date.now(),
-    };
-    return quota;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * One long-lived stdio connection to a generic ACP agent.
  * Uses @agentclientprotocol/sdk `client().connect(stream)` (persistent),
- * implements full client-side surface: permission (forward to UI),
- * fs/read+write (real fs), terminal/* (real processes), elicitation (forward to UI).
+ * coordinates interaction (permissions/elicitations), filesystem guards,
+ * upstream terminal management via @yitom/acp-client, and SSE broadcasting.
  */
 export class UniversalAgentConnection {
   readonly profile: AgentProfile;
@@ -611,25 +50,12 @@ export class UniversalAgentConnection {
 
   private connectInFlight: Promise<unknown> | null = null;
   private sessionSinks = new Map<string, Set<SseSend>>();
-  /**
-   * Latest available_commands_update per session. Agents usually emit it right
-   * after session/new|load|resume returns — before any SSE subscriber exists —
-   * so a pure broadcast loses it. Cache it and hand it out with the session
-   * response / the `commands` route.
-   */
   private sessionCommands = new Map<string, unknown[]>();
-  private pendingPermissions = new Map<string, PendingPermission>();
-  private pendingElicitations = new Map<string, PendingElicitation>();
-  private permSeq = 1;
-  private elicSeq = 1;
-  private terminals = new Map<string, TerminalRecord>();
-  /**
-   * 每个会话允许写入的根：session/new|load|resume|fork 时的 cwd + additionalDirectories
-   * （就是用户在 UI 里选的工作区）。智能体 fs/write_text_file 只能落在这些根
-   * 或全局 ACP_WORKSPACE_ROOTS 之内。
-   */
-  private sessionRoots = new Map<string, string[]>();
-  private termSeq = 1;
+
+  private interaction: InteractionManager;
+  private fsGuard: FsGuard;
+  private terminals = new AcpTerminalManager();
+
   /**
    * Per-session prompt mutex: ACP session/prompt is strictly serial per
    * session. Concurrent prompt() calls for the same sessionId throw
@@ -642,6 +68,8 @@ export class UniversalAgentConnection {
 
   constructor(profile: AgentProfile) {
     this.profile = profile;
+    this.interaction = new InteractionManager(profile.id, (sid, evt) => this.broadcast(sid, evt));
+    this.fsGuard = new FsGuard(profile.id, (sid, kind, detail) => this.emitActivity(sid, kind, detail));
     // Initial best-effort probe based on profile
     this.probeQuotaBackground();
   }
@@ -653,68 +81,11 @@ export class UniversalAgentConnection {
       if (id === "codex") {
         q = (await codexAdapter.probeQuota?.()) ?? null;
       } else if (id === "antigravity-stdio" || id === "agy") {
-        q = (await probeAntigravityLiveQuota()) ?? (await agyAdapter.probeQuota?.()) ?? null;
-        const acc = resolveAntigravityAccount();
-        if (!q && (acc.email || acc.name)) {
-          q = {
-            runtimeId: "agy",
-            provider: "Google Antigravity",
-            account: {
-              email: acc.email,
-              name: acc.name || "Google Developer",
-              plan: "Google AI Pro",
-              type: "gemini",
-            },
-            primaryWindow: {
-              label: "5-Hour limit",
-              group: "Gemini Models",
-              percentLeft: 100,
-              usedPercent: 0,
-              windowDurationMins: 300,
-            },
-            secondaryWindow: {
-              label: "Weekly limit",
-              group: "Gemini Models",
-              percentLeft: 100,
-              usedPercent: 0,
-              windowDurationMins: 10080,
-            },
-            extraWindows: [
-              {
-                label: "5-Hour limit",
-                group: "Claude and GPT models",
-                percentLeft: 100,
-                usedPercent: 0,
-                windowDurationMins: 300,
-              },
-              {
-                label: "Weekly limit",
-                group: "Claude and GPT models",
-                percentLeft: 100,
-                usedPercent: 0,
-                windowDurationMins: 10080,
-              },
-            ],
-            credits: {
-              unlimited: true,
-              balance: "unlimited",
-            },
-            status: "ok",
-            updatedAt: Date.now(),
-          };
-        } else if (q && (acc.email || acc.name)) {
-          q.account = {
-            ...(q.account || {}),
-            email: acc.email || q.account?.email,
-            name: acc.name || q.account?.name || "Google Developer",
-            plan: q.account?.plan || "Google AI Pro",
-            type: "gemini",
-          };
-        }
+        q = (await agyAdapter.probeQuota?.()) ?? null;
       } else if (id === "claude") {
         q = (await claudeAdapter.probeQuota?.()) ?? null;
       } else if (id === "opencode" || id === "opencode-v2") {
-        q = (await probeOpencodeGoQuota()) ?? (await opencodeAdapter.probeQuota?.()) ?? null;
+        q = (await opencodeAdapter.probeQuota?.()) ?? null;
       } else if (id === "cursor-cli") {
         q = (await cursorAdapter.probeQuota?.()) ?? null;
       }
@@ -761,36 +132,7 @@ export class UniversalAgentConnection {
       // a convenience alias so clients don't need to dig into `_meta`.
       authStatus: (init?._meta as Record<string, unknown> | undefined)?.authStatus ?? capsMeta?.authStatus ?? null,
       meta: init?._meta ?? null,
-      quota: (() => {
-        let q = this.lastQuota;
-        const aid = this.profile.id;
-        if ((aid === "antigravity-stdio" || aid === "agy") && q?.account && !q.account.email) {
-          const acc = resolveAntigravityAccount();
-          if (acc.email) {
-            q = { ...q, account: { ...q.account, email: acc.email, name: acc.name || q.account.name } };
-          }
-        } else if ((aid === "opencode" || aid === "opencode-v2") && q?.account) {
-          const creds = readOpencodeCredentials();
-          const currentAcc = q.account;
-          const updatedEmail = creds.email || currentAcc.email;
-          const updatedName = creds.name || currentAcc.name;
-          const currentPlan = currentAcc.plan;
-          const updatedPlan =
-            currentPlan && (currentPlan.includes("(") || currentPlan.includes("OpenCode Go"))
-              ? "OpenCode Go"
-              : currentPlan;
-          q = {
-            ...q,
-            account: {
-              ...currentAcc,
-              email: updatedEmail,
-              name: updatedName,
-              plan: updatedPlan,
-            },
-          };
-        }
-        return q;
-      })(),
+      quota: this.lastQuota,
       lastError: this.lastError,
       startedAt: this.startedAt,
     };
@@ -839,46 +181,31 @@ export class UniversalAgentConnection {
     }
   }
 
+  /** Broadcast an fs/terminal/compaction activity line into session sinks. */
+  private emitActivity(sessionId: string, kind: string, detail?: unknown) {
+    if (!sessionId) return;
+    this.broadcast(sessionId, { type: "activity", agentId: this.profile.id, sessionId, kind, detail });
+  }
+
   listPendingPermissions(sessionId?: string) {
-    return [...this.pendingPermissions.values()]
-      .filter((p) => !sessionId || p.sessionId === sessionId)
-      .map((p) => ({
-        permissionId: p.permissionId,
-        agentId: p.agentId,
-        sessionId: p.sessionId,
-        toolCall: p.toolCall,
-        options: p.options,
-        createdAt: p.createdAt,
-      }));
+    return this.interaction.listPendingPermissions(sessionId);
   }
 
   listPendingElicitations(sessionId?: string) {
-    return [...this.pendingElicitations.values()]
-      .filter((p) => !sessionId || p.sessionId === sessionId)
-      .map((p) => ({
-        elicitationId: p.elicitationId,
-        agentId: p.agentId,
-        sessionId: p.sessionId,
-        message: p.message,
-        schema: p.schema,
-        createdAt: p.createdAt,
-      }));
+    return this.interaction.listPendingElicitations(sessionId);
   }
 
   resolvePermission(permissionId: string, outcome: unknown): boolean {
-    const p = this.pendingPermissions.get(permissionId);
-    if (!p) return false;
-    this.pendingPermissions.delete(permissionId);
-    p.resolve(outcome);
-    return true;
+    return this.interaction.resolvePermission(permissionId, outcome);
   }
 
   resolveElicitation(elicitationId: string, result: unknown): boolean {
-    const p = this.pendingElicitations.get(elicitationId);
-    if (!p) return false;
-    this.pendingElicitations.delete(elicitationId);
-    p.resolve(result);
-    return true;
+    return this.interaction.resolveElicitation(elicitationId, result);
+  }
+
+  /** 会话允许写入的根（未知会话 → 只剩全局根）。供测试与诊断。 */
+  allowedRootsFor(sessionId: string): string[] {
+    return this.fsGuard.allowedRootsFor(sessionId);
   }
 
   async connect(): Promise<unknown> {
@@ -933,14 +260,8 @@ export class UniversalAgentConnection {
     proc.on("exit", (code, signal) => {
       console.warn(`[UniversalACP:${this.profile.id}] exited code=${code} signal=${signal} stderrTail=${this.stderrTail.slice(-3).join(" | ")}`);
       // Fail pending permission/elicitation so prompt turns don't hang forever
-      for (const [id, p] of this.pendingPermissions) {
-        this.pendingPermissions.delete(id);
-        p.reject(new Error(`Agent exited (code ${code}) while permission ${id} pending`));
-      }
-      for (const [id, p] of this.pendingElicitations) {
-        this.pendingElicitations.delete(id);
-        p.reject(new Error(`Agent exited (code ${code}) while elicitation ${id} pending`));
-      }
+      this.interaction.rejectAllOnExit(code, signal);
+      this.terminals.releaseAll();
       this.conn = null;
       if (!this.lastError && (code !== 0 || signal)) {
         const details = this.stderrTail.length ? `: ${this.stderrTail.slice(-3).join(" | ")}` : "";
@@ -955,18 +276,7 @@ export class UniversalAgentConnection {
         this.stderrTail.push(t);
         if (this.stderrTail.length > 50) this.stderrTail.shift();
       }
-      // 分流清洗：常规 trace 日志（如 [ACP-PROC]、[ACP-SDK]、warmup 等协议运行日志）
-      // 写入 stdout，避免 VS Code / 终端无条件将 stderr 渲染为全红报错；
-      // 只有真正的致命异常（fatal、crash、exception、panic 等）才打入 process.stderr。
-      const isRealError =
-        /fatal|uncaught|unhandledrejection|panic|syntaxerror|referenceerror|\berror:\s/i.test(text) &&
-        !/\[ACP-(?:PROC|SDK)\]|stdout line received|warmup|child exited|subprocess started/i.test(text);
-
-      if (isRealError) {
-        process.stderr.write(`[ACP:${this.profile.id}] ${text}`);
-      } else {
-        process.stdout.write(`[ACP:${this.profile.id}] ${text}`);
-      }
+      process.stderr.write(`[ACP:${this.profile.id}] ${text}`);
     });
 
     if (!proc.stdin || !proc.stdout) {
@@ -982,15 +292,15 @@ export class UniversalAgentConnection {
       .client({ name: "acp-studio-universal" })
       .onRequest(acp.methods.client.session.requestPermission, async (ctx: unknown) => {
         const params = (ctx as { params: { sessionId: string; toolCall: unknown; options: unknown } }).params;
-        return (await self.handlePermissionRequest(params)) as never;
+        return (await self.interaction.handlePermissionRequest(params)) as never;
       })
       .onRequest(acp.methods.client.fs.readTextFile, async (ctx: unknown) => {
         const params = (ctx as { params: { sessionId?: string; path: string; line?: number; limit?: number } }).params;
-        return (await self.handleReadFile(params)) as never;
+        return (await self.fsGuard.handleReadFile(params)) as never;
       })
       .onRequest(acp.methods.client.fs.writeTextFile, async (ctx: unknown) => {
         const params = (ctx as { params: { sessionId?: string; path: string; content: string } }).params;
-        return (await self.handleWriteFile(params)) as never;
+        return (await self.fsGuard.handleWriteFile(params)) as never;
       })
       .onRequest(acp.methods.client.terminal.create, async (ctx: unknown) => {
         const params = (ctx as { params: Record<string, unknown> }).params;
@@ -998,23 +308,25 @@ export class UniversalAgentConnection {
       })
       .onRequest(acp.methods.client.terminal.output, async (ctx: unknown) => {
         const params = (ctx as { params: { terminalId: string } }).params;
-        return (await self.handleTerminalOutput(params)) as never;
+        return self.terminals.getOutput(params.terminalId) as never;
       })
       .onRequest(acp.methods.client.terminal.release, async (ctx: unknown) => {
         const params = (ctx as { params: { sessionId?: string; terminalId: string } }).params;
-        return (await self.handleTerminalRelease(params)) as never;
+        self.emitActivity(params.sessionId || "", "terminal_release", { terminalId: params.terminalId });
+        return self.terminals.release(params.terminalId) as never;
       })
       .onRequest(acp.methods.client.terminal.waitForExit, async (ctx: unknown) => {
         const params = (ctx as { params: { sessionId?: string; terminalId: string } }).params;
-        return (await self.handleTerminalWait(params)) as never;
+        return (await self.terminals.waitForExit(params.terminalId)) as never;
       })
       .onRequest(acp.methods.client.terminal.kill, async (ctx: unknown) => {
         const params = (ctx as { params: { sessionId?: string; terminalId: string } }).params;
-        return (await self.handleTerminalKill(params)) as never;
+        self.emitActivity(params.sessionId || "", "terminal_kill", { terminalId: params.terminalId });
+        return self.terminals.kill(params.terminalId) as never;
       })
       .onRequest(acp.methods.client.elicitation.create, async (ctx: unknown) => {
         const params = (ctx as { params: Record<string, unknown> }).params;
-        return (await self.handleElicitation(params)) as never;
+        return (await self.interaction.handleElicitation(params)) as never;
       })
       .onNotification(acp.methods.client.session.update, async (ctx: unknown) => {
         const params = (ctx as { params: { sessionId: string; update: Record<string, unknown> } }).params;
@@ -1069,53 +381,59 @@ export class UniversalAgentConnection {
     }
   }
 
+  private handleTerminalCreate(params: Record<string, unknown>): Promise<unknown> {
+    const command = String(params.command || "");
+    if (!command) throw new Error("terminal/create: command is required");
+    const sessionCwd = this.fsGuard.getSessionCwd(String(params.sessionId || ""));
+    const requested = typeof params.cwd === "string" && params.cwd ? params.cwd : "";
+    const cwd = requested || sessionCwd || this.profile.defaultCwd || process.cwd();
+    let cwdOk = false;
+    try {
+      cwdOk = fs.existsSync(cwd) && fs.statSync(cwd).isDirectory();
+    } catch (err) {
+      throw new acp.RequestError(-32602, `terminal/create: cannot access cwd ${cwd}: ${(err as Error).message}`, { cwd });
+    }
+    if (!cwdOk) {
+      throw new acp.RequestError(-32602, `terminal/create: cwd does not exist or is not a directory: ${cwd}`, { cwd });
+    }
+    const sessionId = String(params.sessionId || "");
+    this.emitActivity(sessionId, "terminal_create", { command, args: params.args, cwd });
+    return Promise.resolve(
+      this.terminals.create({
+        command,
+        args: Array.isArray(params.args) ? (params.args as unknown[]).map(String) : [],
+        cwd,
+        workspaceRoot: sessionCwd || cwd,
+        env: params.env as any,
+        outputByteLimit: typeof params.outputByteLimit === "number" ? params.outputByteLimit : undefined,
+        sessionId,
+      })
+    );
+  }
+
   async disconnect(): Promise<void> {
     const proc = this.proc;
+    this.proc = null;
     this.conn = null;
     this.initResult = null;
-    if (proc) {
-      this.proc = null;
+    this.startedAt = null;
+    this.terminals.releaseAll();
+    if (proc && proc.exitCode === null && !proc.killed) {
       try {
-        if (proc.stdin) (proc.stdin as unknown as { end?: () => void }).end?.();
-      } catch {
-        // ignore
-      }
-      await new Promise<void>((resolve) => {
-        let done = false;
-        const finish = () => {
-          if (!done) {
-            done = true;
-            resolve();
-          }
-        };
-        proc.once("exit", finish);
-        setTimeout(() => {
-          try {
-            proc.kill();
-          } catch {
-            // ignore
-          }
-          finish();
-        }, 3000);
-      }).catch(() => undefined);
-    }
-    // kill terminals owned by this connection
-    for (const [, t] of this.terminals) {
-      try {
-        t.proc.kill();
+        proc.kill();
       } catch {
         // ignore
       }
     }
-    this.terminals.clear();
   }
 
   private ensureConn(): acp.ClientConnection {
-    if (!this.conn) throw new Error(`Agent '${this.profile.id}' not connected. Call connect first.`);
+    if (!this.conn || !this.connected) {
+      throw new Error(`Agent ${this.profile.id} is not connected`);
+    }
     return this.conn;
   }
 
-  // ---------- agent passthrough methods ----------
   async authenticate(methodId: string, extra?: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
     return conn.agent.request(acp.methods.agent.authenticate, { methodId, ...(extra || {}) } as unknown as never);
@@ -1123,21 +441,19 @@ export class UniversalAgentConnection {
 
   async logout(): Promise<unknown> {
     const conn = this.ensureConn();
-    const caps = (this.initResult as unknown as { agentCapabilities?: { auth?: { logout?: unknown } } })?.agentCapabilities;
-    if (!caps?.auth?.logout) throw new Error("Agent does not advertise auth.logout");
     return conn.agent.request(acp.methods.agent.logout, {} as unknown as never);
   }
 
   async newSession(args: { cwd?: string; mcpServers?: unknown[]; additionalDirectories?: string[] }): Promise<unknown> {
     const conn = this.ensureConn();
     const cwd = args.cwd || this.profile.defaultCwd || process.cwd();
-    const roots = this.sessionRootsFor(cwd, args.additionalDirectories);
+    const roots = this.fsGuard.sessionRootsFor(cwd, args.additionalDirectories);
     const result = await conn.agent.request(acp.methods.agent.session.new, {
       cwd,
       mcpServers: (args.mcpServers || []) as never[],
       ...(args.additionalDirectories ? { additionalDirectories: args.additionalDirectories } : {}),
     } as unknown as never);
-    this.rememberSessionRoots((result as { sessionId?: unknown } | null)?.sessionId, roots);
+    this.fsGuard.rememberSessionRoots((result as { sessionId?: unknown } | null)?.sessionId, roots);
     return result;
   }
 
@@ -1147,7 +463,7 @@ export class UniversalAgentConnection {
     const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
     const mcpServers = Array.isArray(args.mcpServers) ? args.mcpServers : [];
     const payload = { ...args, sessionId, cwd, mcpServers };
-    const roots = this.sessionRootsFor(cwd, args.additionalDirectories);
+    const roots = this.fsGuard.sessionRootsFor(cwd, args.additionalDirectories);
     // session/load replays history via session/update notifications before
     // responding. Collect them so HTTP clients can rebuild the transcript.
     const replayed: unknown[] = [];
@@ -1156,7 +472,7 @@ export class UniversalAgentConnection {
     }) : () => undefined;
     try {
       const result = await conn.agent.request(acp.methods.agent.session.load, payload as unknown as never);
-      this.rememberSessionRoots(sessionId, roots);
+      this.fsGuard.rememberSessionRoots(sessionId, roots);
       // Grace window: session/update notifications are dispatched
       // asynchronously and can lag behind the load response. Unsubscribing
       // immediately drops the tail (e.g. the final assistant chunk). Wait
@@ -1175,13 +491,14 @@ export class UniversalAgentConnection {
   /** UNSTABLE session/fork (advertised via sessionCapabilities.fork, e.g. codex). */
   async forkSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
-    const roots = this.sessionRootsFor(String(args.cwd || this.profile.defaultCwd || process.cwd()), args.additionalDirectories);
+    const roots = this.fsGuard.sessionRootsFor(String(args.cwd || this.profile.defaultCwd || process.cwd()), args.additionalDirectories);
     const result = await conn.agent.request(acp.methods.agent.session.fork, args as unknown as never);
-    this.rememberSessionRoots((result as { sessionId?: unknown } | null)?.sessionId, roots);
+    this.fsGuard.rememberSessionRoots((result as { sessionId?: unknown } | null)?.sessionId, roots);
     return result;
   }
 
-  /** UNSTABLE providers/* (advertised via providers capability, e.g. codex). */  async providersRpc(action: "list" | "set" | "disable", body: Record<string, unknown>): Promise<unknown> {
+  /** UNSTABLE providers/* (advertised via providers capability, e.g. codex). */
+  async providersRpc(action: "list" | "set" | "disable", body: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
     const method =
       action === "list" ? acp.methods.agent.providers.list
@@ -1199,19 +516,13 @@ export class UniversalAgentConnection {
     return conn.agent.request(method as never, params as never);
   }
 
-  /** Broadcast an fs/terminal/compaction activity line into session sinks. */
-  private emitActivity(sessionId: string, kind: string, detail?: unknown) {
-    if (!sessionId) return;
-    this.broadcast(sessionId, { type: "activity", agentId: this.profile.id, sessionId, kind, detail });
-  }
-
   async resumeSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
     const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
     const mcpServers = Array.isArray(args.mcpServers) ? args.mcpServers : [];
-    const roots = this.sessionRootsFor(cwd, args.additionalDirectories);
+    const roots = this.fsGuard.sessionRootsFor(cwd, args.additionalDirectories);
     const result = await conn.agent.request(acp.methods.agent.session.resume, { ...args, cwd, mcpServers } as unknown as never);
-    this.rememberSessionRoots(args.sessionId, roots);
+    this.fsGuard.rememberSessionRoots(args.sessionId, roots);
     return result;
   }
 
@@ -1246,12 +557,23 @@ export class UniversalAgentConnection {
     const conn = this.ensureConn();
     // Normalize to SetSessionConfigOptionRequest shapes:
     // select -> {sessionId, configId, value: "<valueId>"} (value_id variant),
-    // boolean -> {sessionId, configId, type: "boolean", value: bool}.
-    const normalized: Record<string, unknown> = { ...args };
-    if (typeof normalized.value === "boolean" && !normalized.type) {
-      normalized.type = "boolean";
+    // boolean/string -> value as-is. Accept both camelCase and snake_case from callers.
+    const sessionId = (args.sessionId ?? args.session_id) as string;
+    const configId = (args.configId ?? args.config_id) as string;
+    let value = args.value;
+    if (typeof value === "object" && value !== null) {
+      const v = value as { value_id?: unknown; valueId?: unknown };
+      if (typeof v.value_id === "string") value = v.value_id;
+      else if (typeof v.valueId === "string") value = v.valueId;
     }
-    return conn.agent.request(acp.methods.agent.session.setConfigOption, normalized as unknown as never);
+    if (!sessionId || !configId) {
+      throw new Error(`setConfigOption: sessionId and configId required (got sessionId=${sessionId}, configId=${configId})`);
+    }
+    return conn.agent.request(acp.methods.agent.session.setConfigOption, {
+      sessionId,
+      configId,
+      value,
+    } as unknown as never);
   }
 
   async cancel(sessionId: string): Promise<void> {
@@ -1262,31 +584,20 @@ export class UniversalAgentConnection {
       console.error(`[UniversalACP:${this.profile.id}] cancel notify failed session=${sessionId}: ${(err as Error).message}`);
       throw err;
     } finally {
-      // Release the prompt mutex so a fresh turn can start after cancel.
-      // The in-flight prompt()'s finally also deletes (idempotent).
+      // Release the prompt mutex so a fresh turn can start after cancel
       if (sessionId && this.promptLocks.has(sessionId)) {
         this.promptLocks.delete(sessionId);
       }
     }
-    // Unblock any pending permission for this session as cancelled (per spec client MUST respond cancelled)
-    for (const [id, p] of [...this.pendingPermissions]) {
-      if (p.sessionId === sessionId) {
-        this.pendingPermissions.delete(id);
-        try {
-          p.resolve({ outcome: "cancelled" });
-        } catch (err) {
-          console.error(`[UniversalACP:${this.profile.id}] permission resolve after cancel failed ${id}: ${(err as Error).message}`);
-        }
-      }
-    }
+    // Unblock any pending permission for this session as cancelled
+    this.interaction.cancelPendingForSession(sessionId);
   }
 
   /**
    * Send session/prompt. Streams session/update via onEvent callback until stop.
    * Permission/elicitation requests are surfaced via onEvent as well; the
    * underlying agent request stays pending until UI responds.
-   * Mutex: same sessionId concurrent prompt() throws
-   * `session busy: previous prompt still running (409)` (routes -> HTTP 409).
+   * Mutex: same sessionId concurrent prompt() throws 409.
    */
   async prompt(
     sessionId: string,
@@ -1327,305 +638,6 @@ export class UniversalAgentConnection {
       await new Promise((r) => setTimeout(r, 50));
       unsub();
     }
-  }
-
-  // ---------- client-side handlers ----------
-  private handlePermissionRequest(params: { sessionId: string; toolCall: unknown; options: unknown }): Promise<unknown> {
-    const permissionId = `perm-${Date.now()}-${this.permSeq++}`;
-    console.log(`[UniversalACP:${this.profile.id}] permission request ${permissionId} session=${params.sessionId}`);
-    // Notify any active prompt SSE streams immediately
-    this.broadcast(params.sessionId, {
-      type: "permission_request",
-      agentId: this.profile.id,
-      sessionId: params.sessionId,
-      permissionId,
-      toolCall: params.toolCall,
-      options: params.options,
-    });
-    return new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        if (this.pendingPermissions.has(permissionId)) {
-          this.pendingPermissions.delete(permissionId);
-          reject(new Error("Permission request timed out after 180s"));
-        }
-      }, 180_000);
-      const wrappedResolve = (outcome: unknown) => {
-        clearTimeout(timer);
-        // normalize UI payload -> ACP RequestPermissionResponse
-        resolve(this.normalizePermissionOutcome(outcome));
-      };
-      this.pendingPermissions.set(permissionId, {
-        permissionId,
-        agentId: this.profile.id,
-        sessionId: params.sessionId,
-        toolCall: params.toolCall,
-        options: params.options,
-        createdAt: Date.now(),
-        resolve: wrappedResolve,
-        reject: (e) => {
-          clearTimeout(timer);
-          reject(e);
-        },
-      });
-    });
-  }
-
-  private normalizePermissionOutcome(outcome: unknown): unknown {
-    // UI sends {outcome:"selected",optionId} | {outcome:"cancelled"} | {optionId}
-    if (outcome && typeof outcome === "object") {
-      const o = outcome as Record<string, unknown>;
-      if (o.outcome === "selected" || o.outcome === "cancelled") {
-        if (o.outcome === "selected") return { outcome: { outcome: "selected", optionId: o.optionId } };
-        return { outcome: { outcome: "cancelled" } };
-      }
-      if (typeof o.optionId === "string") return { outcome: { outcome: "selected", optionId: o.optionId } };
-    }
-    if (typeof outcome === "string") return { outcome: { outcome: "selected", optionId: outcome } };
-    return { outcome: { outcome: "cancelled" } };
-  }
-
-  /** 校验并整理会话根（cwd + additionalDirectories），拒绝文件系统根 / 系统目录。 */
-  private sessionRootsFor(cwd: string, extra: unknown): string[] {
-    const dirs = [cwd, ...(Array.isArray(extra) ? extra.map(String) : [])].filter(Boolean);
-    const roots: string[] = [];
-    for (const d of dirs) {
-      const bad = dangerousRootReason(d);
-      if (bad) throw new Error(`session workspace rejected: ${bad}`);
-      let abs: string;
-      if (process.platform === "win32" && (d.startsWith("/home/") || d.startsWith("/root/"))) {
-        // 纯 Linux 路径在 Windows 宿主机下绝不能盲目拼上盘符 (如 D:\home\...)
-        abs = d.replace(/\\/g, "/");
-      } else {
-        abs = path.resolve(d);
-      }
-      if (!roots.includes(abs)) roots.push(abs);
-    }
-    return roots;
-  }
-
-  private rememberSessionRoots(sessionId: unknown, roots: string[]): void {
-    if (typeof sessionId === "string" && sessionId) this.sessionRoots.set(sessionId, roots);
-  }
-
-  /** 会话允许写入的根（未知会话 → 只剩全局根）。供测试与诊断。 */
-  allowedRootsFor(sessionId: string): string[] {
-    return [...(this.sessionRoots.get(sessionId) || []), ...getWorkspaceRoots()];
-  }
-
-  /**
-   * fs guard for agent-initiated fs/* requests.
-   * - Always: reject empty paths and system locations (/etc /proc /sys, Windows system dirs).
-   * - Writes: must stay inside the session's allowed roots (session cwd +
-   *   additionalDirectories + ACP_WORKSPACE_ROOTS + gateway cwd), symlinks
-   *   resolved. Anything else is denied loudly (activity event + JSON-RPC error),
-   *   e.g. an agent writing ~/.ssh/authorized_keys.
-   * - Reads: not confined to the roots yet (agents legitimately read docs /
-   *   toolchains outside the repo); only the system-path block applies.
-   */
-  private checkFsPath(raw: string, sessionId: string, op: string, mode: "read" | "write"): string {
-    const session = sessionId || "";
-    if (!raw || !String(raw).trim()) throw new Error(`fs/${op} failed: path is required`);
-    let resolved: string;
-    try {
-      resolved = path.resolve(String(raw));
-    } catch (err) {
-      console.error(`[UniversalACP:${this.profile.id}] fs/${op} resolve failed ${raw}: ${(err as Error).message}`);
-      throw new Error(`fs/${op} failed: invalid path`);
-    }
-    const lower = process.platform === "win32" ? resolved.toLowerCase() : resolved;
-    const blockedPrefixes =
-      process.platform === "win32"
-        ? ["c:\\windows", "c:\\program files", "c:\\program files (x86)"]
-        : ["/etc", "/proc", "/sys"];
-    for (const b of blockedPrefixes) {
-      if (lower === b || lower.startsWith(b + path.sep)) {
-        this.emitActivity(session, `fs_${op}_blocked`, { path: raw, resolved });
-        throw new Error(`fs/${op} denied: system path not writable/readable (${resolved})`);
-      }
-    }
-    if (mode === "write") {
-      const roots = this.sessionRoots.get(session) || [];
-      if (!isPathAllowed(resolved, roots)) {
-        const allowed = this.allowedRootsFor(session);
-        this.emitActivity(session, `fs_${op}_blocked`, { path: raw, resolved, allowedRoots: allowed });
-        console.warn(`[UniversalACP:${this.profile.id}] fs/${op} denied outside workspace: ${resolved}`);
-        // RequestError（-32602）让消息原样回到智能体，而不是被 SDK 压成 "Internal error"。
-        throw new acp.RequestError(
-          -32602,
-          `fs/${op} denied: ${resolved} is outside the allowed workspace roots (${allowed.join(", ") || "none"}). ` +
-            `Open that folder as the workspace, pass it in additionalDirectories, or add it to ACP_WORKSPACE_ROOTS.`,
-          { path: raw, resolved, allowedRoots: allowed }
-        );
-      }
-    }
-    return resolved;
-  }
-
-  private async handleReadFile(params: { sessionId?: string; path: string; line?: number; limit?: number }): Promise<unknown> {
-    const sid = params.sessionId || "";
-    this.emitActivity(sid, "fs_read", { path: params.path, line: params.line, limit: params.limit });
-    const resolved = this.checkFsPath(params.path, sid, "read_text_file", "read");
-    try {
-      const content = await fsp.readFile(resolved, "utf8");
-      const lines = content.split("\n");
-      if (params.line != null) {
-        const start = Math.max(0, (params.line - 1));
-        const end = params.limit != null ? start + params.limit : undefined;
-        return { content: lines.slice(start, end).join("\n") };
-      }
-      return { content };
-    } catch (err) {
-      throw new Error(`fs/read_text_file failed for ${params.path}: ${(err as Error).message}`);
-    }
-  }
-
-  private async handleWriteFile(params: { sessionId?: string; path: string; content: string }): Promise<unknown> {
-    const sid = params.sessionId || "";
-    this.emitActivity(sid, "fs_write", { path: params.path, bytes: Buffer.byteLength(params.content || "") });
-    const resolved = this.checkFsPath(params.path, sid, "write_text_file", "write");
-    try {
-      await fsp.mkdir(path.dirname(resolved), { recursive: true });
-      await fsp.writeFile(resolved, params.content, "utf8");
-      return {};
-    } catch (err) {
-      throw new Error(`fs/write_text_file failed for ${params.path}: ${(err as Error).message}`);
-    }
-  }
-
-  private handleTerminalCreate(params: Record<string, unknown>): Promise<unknown> {
-    const command = String(params.command || "");
-    if (!command) throw new Error("terminal/create: command is required");
-    const args = Array.isArray(params.args) ? (params.args as unknown[]).map(String) : [];
-    // cwd 省略 → 用会话工作区（ACP 允许省略）；给了但不存在 / 不是目录 → 明确报错，
-    // 绝不悄悄换成 process.cwd()（.agents/rules/no-silent-fallbacks.md）。
-    const sessionCwd = (this.sessionRoots.get(String(params.sessionId || "")) || [])[0];
-    const requested = typeof params.cwd === "string" && params.cwd ? params.cwd : "";
-    const cwd = requested || sessionCwd || this.profile.defaultCwd || process.cwd();
-    let cwdOk = false;
-    try {
-      cwdOk = fs.existsSync(cwd) && fs.statSync(cwd).isDirectory();
-    } catch (err) {
-      throw new acp.RequestError(-32602, `terminal/create: cannot access cwd ${cwd}: ${(err as Error).message}`, { cwd });
-    }
-    if (!cwdOk) {
-      throw new acp.RequestError(-32602, `terminal/create: cwd does not exist or is not a directory: ${cwd}`, { cwd });
-    }
-    const envList = Array.isArray(params.env) ? (params.env as Array<{ name: string; value: string }>) : [];
-    const env: Record<string, string> = { ...process.env } as Record<string, string>;
-    for (const e of envList) {
-      if (e && e.name) env[e.name] = String(e.value ?? "");
-    }
-    const outputByteLimit = typeof params.outputByteLimit === "number" ? params.outputByteLimit : 256 * 1024;
-    const id = `term-${Date.now()}-${this.termSeq++}`;
-    const sessionId = String(params.sessionId || "");
-    this.emitActivity(sessionId, "terminal_create", { terminalId: id, command, args, cwd });
-    const proc = spawnCrossPlatform(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: false });
-    const rec: TerminalRecord = { id, proc, output: "", outputBytes: 0, cwd };
-    this.terminals.set(id, rec);
-    const append = (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
-      rec.output += text;
-      rec.outputBytes += Buffer.byteLength(text);
-      if (rec.outputBytes > outputByteLimit) {
-        // truncate from beginning at char boundary
-        const excess = rec.outputBytes - outputByteLimit;
-        rec.output = rec.output.slice(Math.ceil(excess / 2));
-        rec.outputBytes = Buffer.byteLength(rec.output);
-      }
-    };
-    proc.stdout?.on("data", append);
-    proc.stderr?.on("data", append);
-    proc.on("exit", (code, signal) => {
-      rec.exited = { code, signal: signal as string | null };
-    });
-    proc.on("error", (err) => {
-      rec.output += `\n[terminal spawn error: ${(err as Error).message}]\n`;
-      rec.exited = { code: 1, signal: null };
-    });
-    return Promise.resolve({ terminalId: id });
-  }
-
-  private async handleTerminalOutput(params: { terminalId: string }): Promise<unknown> {
-    const rec = this.terminals.get(params.terminalId);
-    if (!rec) throw new Error(`Unknown terminal ${params.terminalId}`);
-    return { output: rec.output, exitStatus: rec.exited ? { code: rec.exited.code ?? 0 } : undefined };
-  }
-
-  private async handleTerminalRelease(params: { sessionId?: string; terminalId: string }): Promise<unknown> {
-    this.emitActivity(params.sessionId || "", "terminal_release", { terminalId: params.terminalId });
-    const rec = this.terminals.get(params.terminalId);
-    if (rec) {
-      this.terminals.delete(params.terminalId);
-      try {
-        rec.proc.kill();
-      } catch {
-        // ignore
-      }
-    }
-    return {};
-  }
-
-  private async handleTerminalWait(params: { terminalId: string }): Promise<unknown> {
-    const rec = this.terminals.get(params.terminalId);
-    if (!rec) throw new Error(`Unknown terminal ${params.terminalId}`);
-    if (rec.exited) return { code: rec.exited.code ?? 0 };
-    const code = await new Promise<number>((resolve) => {
-      rec.proc.once("exit", (c) => resolve(c ?? 0));
-    });
-    return { code };
-  }
-
-  private async handleTerminalKill(params: { sessionId?: string; terminalId: string }): Promise<unknown> {
-    this.emitActivity(params.sessionId || "", "terminal_kill", { terminalId: params.terminalId });
-    const rec = this.terminals.get(params.terminalId);
-    if (!rec) throw new Error(`Unknown terminal ${params.terminalId}`);
-    try {
-      rec.proc.kill();
-    } catch {
-      // ignore
-    }
-    return {};
-  }
-
-  private handleElicitation(params: Record<string, unknown>): Promise<unknown> {
-    const elicitationId = `elic-${Date.now()}-${this.elicSeq++}`;
-    const sessionId = String((params as { sessionId?: string }).sessionId || "");
-    const message = String((params as { message?: string }).message || "Input requested");
-    console.log(`[UniversalACP:${this.profile.id}] elicitation ${elicitationId} session=${sessionId}`);
-    if (sessionId) {
-      this.broadcast(sessionId, {
-        type: "elicitation_request",
-        agentId: this.profile.id,
-        sessionId,
-        elicitationId,
-        message,
-        schema: params,
-      });
-    }
-    return new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        if (this.pendingElicitations.has(elicitationId)) {
-          this.pendingElicitations.delete(elicitationId);
-          reject(new Error("Elicitation timed out after 180s"));
-        }
-      }, 180_000);
-      this.pendingElicitations.set(elicitationId, {
-        elicitationId,
-        agentId: this.profile.id,
-        sessionId,
-        message,
-        schema: params,
-        createdAt: Date.now(),
-        resolve: (v) => {
-          clearTimeout(timer);
-          resolve(v);
-        },
-        reject: (e) => {
-          clearTimeout(timer);
-          reject(e);
-        },
-      });
-    });
   }
 
   private assertCap(_name: string, _ok: unknown) {

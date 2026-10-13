@@ -139,7 +139,9 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
     homepage: "https://antigravity.google",
     builtin: true,
     ...resolveAntigravity(),
-    env: {},
+    env: {
+      AGY_DYNAMIC_DISCOVERY: "true",
+    },
     authHint: "复用 Antigravity CLI 本地登录态（~/.gemini/），零额外配置。",
     installHint: ANTIGRAVITY_EXE_MISSING_HINT,
   },

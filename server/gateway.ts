@@ -11,6 +11,7 @@ import { execSync } from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { staticFileResponse } from "./static-files";
 
 export function setupEnv() {
   // 生成/复用网关 token 并注入进程环境，同一机器前后端共享（详见 universal/security.ts）。
@@ -243,9 +244,7 @@ export function buildApp() {
     try {
       if (fs.existsSync(file) && fs.statSync(file).isFile()) {
         const ext = path.extname(file).toLowerCase();
-        return new Response(fs.readFileSync(file), {
-          headers: { "Content-Type": MIME[ext] || "application/octet-stream", "Cache-Control": "no-cache" },
-        });
+        return staticFileResponse(c.req.raw, file, rel, MIME[ext] || "application/octet-stream");
       }
     } catch (err) {
       // 静态文件读取失败 → 回落 SPA index.html；此处 console.warn 留痕（loud 失败原则）。
@@ -253,9 +252,7 @@ export function buildApp() {
     }
     const index = path.join(DIST, "index.html");
     if (fs.existsSync(index)) {
-      return new Response(fs.readFileSync(index), {
-        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" },
-      });
+      return staticFileResponse(c.req.raw, index, "index.html", "text/html; charset=utf-8");
     }
     return new Response("Not Found", { status: 404, headers: corsHeaders(c.req.raw) });
   });

@@ -90,10 +90,9 @@ export default defineConfig({
           if (norm.includes("remark-math") || norm.includes("rehype-katex") || norm.includes("micromark-extension-math") || norm.includes("mdast-util-math") || norm.includes("/katex/") || norm.includes("hast-util-from-html-isomorphic") || norm.includes("hast-util-from-dom") || norm.includes("hast-util-from-html") || norm.includes("hast-util-to-text")) {
             return "math";
           }
-          // Mermaid diagrams load on demand with the first mermaid fence.
-          if (norm.includes("/mermaid/") || norm.includes("/dagre") || norm.includes("/d3") || norm.includes("cytoscape") || norm.includes("/elkjs/") || norm.includes("/katex/")) {
-            return "mermaid";
-          }
+          // Preserve Mermaid's dynamic imports for individual diagram engines.
+          // Grouping mermaid/d3/cytoscape/elk into one manual chunk makes the
+          // first flowchart download and evaluate every supported diagram type.
           // React runtime stays separate so it can be long-term cached.
           // NOTE: exact package-dir match only — a bare "/react/" substring
           // would also catch zustand/react/* (zustand's React bindings) and

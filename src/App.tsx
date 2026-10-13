@@ -11,6 +11,7 @@ import { PermissionDialog } from "@/components/universal/PermissionDialog";
 import { ElicitationCard } from "@/components/universal/ElicitationCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TitleBar } from "@/components/universal/TitleBar";
+import { MountOnFirstOpen } from "@/components/MountOnFirstOpen";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { usePanelRef, useDefaultLayout, type PanelSize } from "react-resizable-panels";
@@ -457,85 +458,99 @@ export default function App() {
       {/* Layer 3: Bottom StatusBar（VSCode 式：左远程角标 + 右网关/工作区速览） */}
       <StatusBar />
 
-      <Suspense fallback={<LazyModalFallback />}>
-        <UniversalAuthModal
-          isOpen={s.authOpen}
-          onClose={() => s.setAuthOpen(false)}
-          agent={activeAgent}
-          onAuthenticated={async () => {
-            invalidateAgents(qc);
-            const activeId = useStudioStore.getState().activeAgentId;
-            try {
-              await sessionRpc(activeId, "list", {});
-              useStudioStore.getState().setAuthOk(activeId, true);
-            } catch {}
-          }}
-          onLogout={async () => {
-            try {
-              await logoutAgent(s.activeAgentId);
+      <MountOnFirstOpen isOpen={s.authOpen}>
+        <Suspense fallback={s.authOpen ? <LazyModalFallback /> : null}>
+          <UniversalAuthModal
+            isOpen={s.authOpen}
+            onClose={() => s.setAuthOpen(false)}
+            agent={activeAgent}
+            onAuthenticated={async () => {
               invalidateAgents(qc);
-            } catch (e: any) {
-              alert(`logout 失败: ${e.message}`);
-            }
-          }}
-          authOk={s.authOk[s.activeAgentId] ?? null}
-        />
-      </Suspense>
+              const activeId = useStudioStore.getState().activeAgentId;
+              try {
+                await sessionRpc(activeId, "list", {});
+                useStudioStore.getState().setAuthOk(activeId, true);
+              } catch {}
+            }}
+            onLogout={async () => {
+              try {
+                await logoutAgent(s.activeAgentId);
+                invalidateAgents(qc);
+              } catch (e: any) {
+                alert(`logout 失败: ${e.message}`);
+              }
+            }}
+            authOk={s.authOk[s.activeAgentId] ?? null}
+          />
+        </Suspense>
+      </MountOnFirstOpen>
 
-      <Suspense fallback={<LazyModalFallback />}>
-        <SessionSettingsModal
-          isOpen={s.settingsOpen}
-          onClose={() => s.setSettingsOpen(false)}
-          onCreate={handleCreateSession}
-          busy={s.busy}
-          defaultCwdHint={effectiveCwd || undefined}
-          supportsAdditionalDirs={supportsAdditionalDirs}
-          supportsMcpHttp={!!mcpCaps.http}
-        />
-      </Suspense>
+      <MountOnFirstOpen isOpen={s.settingsOpen}>
+        <Suspense fallback={s.settingsOpen ? <LazyModalFallback /> : null}>
+          <SessionSettingsModal
+            isOpen={s.settingsOpen}
+            onClose={() => s.setSettingsOpen(false)}
+            onCreate={handleCreateSession}
+            busy={s.busy}
+            defaultCwdHint={effectiveCwd || undefined}
+            supportsAdditionalDirs={supportsAdditionalDirs}
+            supportsMcpHttp={!!mcpCaps.http}
+          />
+        </Suspense>
+      </MountOnFirstOpen>
 
-      <Suspense fallback={<LazyModalFallback />}>
-        <ProvidersModal isOpen={s.providersOpen} onClose={() => s.setProvidersOpen(false)} agentId={s.activeAgentId} />
-      </Suspense>
+      <MountOnFirstOpen isOpen={s.providersOpen}>
+        <Suspense fallback={s.providersOpen ? <LazyModalFallback /> : null}>
+          <ProvidersModal isOpen={s.providersOpen} onClose={() => s.setProvidersOpen(false)} agentId={s.activeAgentId} />
+        </Suspense>
+      </MountOnFirstOpen>
 
-      <Suspense fallback={<LazyModalFallback />}>
-        <CustomAgentModal
-          isOpen={customOpen}
-          onClose={() => setCustomOpen(false)}
-          agents={agents}
-          onChanged={() => invalidateAgents(qc)}
-        />
-      </Suspense>
+      <MountOnFirstOpen isOpen={customOpen}>
+        <Suspense fallback={customOpen ? <LazyModalFallback /> : null}>
+          <CustomAgentModal
+            isOpen={customOpen}
+            onClose={() => setCustomOpen(false)}
+            agents={agents}
+            onChanged={() => invalidateAgents(qc)}
+          />
+        </Suspense>
+      </MountOnFirstOpen>
 
-      <Suspense fallback={<LazyModalFallback />}>
-        <GitChangesModal
-          isOpen={s.gitChangesOpen}
-          onClose={() => s.setGitChangesOpen(false)}
-          cwd={effectiveCwd}
-          initialFilePath={s.gitDiffFile}
-        />
-      </Suspense>
+      <MountOnFirstOpen isOpen={s.gitChangesOpen}>
+        <Suspense fallback={s.gitChangesOpen ? <LazyModalFallback /> : null}>
+          <GitChangesModal
+            isOpen={s.gitChangesOpen}
+            onClose={() => s.setGitChangesOpen(false)}
+            cwd={effectiveCwd}
+            initialFilePath={s.gitDiffFile}
+          />
+        </Suspense>
+      </MountOnFirstOpen>
 
-      <Suspense fallback={<LazyModalFallback />}>
-        <TerminalDrawer
-          isOpen={s.terminalOpen}
-          onClose={() => s.setTerminalOpen(false)}
-          cwd={effectiveCwd}
-        />
-      </Suspense>
+      <MountOnFirstOpen isOpen={s.terminalOpen}>
+        <Suspense fallback={s.terminalOpen ? <LazyModalFallback /> : null}>
+          <TerminalDrawer
+            isOpen={s.terminalOpen}
+            onClose={() => s.setTerminalOpen(false)}
+            cwd={effectiveCwd}
+          />
+        </Suspense>
+      </MountOnFirstOpen>
 
-      <Suspense fallback={<LazyModalFallback />}>
-        <ModelBrowserModal
-          isOpen={s.modelsOpen}
-          onClose={() => s.setModelsOpen(false)}
-          catalog={s.models}
-          modelOption={findConfigOption(s.configOptions, "model")}
-          currentModelId={s.models?.currentModelId}
-          discovering={s.discovering}
-          onRefresh={handleDiscoverModels}
-          onApply={handleApplyModel}
-        />
-      </Suspense>
+      <MountOnFirstOpen isOpen={s.modelsOpen}>
+        <Suspense fallback={s.modelsOpen ? <LazyModalFallback /> : null}>
+          <ModelBrowserModal
+            isOpen={s.modelsOpen}
+            onClose={() => s.setModelsOpen(false)}
+            catalog={s.models}
+            modelOption={findConfigOption(s.configOptions, "model")}
+            currentModelId={s.models?.currentModelId}
+            discovering={s.discovering}
+            onRefresh={handleDiscoverModels}
+            onApply={handleApplyModel}
+          />
+        </Suspense>
+      </MountOnFirstOpen>
     </div>
   );
 }

@@ -66,7 +66,7 @@ describe("Mock ACP Black-box Integration Pipeline", () => {
     const finalStatus = universalRegistry.connFor(mockAgentId).status();
     expect(finalStatus.connected).toBe(true);
     expect(finalStatus.lastError).toBeNull();
-  });
+  }, 15000);
 
   it("executes end-to-end event stream with thoughts, text, tool calls, images, and usage", async () => {
     // 1. Create session

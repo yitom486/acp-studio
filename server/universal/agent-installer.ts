@@ -163,15 +163,64 @@ export function latestVersion(pkg: string, timeoutMs = 20000): string | null {
   }
 }
 
-/**
- * latestVersion TTL cache (reliability fix: `npm view` is a blocking
- * spawnSync that stalls the event loop + SSE streams).
- * - Cache key: npm package name; value: {v, at}.
- * - TTL 10min by default, overridable via ACP_LATEST_TTL_MS (tests use small TTL).
- * - checkAgent() uses the cached variant so status queries never block;
- *   cache miss still does one sync `npm view`, cache hit returns instantly.
- */
+/** Non-blocking registry query, preserving npm's configured registry/proxy. */
+export function latestVersionAsync(pkg: string, timeoutMs = 20000): Promise<string | null> {
+  const npm = npmBin();
+  if (!npm) return Promise.resolve(null);
+  let command = npm;
+  const args = ["view", pkg, "version"];
+  // npm.cmd is a shell wrapper. Run its official CLI with the current JS
+  // runtime instead, so package names/paths never pass through cmd quoting.
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(npm)) {
+    const cli = path.join(path.dirname(npm), "node_modules", "npm", "bin", "npm-cli.js");
+    if (!fs.existsSync(cli)) {
+      console.warn(`[UniversalACP] npm CLI missing: ${cli}. Repair the Node.js/npm installation.`);
+      return Promise.resolve(null);
+    }
+    command = process.execPath;
+    args.unshift(cli);
+  }
+  return new Promise((resolve) => {
+    let output = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    try {
+      const child = spawn(command, args, {
+        windowsHide: true,
+        timeout: timeoutMs,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: process.versions.electron ? { ...process.env, ELECTRON_RUN_AS_NODE: "1" } : process.env,
+      });
+      child.stdout?.on("data", (data) => { output = (output + data.toString()).slice(-8192); });
+      child.stderr?.on("data", (data) => { stderr = (stderr + data.toString()).slice(-2048); });
+      child.on("error", (error) => {
+        console.warn(`[UniversalACP] latestVersion(${pkg}) failed: ${error.message}`);
+        finish(null);
+      });
+      child.on("close", (code, signal) => {
+        if (settled) return;
+        const version = output.trim().split(/\s+/).pop() || "";
+        if (code === 0 && /^[0-9][0-9A-Za-z.\-+]*$/.test(version)) finish(version);
+        else {
+          console.warn(`[UniversalACP] latestVersion(${pkg}) failed: ${signal || code}; ${stderr || "no valid version returned"}`);
+          finish(null);
+        }
+      });
+    } catch (error) {
+      console.warn(`[UniversalACP] latestVersion(${pkg}) spawn failed: ${(error as Error).message}`);
+      finish(null);
+    }
+  });
+}
+
+/** TTL cache with stale-while-revalidate reads and one query per package. */
 const latestCache = new Map<string, { v: string | null; at: number }>();
+const latestInFlight = new Map<string, Promise<string | null>>();
 
 export function latestTtlMs(): number {
   const raw = (process.env.ACP_LATEST_TTL_MS || "").trim();
@@ -186,6 +235,7 @@ export function latestTtlMs(): number {
 /** Clear TTL cache (tests only). */
 export function clearLatestCache(): void {
   latestCache.clear();
+  latestInFlight.clear();
 }
 
 /** Test-only priming: set cache entry directly to verify hit path offline. */
@@ -194,16 +244,26 @@ export function __setLatestCacheForTest(pkg: string, v: string | null, at = Date
 }
 
 export function latestVersionCached(pkg: string, timeoutMs = 20000): string | null {
-  const ttl = latestTtlMs();
   const hit = latestCache.get(pkg);
-  if (hit && Date.now() - hit.at < ttl) return hit.v;
-  const v = latestVersion(pkg, timeoutMs);
-  try {
-    latestCache.set(pkg, { v, at: Date.now() });
-  } catch (err) {
-    console.error(`[UniversalACP] latestCache set failed for ${pkg}: ${(err as Error).message}`);
-  }
-  return v;
+  if (!hit || Date.now() - hit.at >= latestTtlMs()) void refreshLatestVersion(pkg, timeoutMs);
+  return hit?.v ?? null;
+}
+
+/** Await a fresh result when needed; status reads use the immediate variant. */
+export function refreshLatestVersion(pkg: string, timeoutMs = 20000): Promise<string | null> {
+  const pending = latestInFlight.get(pkg);
+  if (pending) return pending;
+  const task = latestVersionAsync(pkg, timeoutMs).then((version) => {
+    // A cleared cache must not be repopulated by an obsolete request.
+    if (latestInFlight.get(pkg) === task) {
+      latestCache.set(pkg, { v: version, at: Date.now() });
+    }
+    return version;
+  }).finally(() => {
+    if (latestInFlight.get(pkg) === task) latestInFlight.delete(pkg);
+  });
+  latestInFlight.set(pkg, task);
+  return task;
 }
 
 export interface InstallState {

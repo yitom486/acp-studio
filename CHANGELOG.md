@@ -12,10 +12,16 @@
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
 
-### Changed
-- 桌面安装包改用独立的精简发布目录：保留完整前端编译资源（含 Mermaid、Markdown、数学公式和代码高亮），避免重复携带前端 npm 原始包；原生终端只收当前平台/架构的运行文件，剔除 source map、PDB、测试文件，保留第三方许可证汇总；Electron locales 保留中英文。
+## [0.1.6] - 2026-10-14
 
+### Added
+- 前端性能瘦身：无图聊天首屏 JS 原始体积从 6.81 MB 降到 1.38 MB（减少约 80%）；Mermaid 各类图表与布局引擎动态分包，弹窗和终端首次打开时才挂载，关闭后保留组件状态与终端实例。
+- 智能体架构深度解耦：通用 Agent 终端管理、额度获取与进程生命周期收归上游 @yitom/acp-client（升级至 ^0.1.7），本地 AgentConnection.ts 从 1663 行精简至 600 余行，按职责抽离 fs-guard、interaction 与 platform/spawn 模块。
+- 消除 Antigravity 智能体启动伪错误红字：上游桥接组件 @yitom/agy-acp-map（升级至 0.1.23）将 routine trace 日志默认静默，仅在真实致命异常时输出 stderr，彻底杜绝控制台全红误报。
+- Mermaid 保留各类图表与布局引擎的动态分包，避免约 5 MB 的合并包进入无图聊天首屏；弹窗和终端首次打开时才挂载，随后保留组件状态与终端会话。
+- 桌面安装包改用独立的精简发布目录：保留完整前端编译资源（含 Mermaid、Markdown、数学公式和代码高亮），避免重复携带前端 npm 原始包；原生终端只收当前平台/架构的运行文件，剔除 source map、PDB、测试文件，保留第三方许可证汇总；Electron locales 保留中英文。
 ### Fixed
+- 静态带哈希资源使用长期 immutable 缓存，HTML 与普通资源保留更新验证，并支持 ETag / Last-Modified 的 304 响应；版本查询缓存未命中时改为后台异步刷新，同包并发查询合并，避免同步 npm 查询阻塞事件循环。
 - 图片和 Mermaid 灯箱改用非 passive 滚轮监听与 Pointer Capture：阻止缩放时背景滚动，拖出画布松开、取消、失焦均正确收尾；支持单指触屏和方向键平移，补齐焦点循环与关闭后焦点恢复，并避免父组件刷新中断拖拽；灯箱通过 Portal 挂到 body，避免聊天容器裁剪或盖住全屏工具栏。
 - 额度文本解析改用浏览器纯函数模块，避免聊天组件导入 Node SDK 的文件系统/子进程入口导致 Vite 生产构建失败；保持原 SDK 解析结果一致。
 
@@ -221,10 +227,11 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.6...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
 [0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
 [0.1.2]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.2
 [0.1.3]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.3
 [0.1.4]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.4
 [0.1.5]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.5
+[0.1.6]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.6
