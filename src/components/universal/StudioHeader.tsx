@@ -145,6 +145,9 @@ export const AgentStatusChip: React.FC<{
     }
   }, [open, activeAgentId, handleRefreshQuota]);
 
+  const rawTitle = active?.title || activeAgentId;
+  const displayTitle = rawTitle.includes("OpenCode (") ? "OpenCode" : rawTitle;
+
   return (
     <div ref={ref} className="relative flex items-center gap-1.5 min-w-0">
       <button
@@ -153,17 +156,17 @@ export const AgentStatusChip: React.FC<{
         aria-haspopup="dialog"
         aria-expanded={open}
         data-testid="agent-chip"
-        title={`${active?.title || activeAgentId} · ${connected ? "已连接" : connecting ? "连接中" : "未连接"}${connected && isAuthed ? " · 已认证" : ""}${quota?.primaryWindow ? ` · 5h限额: ${quota.primaryWindow.percentLeft}%` : ""}`}
+        title={`${displayTitle} · ${connected ? "已连接" : connecting ? "连接中" : "未连接"}${connected && isAuthed ? " · 已认证" : ""}${quota?.primaryWindow ? ` · 限额剩余: ${quota.primaryWindow.percentLeft}%` : ""}`}
         className="h-7 min-w-0 max-w-[240px] flex items-center gap-1.5 rounded-md border border-transparent hover:border-border hover:bg-muted pl-2 pr-1.5 text-[13px] font-medium text-foreground"
       >
         <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
-        <span className="truncate">{active?.title || activeAgentId}</span>
+        <span className="truncate">{displayTitle}</span>
         {quota?.primaryWindow ? (
-          <div className="flex items-center gap-1 shrink-0" title={`5h限额剩余: ${quota.primaryWindow.percentLeft}%`}>
+          <div className="flex items-center gap-1 shrink-0" title={`${quota.primaryWindow.label || "限额"}剩余: ${quota.primaryWindow.percentLeft}%`}>
             <QuotaRing percentLeft={quota.primaryWindow.percentLeft} size={14} className="shrink-0" />
             <span className="text-[10px] font-mono text-muted-foreground">{quota.primaryWindow.percentLeft}%</span>
           </div>
-        ) : quota?.account?.plan ? (
+        ) : quota?.account?.plan && !quota.account.plan.includes("(") && quota.account.plan.length <= 8 ? (
           <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-500/15 text-emerald-500 font-semibold shrink-0" title={`订阅计划: ${quota.account.plan}`}>
             {quota.account.plan}
           </span>
@@ -189,7 +192,7 @@ export const AgentStatusChip: React.FC<{
                 className={cn("w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left hover:bg-accent", a.id === activeAgentId ? "text-foreground font-medium bg-accent/60" : "text-muted-foreground")}
               >
                 <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", a.status?.connected ? "bg-success" : "bg-muted-foreground/30")} />
-                <span className="truncate flex-1">{a.title}</span>
+                <span className="truncate flex-1">{a.title.replace(/\s*\([^)]*\)/g, "").trim()}</span>
                 {a.status?.quota?.primaryWindow && (
                   <span className="text-[10px] font-mono text-muted-foreground">
                     {a.status.quota.primaryWindow.percentLeft}%
@@ -201,7 +204,7 @@ export const AgentStatusChip: React.FC<{
           </div>
           <div className="p-3 space-y-1.5 text-[11px] text-muted-foreground">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-semibold text-foreground truncate">{agentInfo?.title || active?.title}</span>
+              <span className="font-semibold text-foreground truncate">{displayTitle}</span>
               {connected && <span className="font-mono text-[10px]">ACP v{proto ?? "1"}</span>}
             </div>
             <div className="flex items-center gap-1.5">

@@ -9,6 +9,7 @@ import {
   Gauge,
   AlertTriangle,
   CheckCircle2,
+  Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -150,8 +151,23 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
 
   const { account, primaryWindow, secondaryWindow, credits, extraWindows, status, message } = quota;
 
+  // 清洗智能体标题与订阅计划，去除冗长的括号拼接
+  const cleanTitle = (agentTitle || agentId || quota.provider || "AI Agent")
+    .replace(/\s*\([^)]*\)/g, "")
+    .trim();
+
+  let cleanPlan = account?.plan;
+  if (cleanPlan) {
+    if (cleanPlan.includes("OpenCode Go") || (cleanTitle.toLowerCase().includes("opencode") && cleanPlan.includes("Go"))) {
+      cleanPlan = "OpenCode Go";
+    } else if (cleanPlan.includes("(")) {
+      cleanPlan = cleanPlan.replace(/\s*\([^)]*\)/g, "").trim();
+    }
+  }
+
   const renderLimitBar = (window: QuotaLimitWindow, key: string) => {
     const left = Math.max(0, Math.min(100, Math.round(window.percentLeft ?? 100)));
+    const used = window.usedPercent !== undefined ? Math.max(0, Math.min(100, Math.round(window.usedPercent))) : (100 - left);
     const colorClass =
       left > 40
         ? "bg-emerald-500"
@@ -166,18 +182,24 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
         ? "text-amber-500 bg-amber-500/10"
         : "text-rose-500 bg-rose-500/10";
 
+    const resetText = window.resetsAt
+      ? String(window.resetsAt)
+          .replace(/^Resets in /i, "重置: ")
+          .replace(/^Resets /i, "重置: ")
+      : undefined;
+
     return (
       <div key={key} className="space-y-1">
         <div className="flex items-center justify-between text-[11px]">
           <span className="font-medium text-foreground/90">{window.label}</span>
           <div className="flex items-center gap-1.5">
             <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-mono font-medium", badgeColor)}>
-              {left}% 剩余
+              {left}% 剩余 {used > 0 && <span className="opacity-70 font-normal">({used}% 已用)</span>}
             </span>
-            {window.resetsAt && (
-              <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+            {resetText && (
+              <span className="text-[10px] text-muted-foreground flex items-center gap-0.5" title={String(window.resetsAt)}>
                 <Clock className="w-2.5 h-2.5" />
-                {String(window.resetsAt).replace(/^Resets in /i, "重置: ").replace(/^Resets /i, "重置: ")}
+                {resetText}
               </span>
             )}
           </div>
@@ -194,13 +216,18 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
 
   return (
     <div className={cn("p-3 rounded-lg border border-border/70 bg-popover/80 shadow-xs space-y-2.5 text-xs", className)}>
-      {/* 头部：账号与订阅计划 */}
+      {/* 头部：智能体与套餐状态 */}
       <div className="flex items-start justify-between gap-2 border-b border-border/50 pb-2">
-        <div className="min-w-0 space-y-0.5">
+        <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-semibold text-foreground text-[12px] truncate">
-              {account?.plan || agentTitle || agentId || "AI Agent"}
+              {cleanTitle}
             </span>
+            {cleanPlan && (
+              <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                {cleanPlan}
+              </span>
+            )}
             {status === "ok" && (
               <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] bg-emerald-500/10 text-emerald-500">
                 <CheckCircle2 className="w-2.5 h-2.5" /> 正常
@@ -217,10 +244,22 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
               </span>
             )}
           </div>
+
+          {/* 用户名与邮箱信息（清晰展示） */}
           {(account?.email || account?.name) && (
-            <div className="text-[11px] text-muted-foreground flex items-center gap-1 truncate font-mono">
-              <User className="w-3 h-3 shrink-0" />
-              <span className="truncate">{account.email || account.name}</span>
+            <div className="text-[11px] text-muted-foreground flex items-center flex-wrap gap-x-2 gap-y-0.5 pt-0.5">
+              {account.name && (
+                <div className="flex items-center gap-1 font-mono text-foreground/80">
+                  <User className="w-3 h-3 text-muted-foreground shrink-0" />
+                  <span className="truncate max-w-[140px]" title={account.name}>{account.name}</span>
+                </div>
+              )}
+              {account.email && (
+                <div className="flex items-center gap-1 font-mono text-muted-foreground">
+                  <Mail className="w-3 h-3 text-muted-foreground shrink-0" />
+                  <span className="truncate max-w-[160px]" title={account.email}>{account.email}</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -272,18 +311,25 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
             <CreditCard className="w-3 h-3" />
             账户余额 / Credits
           </span>
-          <span className="font-mono font-medium text-foreground flex items-center gap-1">
+          <span className="font-mono font-medium text-foreground flex items-center gap-1.5">
             {credits.unlimited || credits.balance === "unlimited" ? (
               <span className="text-emerald-500 flex items-center gap-0.5">
                 <Sparkles className="w-3 h-3" />
                 无限制 (Unlimited)
               </span>
             ) : (
-              <span>
-                {credits.currency ? `${credits.currency} ` : (!isNaN(Number(credits.balance)) ? "$" : "")}
-                {!isNaN(Number(credits.balance))
-                  ? Number(credits.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                  : credits.balance}
+              <span className="flex items-center gap-1.5">
+                <span className="font-semibold text-foreground">
+                  {credits.currency ? `${credits.currency} ` : (!isNaN(Number(credits.balance)) ? "$" : "")}
+                  {!isNaN(Number(credits.balance))
+                    ? Number(credits.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    : credits.balance}
+                </span>
+                {(!credits.balance || credits.balance === "$0.00" || credits.balance === "0.00" || credits.balance === "0" || credits.balance === 0) && (
+                  <span className="text-[10px] text-muted-foreground font-normal">
+                    (No credits left)
+                  </span>
+                )}
               </span>
             )}
           </span>

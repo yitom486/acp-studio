@@ -219,6 +219,167 @@ function resolveAntigravityAccount(): { email?: string; name?: string } {
   return {};
 }
 
+function readOpencodeCredentials(): {
+  email?: string;
+  name?: string;
+  token?: string;
+  orgId?: string;
+  accountId?: string;
+} {
+  const home = process.env.USERPROFILE || process.env.HOME || os.homedir() || "";
+  const dbPaths = [
+    path.join(home, ".local", "share", "opencode", "opencode.db"),
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "opencode", "opencode.db") : null,
+    path.join(home, ".config", "opencode", "opencode.db"),
+  ].filter(Boolean) as string[];
+
+  for (const dbPath of dbPaths) {
+    if (!fs.existsSync(dbPath)) continue;
+    try {
+      let rows: Array<{ integration_id: string; value: string }> = [];
+      if (typeof (process.versions as any)?.bun !== "undefined") {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { Database } = require("bun:sqlite");
+        const db = new Database(dbPath, { readonly: true });
+        rows = db.query("SELECT integration_id, value FROM credential").all() as any;
+        db.close();
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { DatabaseSync } = require("node:sqlite");
+        const db = new DatabaseSync(dbPath, { readOnly: true });
+        rows = db.prepare("SELECT integration_id, value FROM credential").all() as any;
+        db.close();
+      }
+
+      const opencodeCred = rows.find((r) => r.integration_id === "opencode");
+      if (opencodeCred?.value) {
+        const parsed = JSON.parse(opencodeCred.value);
+        const meta = parsed.metadata || {};
+        return {
+          email: meta.email || undefined,
+          name: meta.email ? meta.email.split("@")[0] : meta.orgName || undefined,
+          token: parsed.access || undefined,
+          orgId: meta.orgID || undefined,
+          accountId: meta.accountID || undefined,
+        };
+      }
+    } catch {
+      try {
+        const buf = fs.readFileSync(dbPath, "utf8");
+        const emailMatch = buf.match(/"email"\s*:\s*"([^"]+)"/);
+        const tokenMatch = buf.match(/"access"\s*:\s*"(st_[a-zA-Z0-9_\-]+)"/);
+        const orgMatch = buf.match(/"orgID"\s*:\s*"(wrk_[a-zA-Z0-9_\-]+)"/);
+        const accMatch = buf.match(/"accountID"\s*:\s*"(acc_[a-zA-Z0-9_\-]+)"/);
+        if (emailMatch || tokenMatch) {
+          return {
+            email: emailMatch?.[1],
+            name: emailMatch?.[1]?.split("@")[0],
+            token: tokenMatch?.[1],
+            orgId: orgMatch?.[1],
+            accountId: accMatch?.[1],
+          };
+        }
+      } catch {}
+    }
+  }
+  return {};
+}
+
+async function probeOpencodeGoQuota(): Promise<AcpAgentQuota | null> {
+  const creds = readOpencodeCredentials();
+  if (!creds.token || !creds.orgId) return null;
+
+  try {
+    const res = await fetch("https://opencode.ai/console/api/go/status", {
+      headers: {
+        Authorization: `Bearer ${creds.token}`,
+        "x-opencode-org-id": creds.orgId,
+        "x-opencode-account-id": creds.accountId || "",
+      },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    const meters = data?.access?.meters;
+    if (!meters) return null;
+
+    const formatReset = (isoStr?: string) => {
+      if (!isoStr) return undefined;
+      const diffMs = new Date(isoStr).getTime() - Date.now();
+      if (diffMs <= 0) return "已重置";
+      const totalMins = Math.floor(diffMs / 60000);
+      const hours = Math.floor(totalMins / 60);
+      const days = Math.floor(hours / 24);
+      if (days > 0) {
+        const remH = hours % 24;
+        return `Resets in ${days}d ${remH}h`;
+      }
+      const remM = totalMins % 60;
+      return `Resets in ${hours}h ${remM}m`;
+    };
+
+    const calcWindow = (m: any, label: string, durMins: number) => {
+      if (!m || !m.limitMicroCents) return undefined;
+      const limit = Number(m.limitMicroCents);
+      const used = Number(m.usedMicroCents || 0);
+      const usedPercent = limit > 0 ? Math.round((used / limit) * 100) : 0;
+      const percentLeft = Math.max(0, 100 - usedPercent);
+      return {
+        label,
+        usedPercent,
+        percentLeft,
+        windowDurationMins: durMins,
+        resetsAt: formatReset(m.resetsAt),
+      };
+    };
+
+    const rolling = calcWindow(meters.fiveHour, "Rolling", 300);
+    const weekly = calcWindow(meters.week, "Weekly", 10080);
+    const monthly = calcWindow(meters.month, "Monthly", 43200);
+
+    let creditBalance = "$0.00";
+    try {
+      const bRes = await fetch("https://opencode.ai/console/api/billing/status", {
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          "x-opencode-org-id": creds.orgId,
+          "x-opencode-account-id": creds.accountId || "",
+        },
+        signal: AbortSignal.timeout(2000),
+      });
+      if (bRes.ok) {
+        const bData = await bRes.json() as any;
+        const availMicro = Number(bData.availableMicroCents || 0);
+        creditBalance = `$${(availMicro / 100000000).toFixed(2)}`;
+      }
+    } catch {}
+
+    const quota: AcpAgentQuota = {
+      runtimeId: "opencode",
+      provider: "OpenCode",
+      account: {
+        email: creds.email,
+        name: creds.name || "OpenCode User",
+        plan: "OpenCode Go",
+        type: "opencode",
+      },
+      primaryWindow: rolling,
+      secondaryWindow: weekly,
+      extraWindows: monthly ? [monthly] : undefined,
+      credits: {
+        balance: creditBalance,
+        currency: "USD",
+        unlimited: false,
+      },
+      status: "ok",
+      updatedAt: Date.now(),
+    };
+    return quota;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * One long-lived stdio connection to a generic ACP agent.
  * Uses @agentclientprotocol/sdk `client().connect(stream)` (persistent),
@@ -321,7 +482,7 @@ export class UniversalAgentConnection {
       } else if (id === "claude") {
         q = (await claudeAdapter.probeQuota?.()) ?? null;
       } else if (id === "opencode" || id === "opencode-v2") {
-        q = (await opencodeAdapter.probeQuota?.()) ?? null;
+        q = (await probeOpencodeGoQuota()) ?? (await opencodeAdapter.probeQuota?.()) ?? null;
       } else if (id === "cursor-cli") {
         q = (await cursorAdapter.probeQuota?.()) ?? null;
       }
@@ -376,6 +537,25 @@ export class UniversalAgentConnection {
           if (acc.email) {
             q = { ...q, account: { ...q.account, email: acc.email, name: acc.name || q.account.name } };
           }
+        } else if ((aid === "opencode" || aid === "opencode-v2") && q?.account) {
+          const creds = readOpencodeCredentials();
+          const currentAcc = q.account;
+          const updatedEmail = creds.email || currentAcc.email;
+          const updatedName = creds.name || currentAcc.name;
+          const currentPlan = currentAcc.plan;
+          const updatedPlan =
+            currentPlan && (currentPlan.includes("(") || currentPlan.includes("OpenCode Go"))
+              ? "OpenCode Go"
+              : currentPlan;
+          q = {
+            ...q,
+            account: {
+              ...currentAcc,
+              email: updatedEmail,
+              name: updatedName,
+              plan: updatedPlan,
+            },
+          };
         }
         return q;
       })(),
