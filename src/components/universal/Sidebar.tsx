@@ -20,9 +20,9 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
-import { isSameCwd, normalizeCwd } from "@/lib/threads";
+import { isSameCwd, normalizeCwd, toEnvironmentNativeCwd } from "@/lib/threads";
 import type { AgentSummary } from "@/lib/universal-api";
-import { getWorkspaceEnv, type RecentWorkspace } from "@/stores/useStudioStore";
+import { getWorkspaceEnv, isPosixEnvironment, type RecentWorkspace } from "@/stores/useStudioStore";
 
 export interface SessionItem {
   sessionId: string;
@@ -327,40 +327,30 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       ? p.sessions.filter((s) => (s.title || s.sessionId).toLowerCase().includes(query))
       : p.sessions;
 
-    const env = getWorkspaceEnv();
-    const isWsl = env.startsWith("wsl_");
+    const isPosix = isPosixEnvironment();
 
-    // 路径清洗与容错：
-    // 若宿主机错误在 /home/... 前拼了盘符 (如 D:\home\tomy\...)，将其自动还原为纯正的 /home/tomy/...
+    // 通用路径提纯与规范化（零硬编码，适用于 WSL、SSH 远程、本地 Windows）
     const sanitizePath = (p?: string | null): string | null => {
       if (!p) return null;
-      const driveHomeMatch = /^[a-zA-Z]:[\\\/](home[\\\/].*)$/i.exec(p);
-      if (driveHomeMatch) {
-        return "/" + driveHomeMatch[1].replace(/\\/g, "/");
-      }
-      return p;
+      return toEnvironmentNativeCwd(p, isPosix);
     };
 
     // 自适应环境判定：
-    // 如果当前会话列表中包含 Linux 路径，说明已连入 Linux/WSL 网关；
-    // 如果全都是 Windows 路径（没有 Linux 路径），说明当前物理连接的是 Windows 宿主机网关，
-    // 此时绝不能武断把所有 Windows 会话全部过滤成 0，必须保证用户能看到真实会话与项目。
-    const hasAnyLinuxSess = p.sessions.some((s) => {
-      const c = sanitizePath(s.cwd);
-      return Boolean(c && (c.startsWith("/home/") || c.startsWith("/root/") || /^(?:\\\\|\/\/)wsl(?:\$|\.localhost)/i.test(c)));
+    // 检查是否有任何原生 POSIX 路径（非 Windows 盘符开头，包含 /）
+    const hasAnyPosixSess = p.sessions.some((s) => {
+      const c = s.cwd;
+      return Boolean(c && (c.startsWith("/") || /^(?:\\\\|\/\/)wsl(?:\$|\.localhost)/i.test(c)) && !/^[a-zA-Z]:/.test(c));
     });
 
     const isPathMatchingEnv = (pathStr?: string | null): boolean => {
       const clean = sanitizePath(pathStr);
       if (!clean) return false;
       const isWin = /^[a-zA-Z]:[\\\/]/i.test(clean) || /^\/mnt\/[a-zA-Z](\/|$)/i.test(clean);
-      if (isWsl && hasAnyLinuxSess) {
+      if (isPosix && hasAnyPosixSess) {
         return !isWin;
-      } else if (!isWsl) {
-        if (clean.startsWith("/home/") || clean.startsWith("/root/")) {
-          return false;
-        }
-        return true;
+      } else if (!isPosix) {
+        // Windows 环境下只匹配属于 Windows 的工作区
+        return isWin;
       }
       return true;
     };

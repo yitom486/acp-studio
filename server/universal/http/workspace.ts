@@ -121,6 +121,19 @@ workspaceRouter.post("/validate", jsonBody(validateBody), (c) => {
   try {
     const target = String(c.get("body").path || "").trim();
     if (!target) return json({ ok: false, error: "路径不能为空" }, 400);
+
+    // 核心边界隔离：若 Windows 宿主机网关收到纯 POSIX 路径（以 / 开头且无盘符），
+    // 绝不允许调用 path.resolve 盲目将其解析为当前驱动器盘符（如 D:\home\...）
+    if (process.platform === "win32" && target.startsWith("/")) {
+      return json(
+        {
+          ok: false,
+          error: `指定的路径 [${target}] 为 POSIX/Linux 环境原生路径，当前网关为 Windows 宿主机。\n请切换至 WSL 原生环境或 SSH 远端网关直连后再打开该工作区。`,
+        },
+        400
+      );
+    }
+
     const resolved = path.resolve(target);
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
       return json({ ok: false, error: "指定的路径不存在或不是有效目录" }, 400);

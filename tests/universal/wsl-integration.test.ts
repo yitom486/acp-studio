@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { getSystemDirectoryRoots } from "../../server/universal/http/workspace";
-import { getWorkspaceEnv, isLocalMode, getWorkspaceStorageKey } from "../../src/stores/useStudioStore";
+import { getWorkspaceEnv, isLocalMode, getWorkspaceStorageKey, isPosixEnvironment } from "../../src/stores/useStudioStore";
 import { getGatewayBase, setGatewayBase, parseGatewayBase } from "../../src/lib/gateway-auth";
+import { toEnvironmentNativeCwd, normalizeCwd } from "../../src/lib/threads";
 
 describe("WSL Native Environment Integration & E2E Isolation Tests", () => {
   const store = new Map<string, string>();
@@ -163,6 +164,61 @@ describe("WSL Native Environment Integration & E2E Isolation Tests", () => {
       expect(isWslNativeB).toBe(false);
       expect(labelB).toBe("本机");
       expect(iconB).toBe("><");
+    });
+  });
+
+  describe("6. Zero-Hardcoding Environment CWD Purification (WSL, SSH, Local)", () => {
+    it("purifies WSL and POSIX paths by stripping drive letters and UNC wrappers", () => {
+      // 场景 1: 宿主机在 POSIX 路径前误加 D 盘盘符 (如 D:\home\tomy\projects\javascript\codex-acp)
+      const dirtyDrivePath = "D:\\home\\tomy\\projects\\javascript\\codex-acp";
+      const purifiedWsl = toEnvironmentNativeCwd(dirtyDrivePath, true);
+      expect(purifiedWsl).toBe("/home/tomy/projects/javascript/codex-acp");
+      expect(purifiedWsl).not.toMatch(/^[a-zA-Z]:/);
+
+      // 场景 2: Windows 资源管理器返回的 WSL UNC 路径
+      const uncPath = "\\\\wsl.localhost\\Ubuntu\\home\\tomy\\repo";
+      expect(toEnvironmentNativeCwd(uncPath, true)).toBe("/home/tomy/repo");
+
+      // 场景 3: 传统 UNC //wsl$/Ubuntu 路径
+      const oldUncPath = "//wsl$/Ubuntu/var/log";
+      expect(toEnvironmentNativeCwd(oldUncPath, true)).toBe("/var/log");
+
+      // 场景 4: SSH 远程非 /home 路径（如 /opt/services 或 /data/web）
+      const sshPath = "E:\\opt\\services\\my-app";
+      expect(toEnvironmentNativeCwd(sshPath, true)).toBe("/opt/services/my-app");
+    });
+
+    it("preserves native Windows drive letters in Windows local mode", () => {
+      const winPath = "D:\\project\\js\\Electron\\antigravity-acp";
+      const preserved = toEnvironmentNativeCwd(winPath, false);
+      expect(preserved).toBe("D:/project/js/Electron/antigravity-acp");
+      expect(preserved).toMatch(/^[a-zA-Z]:/);
+    });
+  });
+
+  describe("7. Generic SSH/Remote Environment Full Decoupling and Storage Isolation", () => {
+    it("completely isolates workspace storage keys between local, WSL, and SSH/Remote", () => {
+      // 1. 本地 Windows
+      expect(getWorkspaceStorageKey()).toBe("acp_workspace_local");
+      expect(isPosixEnvironment()).toBe(false);
+
+      // 2. WSL 环境
+      localStorage.setItem("acp_wsl_native_distro", "Ubuntu");
+      expect(getWorkspaceStorageKey()).toBe("acp_workspace_wsl_ubuntu");
+      expect(isPosixEnvironment()).toBe(true);
+
+      // 3. 远端 SSH / Remote 网关环境
+      localStorage.removeItem("acp_wsl_native_distro");
+      localStorage.setItem("acp_gateway_base", "http://192.168.1.100:13005");
+      expect(getWorkspaceStorageKey()).toBe("acp_workspace_remote_192_168_1_100_13005");
+      expect(isPosixEnvironment()).toBe(true);
+      expect(isLocalMode()).toBe(false);
+
+      // 4. 清空远端切回本地
+      localStorage.removeItem("acp_gateway_base");
+      expect(getWorkspaceStorageKey()).toBe("acp_workspace_local");
+      expect(isPosixEnvironment()).toBe(false);
+      expect(isLocalMode()).toBe(true);
     });
   });
 });

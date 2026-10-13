@@ -15,6 +15,7 @@ import {
   pruneThreads,
   saveThreads,
   threadForAgent,
+  toEnvironmentNativeCwd,
   type ChatThread,
 } from "@/lib/threads";
 
@@ -229,6 +230,19 @@ export function getWorkspaceEnv(): string {
   return "local";
 }
 
+/**
+ * 判断当前目标运行环境是否属于 POSIX 体系（Linux / WSL / SSH 远程 Linux / macOS 等）：
+ * 在 POSIX 体系下，所有路径必须为纯正的 POSIX 原生绝对路径，绝不包含 Windows 盘符或 UNC 包装。
+ */
+export function isPosixEnvironment(): boolean {
+  const env = getWorkspaceEnv();
+  if (env.startsWith("wsl_") || env.startsWith("remote_")) return true;
+  if (typeof process !== "undefined" && process.platform && process.platform !== "win32") {
+    return true;
+  }
+  return false;
+}
+
 export function isLocalMode(): boolean {
   return getWorkspaceEnv() === "local";
 }
@@ -244,6 +258,7 @@ function loadInitialWorkspaces(): { current: string | null; recents: RecentWorks
     const fromUrl = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("cwd") : null;
     const fromWindow = typeof sessionStorage !== "undefined" ? sessionStorage.getItem(WINDOW_WORKSPACE_KEY) : null;
     const envKey = getWorkspaceStorageKey();
+    const isPosix = isPosixEnvironment();
 
     let current = fromUrl || fromWindow || (typeof localStorage !== "undefined" ? localStorage.getItem(`${envKey}_current`) : null);
     let raw = typeof localStorage !== "undefined" ? localStorage.getItem(`${envKey}_recents`) : null;
@@ -254,21 +269,26 @@ function loadInitialWorkspaces(): { current: string | null; recents: RecentWorks
       if (!raw) raw = localStorage.getItem("acp_recent_workspaces");
     }
 
-    // WSL 原生真环境下：坚决剔除任何 /mnt/... 挂载路径或 Windows 盘符，WSL 模式只认原生 Linux 路径
-    if (getWorkspaceEnv().startsWith("wsl_")) {
-      if (current && (/^\/mnt\/[a-zA-Z](\/|$)/i.test(current) || /^[a-zA-Z]:[\\\/]/i.test(current))) {
+    // 路径提纯为当前目标环境的原生格式（若为 POSIX 自动剥离 UNC 包装与残留盘符）
+    if (current) {
+      current = toEnvironmentNativeCwd(current, isPosix);
+      if (isPosix && /^[a-zA-Z]:/.test(current)) {
         current = null;
       }
     }
 
     if (fromUrl && typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, fromUrl);
     const recents = raw ? JSON.parse(raw) : [];
-    const isWsl = getWorkspaceEnv().startsWith("wsl_");
-    const validRecents = Array.isArray(recents)
-      ? (isWsl
-          ? recents.filter((r) => r?.path && !/^\/mnt\/[a-zA-Z](\/|$)/i.test(r.path) && !/^[a-zA-Z]:[\\\/]/i.test(r.path))
-          : recents.filter((r) => r?.path && !r.path.startsWith("/home/")))
-      : [];
+    const validRecents: RecentWorkspace[] = [];
+    if (Array.isArray(recents)) {
+      for (const r of recents) {
+        if (!r?.path) continue;
+        const nativePath = toEnvironmentNativeCwd(r.path, isPosix);
+        if (isPosix && /^[a-zA-Z]:/.test(nativePath)) continue;
+        if (!isPosix && nativePath.startsWith("/") && !/^[a-zA-Z]:/.test(nativePath)) continue;
+        validRecents.push({ ...r, path: nativePath });
+      }
+    }
     return { current: current || null, recents: validRecents };
   } catch {
     return { current: null, recents: [] };
@@ -367,37 +387,42 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
 
   setWorkspace: (targetPath, optName) =>
     set((s) => {
-      const isWsl = getWorkspaceEnv().startsWith("wsl_");
-      // 在 WSL 环境下，坚决拒收 Windows 挂载盘 /mnt/... 路径或 Windows 盘符
-      if (isWsl && (/^\/mnt\/[a-zA-Z](\/|$)/i.test(targetPath) || /^[a-zA-Z]:[\\\/]/i.test(targetPath))) {
+      const isPosix = isPosixEnvironment();
+      // 提纯为当前目标环境的原生 CWD 路径（零硬编码，剥离 Windows UNC 或误拼盘符）
+      const cleanPath = toEnvironmentNativeCwd(targetPath, isPosix);
+
+      // 环境合法性检验：
+      // POSIX 环境（WSL / SSH / Linux）绝不允许接收 Windows 盘符路径；
+      // Windows 本地环境绝不允许接收纯 Linux 路径
+      if (isPosix && /^[a-zA-Z]:/.test(cleanPath)) {
         return {};
       }
-      // 在 Windows 环境下，坚决拒收纯 Linux 路径
-      if (!isWsl && targetPath.startsWith("/home/")) {
+      if (!isPosix && cleanPath.startsWith("/") && !/^[a-zA-Z]:/.test(cleanPath)) {
         return {};
       }
-      const name = optName || targetPath.split(/[/\\]/).filter(Boolean).pop() || targetPath;
+
+      const name = optName || cleanPath.split(/[/\\]/).filter(Boolean).pop() || cleanPath;
       const prevRecents = Array.isArray(s.recentWorkspaces) ? s.recentWorkspaces : [];
-      const filtered = prevRecents.filter((r) => r.path !== targetPath);
-      const nextRecents = [{ path: targetPath, name, lastOpened: Date.now() }, ...filtered].slice(0, 8);
+      const filtered = prevRecents.filter((r) => r.path !== cleanPath);
+      const nextRecents = [{ path: cleanPath, name, lastOpened: Date.now() }, ...filtered].slice(0, 8);
       const envKey = getWorkspaceStorageKey();
       try {
         if (typeof localStorage !== "undefined") {
-          localStorage.setItem(`${envKey}_current`, targetPath);
+          localStorage.setItem(`${envKey}_current`, cleanPath);
           localStorage.setItem(`${envKey}_recents`, JSON.stringify(nextRecents));
           if (isLocalMode()) {
-            localStorage.setItem("acp_current_workspace", targetPath);
+            localStorage.setItem("acp_current_workspace", cleanPath);
             localStorage.setItem("acp_recent_workspaces", JSON.stringify(nextRecents));
           }
         }
-        if (typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, targetPath);
-        void window.acpStudio?.workbench?.recentAdd(targetPath)?.catch?.(() => {});
+        if (typeof sessionStorage !== "undefined") sessionStorage.setItem(WINDOW_WORKSPACE_KEY, cleanPath);
+        void window.acpStudio?.workbench?.recentAdd(cleanPath)?.catch?.(() => {});
       } catch {
         // ignore storage errors
       }
 
       // 若工作区发生改变，自动切换到目标工作区专属的会话上下文，杜绝跨工作区串话
-      if (s.currentWorkspace !== targetPath) {
+      if (s.currentWorkspace !== cleanPath) {
         // 1. 若当前会话有内容，先妥善保存到当前工作区
         if (s.activeThreadId && s.messages.length > 0) {
           const cur = s.threads[s.activeThreadId];

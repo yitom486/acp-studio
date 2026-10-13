@@ -28,6 +28,8 @@ import { browseDirectories, launchWslGateway, DEFAULT_WSL_GATEWAY_PORT, type Bro
 import { getGatewayBase, setGatewayBase, setGatewayToken } from "@/lib/gateway-auth";
 import { runCommand } from "@/lib/commands";
 import { cn } from "@/lib/utils";
+import { toEnvironmentNativeCwd } from "@/lib/threads";
+import { isPosixEnvironment } from "@/stores/useStudioStore";
 
 export const WorkspacePickerModal: React.FC = () => {
   const open = useWorkbenchStore((s) => s.workspacePickerOpen);
@@ -110,8 +112,11 @@ export const WorkspacePickerModal: React.FC = () => {
 
   // 打开并加载为工作区（或触发回调）
   const handleConfirmOpen = (pathOrCurrent?: string) => {
-    const target = pathOrCurrent || activeSelectedPath;
-    if (!target) return;
+    const rawTarget = pathOrCurrent || activeSelectedPath;
+    if (!rawTarget) return;
+    // 提纯为目标环境原生 CWD 路径（若属于 WSL / POSIX 体系，彻底剥离 Windows UNC 包装和盘符）
+    const isPosix = Boolean(targetDistro) || isPosixEnvironment();
+    const target = toEnvironmentNativeCwd(rawTarget, isPosix);
     close();
     if (onSelectCallback) {
       onSelectCallback(target);

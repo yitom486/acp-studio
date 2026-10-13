@@ -85,17 +85,54 @@ export function pruneThreads(
 }
 
 /**
- * 标准化路径比较（统一反斜杠、去除尾随斜杠、Windows 盘符首字母统一小写）
+ * 将任意路径提纯为符合目标运行环境规范的原生 CWD 路径（零硬编码、通用适配 WSL、SSH、Remote、Local）。
+ *
+ * 1. 当目标环境是 POSIX 平台（Linux / WSL / SSH 远程 Linux / macOS 等）：
+ *    - 若携带 Windows UNC 包装（如 \\wsl.localhost\Ubuntu\home\... 或 //wsl$\Ubuntu/...），剥离 UNC 前缀，还原为纯正的 Linux 原生路径；
+ *    - 若宿主机错误在 POSIX 绝对路径前拼接了 Windows 盘符（如 D:\home\... 或 C:\var\...），自动剔除盘符；
+ *    - 统一将反斜杠替换为正斜杠；
+ *    - 保证输出永远是以 / 开头的纯净 POSIX 路径，绝不包含任何盘符或 UNC 前缀。
+ *
+ * 2. 当目标环境是 Windows 平台：
+ *    - 保留 Windows 风格路径（带盘符或 Windows 路径格式）。
+ */
+export function toEnvironmentNativeCwd(rawPath?: string | null, isPosix = false): string {
+  if (!rawPath) return "";
+  let p = rawPath.trim().replace(/\\/g, "/");
+
+  // 若带 Windows WSL UNC 前缀，剥离 UNC 包装，提取真实路径
+  const uncMatch = /^\/\/(?:wsl\$|wsl\.localhost)\/[^\/]+(\/.*)?$/i.exec(p);
+  if (uncMatch) {
+    p = uncMatch[1] || "/";
+  }
+
+  if (isPosix) {
+    // POSIX 模式（WSL / SSH / Linux）：
+    // 若错误拼接了 Windows 盘符（如 D:/home/... 或 C:/opt/...），剥离盘符还原为 POSIX 原生路径
+    const drivePosixMatch = /^[a-zA-Z]:(\/.*)$/.exec(p);
+    if (drivePosixMatch) {
+      p = drivePosixMatch[1];
+    }
+    // 若没有以 / 开头，补齐 /
+    if (!p.startsWith("/")) {
+      p = "/" + p;
+    }
+  }
+
+  // 去除尾随多余斜杠（除非根目录 /）
+  if (p.length > 1 && p.endsWith("/")) {
+    p = p.replace(/\/+$/, "");
+  }
+
+  return p;
+}
+
+/**
+ * 标准化路径比较（统一反斜杠、去除尾随斜杠、Windows 盘符首字母统一小写、WSL UNC 统一折叠）
  */
 export function normalizeCwd(cwd?: string | null): string {
   if (!cwd) return "";
-  let cleaned = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-  // 将 Windows 下的 WSL UNC 路径（如 //wsl.localhost/Ubuntu/home/... 或 //wsl$/Ubuntu/home/...）
-  // 规范化为对应的 Linux 路径 /home/...，彻底打通跨格式工作区匹配
-  const wslMatch = /^\/\/(?:wsl\$|wsl\.localhost)\/[^\/]+(\/.*)?$/i.exec(cleaned);
-  if (wslMatch) {
-    cleaned = wslMatch[1] || "/";
-  }
+  let cleaned = toEnvironmentNativeCwd(cwd, false);
   if (/^[a-zA-Z]:/.test(cleaned)) {
     return cleaned.charAt(0).toLowerCase() + cleaned.slice(1);
   }
