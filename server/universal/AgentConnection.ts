@@ -873,7 +873,13 @@ export class UniversalAgentConnection {
     for (const d of dirs) {
       const bad = dangerousRootReason(d);
       if (bad) throw new Error(`session workspace rejected: ${bad}`);
-      const abs = path.resolve(d);
+      let abs: string;
+      if (process.platform === "win32" && (d.startsWith("/home/") || d.startsWith("/root/"))) {
+        // 纯 Linux 路径在 Windows 宿主机下绝不能盲目拼上盘符 (如 D:\home\...)
+        abs = d.replace(/\\/g, "/");
+      } else {
+        abs = path.resolve(d);
+      }
       if (!roots.includes(abs)) roots.push(abs);
     }
     return roots;

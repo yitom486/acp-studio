@@ -257,6 +257,17 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
         {primaryWindow && renderLimitBar(primaryWindow, "primary")}
         {secondaryWindow && renderLimitBar(secondaryWindow, "secondary")}
         {extraWindows && extraWindows.map((w, idx) => renderLimitBar(w, `extra-${idx}`))}
+        {!primaryWindow && !secondaryWindow && (!extraWindows || extraWindows.length === 0) && (
+          <div className="p-2.5 rounded-md bg-muted/40 border border-border/50 text-[11px] space-y-1">
+            <div className="flex items-center gap-1.5 text-foreground font-medium text-[11px]">
+              <Clock className="w-3.5 h-3.5 text-primary" />
+              <span>5 小时速率限制 (动态数据)</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              Codex 实时额度（使用率/重置时间）由远端按会话返回。点击下方按钮发送 <code className="text-foreground bg-muted px-1 py-0.2 rounded font-mono">/status</code> 即可自动在此及顶栏呈现 5h 环形进度条。
+            </p>
+          </div>
+        )}
       </div>
 
       {/* 积分 / 余额 */}

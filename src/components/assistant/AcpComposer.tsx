@@ -35,6 +35,7 @@ import { ACP_PATH_MIME, decodeDragRefs, relativeToWorkspace, classifyOutsideFile
 import { fsList } from "@/lib/fs-api";
 import { matchSlashToken, replaceSlashToken, mergeCommands, filterCommands, type SlashCommand } from "@/lib/slash-commands";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
+import { getWorkspaceEnv } from "@/stores/useStudioStore";
 
 export interface AcpComposerProps {
   onSendAttachmentOnly: () => void;
@@ -805,15 +806,21 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
         {/* Antigravity Local Target Tag & Workspace Menu */}
         <div className="@container flex items-center justify-between gap-2 pt-0.5 px-1 text-xs text-muted-foreground select-none relative whitespace-nowrap">
           <div className="relative" ref={localMenuRef}>
-            <button
-              type="button"
-              onClick={() => setLocalMenuOpen(!localMenuOpen)}
-              className="inline-flex items-center gap-1.5 h-6 px-1.5 rounded-md hover:bg-accent text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-            >
-              <Laptop className="w-3 h-3" />
-              <span>本机</span>
-              <ChevronDown className="w-2.5 h-2.5 opacity-60" />
-            </button>
+            {(() => {
+              const env = getWorkspaceEnv();
+              const envLabel = env.startsWith("wsl_") ? `WSL: ${env.replace(/^wsl_/, "")}` : env.startsWith("remote") ? "远端" : "本机";
+              return (
+                <button
+                  type="button"
+                  onClick={() => setLocalMenuOpen(!localMenuOpen)}
+                  className="inline-flex items-center gap-1.5 h-6 px-1.5 rounded-md hover:bg-accent text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                >
+                  <Laptop className="w-3 h-3" />
+                  <span>{envLabel}</span>
+                  <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+                </button>
+              );
+            })()}
 
             {localMenuOpen && (
               <div className="absolute left-0 bottom-full mb-1.5 w-72 p-1 rounded-lg border border-border bg-popover shadow-lg text-xs z-50 space-y-1">

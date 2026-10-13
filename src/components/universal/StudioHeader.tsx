@@ -150,9 +150,16 @@ export const AgentStatusChip: React.FC<{
       >
         <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
         <span className="truncate">{active?.title || activeAgentId}</span>
-        {quota?.primaryWindow && (
-          <QuotaRing percentLeft={quota.primaryWindow.percentLeft} size={14} className="shrink-0" />
-        )}
+        {quota?.primaryWindow ? (
+          <div className="flex items-center gap-1 shrink-0" title={`5h限额剩余: ${quota.primaryWindow.percentLeft}%`}>
+            <QuotaRing percentLeft={quota.primaryWindow.percentLeft} size={14} className="shrink-0" />
+            <span className="text-[10px] font-mono text-muted-foreground">{quota.primaryWindow.percentLeft}%</span>
+          </div>
+        ) : quota?.account?.plan ? (
+          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-500/15 text-emerald-500 font-semibold shrink-0" title={`订阅计划: ${quota.account.plan}`}>
+            {quota.account.plan}
+          </span>
+        ) : null}
         {connected && authOk === true && <ShieldCheck className="w-3 h-3 text-success shrink-0" aria-label="已认证" />}
         {connected && authOk === false && <ShieldAlert className="w-3 h-3 text-warning shrink-0" aria-label="需认证" />}
         <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />

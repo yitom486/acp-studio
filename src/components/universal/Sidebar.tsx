@@ -330,20 +330,39 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
     const env = getWorkspaceEnv();
     const isWsl = env.startsWith("wsl_");
 
-    // 跨环境路径严格过滤器：
-    // 在 WSL 环境下坚决剔除任何 Windows 盘符 (C:\, D:\) 与 /mnt/ 挂载路径；
-    // 在 Windows 环境下坚决剔除纯 Linux 路径 (/home/...)
+    // 路径清洗与容错：
+    // 若宿主机错误在 /home/... 前拼了盘符 (如 D:\home\tomy\...)，将其自动还原为纯正的 /home/tomy/...
+    const sanitizePath = (p?: string | null): string | null => {
+      if (!p) return null;
+      const driveHomeMatch = /^[a-zA-Z]:[\\\/](home[\\\/].*)$/i.exec(p);
+      if (driveHomeMatch) {
+        return "/" + driveHomeMatch[1].replace(/\\/g, "/");
+      }
+      return p;
+    };
+
+    // 自适应环境判定：
+    // 如果当前会话列表中包含 Linux 路径，说明已连入 Linux/WSL 网关；
+    // 如果全都是 Windows 路径（没有 Linux 路径），说明当前物理连接的是 Windows 宿主机网关，
+    // 此时绝不能武断把所有 Windows 会话全部过滤成 0，必须保证用户能看到真实会话与项目。
+    const hasAnyLinuxSess = p.sessions.some((s) => {
+      const c = sanitizePath(s.cwd);
+      return Boolean(c && (c.startsWith("/home/") || c.startsWith("/root/") || /^(?:\\\\|\/\/)wsl(?:\$|\.localhost)/i.test(c)));
+    });
+
     const isPathMatchingEnv = (pathStr?: string | null): boolean => {
-      if (!pathStr) return false;
-      const isWin = /^[a-zA-Z]:[\\\/]/i.test(pathStr) || /^\/mnt\/[a-zA-Z](\/|$)/i.test(pathStr);
-      if (isWsl) {
+      const clean = sanitizePath(pathStr);
+      if (!clean) return false;
+      const isWin = /^[a-zA-Z]:[\\\/]/i.test(clean) || /^\/mnt\/[a-zA-Z](\/|$)/i.test(clean);
+      if (isWsl && hasAnyLinuxSess) {
         return !isWin;
-      } else {
-        if (pathStr.startsWith("/home/") || pathStr.startsWith("/root/")) {
+      } else if (!isWsl) {
+        if (clean.startsWith("/home/") || clean.startsWith("/root/")) {
           return false;
         }
         return true;
       }
+      return true;
     };
 
     const map = new Map<
@@ -360,15 +379,16 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
 
     // 1. Seed recent workspaces (仅加载属于当前环境的工程)
     if (p.recentWorkspaces && p.recentWorkspaces.length > 0) {
-      for (const w of p.recentWorkspaces) {
-        if (!isPathMatchingEnv(w.path)) continue;
-        const key = normalizeCwd(w.path) || w.path;
-        const name = w.name || shortCwd(w.path) || w.path;
-        const isCurrent = Boolean(p.currentWorkspace && isSameCwd(p.currentWorkspace, w.path));
+      for (const rawW of p.recentWorkspaces) {
+        const wPath = sanitizePath(rawW.path) || rawW.path;
+        if (!isPathMatchingEnv(wPath)) continue;
+        const key = normalizeCwd(wPath) || wPath;
+        const name = rawW.name || shortCwd(wPath) || wPath;
+        const isCurrent = Boolean(p.currentWorkspace && isSameCwd(p.currentWorkspace, wPath));
         map.set(key, {
           id: key,
           name,
-          path: w.path,
+          path: wPath,
           items: [],
           isCurrent,
           isCloud: name.toLowerCase().includes("cli") || name.toLowerCase().includes("cloud"),
@@ -378,13 +398,14 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
 
     // 2. Seed current workspace if not present in recents
     if (p.currentWorkspace && isPathMatchingEnv(p.currentWorkspace)) {
-      const curKey = normalizeCwd(p.currentWorkspace) || p.currentWorkspace;
+      const curPath = sanitizePath(p.currentWorkspace) || p.currentWorkspace;
+      const curKey = normalizeCwd(curPath) || curPath;
       if (!map.has(curKey)) {
-        const name = shortCwd(p.currentWorkspace) || p.currentWorkspace;
+        const name = shortCwd(curPath) || curPath;
         map.set(curKey, {
           id: curKey,
           name,
-          path: p.currentWorkspace,
+          path: curPath,
           items: [],
           isCurrent: true,
           isCloud: name.toLowerCase().includes("cli") || name.toLowerCase().includes("cloud"),
@@ -393,9 +414,12 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
     }
 
     // 3. Distribute sessions to matching project
-    for (const sess of filtered) {
+    for (const rawSess of filtered) {
+      const cleanCwd = sanitizePath(rawSess.cwd) || rawSess.cwd;
+      const sess = cleanCwd !== rawSess.cwd ? { ...rawSess, cwd: cleanCwd } : rawSess;
       const sessCwd = sess.cwd ? (normalizeCwd(sess.cwd) || sess.cwd) : null;
-      // 若历史会话关联的目录与当前环境不符，坚决在当前视图中隐藏，绝不反向污染生成跨系统项目
+
+      // 若历史会话关联的目录与当前环境不符，在当前视图中过滤
       if (sessCwd && !isPathMatchingEnv(sessCwd)) {
         continue;
       }
@@ -442,6 +466,38 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       if (matchedKey) {
         const grp = map.get(matchedKey);
         if (grp) grp.items.push(sess);
+      }
+    }
+
+    // 4. 确保当前正在活跃会话（即使尚未在 sessions 列表里）自动并入当前激活的项目组中
+    if (p.activeSessionId) {
+      const allSessionIds = new Set<string>();
+      for (const grp of map.values()) {
+        for (const item of grp.items) allSessionIds.add(item.sessionId);
+      }
+      if (!allSessionIds.has(p.activeSessionId)) {
+        let grp = p.currentWorkspace
+          ? map.get(normalizeCwd(sanitizePath(p.currentWorkspace) || p.currentWorkspace) || p.currentWorkspace)
+          : undefined;
+        if (!grp) {
+          for (const g of map.values()) {
+            if (g.isCurrent) {
+              grp = g;
+              break;
+            }
+          }
+        }
+        if (!grp && map.size > 0) {
+          grp = map.values().next().value;
+        }
+        if (grp) {
+          grp.items.unshift({
+            sessionId: p.activeSessionId,
+            title: `当前会话 (${p.activeSessionId.slice(0, 8)})`,
+            cwd: grp.path || p.currentWorkspace || undefined,
+            updatedAt: new Date().toISOString(),
+          });
+        }
       }
     }
 

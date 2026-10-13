@@ -607,9 +607,20 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
   // 纯净 Linux PATH：完全屏蔽 Windows 继承过来的含括号空格路径（如 Program Files (x86)），防止 bash 语法解析错误
   const cleanLinuxPath = `export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"`;
 
+  // 1.5 探查 WSL 内部已有的有效令牌（若已有合法 64 位 token 则复用，保证前后端和 WSL 内部一致）
+  let effectiveToken = token;
+  const probeTokenRes = await execWsl(
+    `cat ~/.acp-studio/.gateway-token 2>/dev/null`,
+    5000
+  );
+  const existingWslToken = (probeTokenRes.stdout || "").replace(/[\r\n\0]/g, "").trim();
+  if (/^[0-9a-f]{64}$/.test(existingWslToken)) {
+    effectiveToken = existingWslToken;
+  }
+
   // 2. 检测 WSL 内部的 runtime (bun 或 node)
   const probeRuntime = await execWsl(
-    `${cleanLinuxPath} && (command -v bun || [ -x ~/.bun/bin/bun ] && echo ~/.bun/bin/bun || command -v node)`,
+    `${cleanLinuxPath} && (command -v bun || [ -x "$HOME/.bun/bin/bun" ] && echo "$HOME/.bun/bin/bun" || command -v node || find "$HOME/.nvm" -name node -type f -perm /111 2>/dev/null | head -n 1)`,
     12000
   );
 
@@ -649,7 +660,8 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
 
   // 4. 以后台守护进程方式在 WSL 内部启动网关（自动同步同一令牌，重定向输入避免终端退出时断开）
   const logFile = `/tmp/acp-wsl-gateway-${port}.log`;
-  const launchScript = `mkdir -p ~/.acp-studio && echo '${token}' > ~/.acp-studio/.gateway-token && cd "${linuxProjectRoot}" && ${cleanLinuxPath} && export ACP_GATEWAY_TOKEN='${token}' && export PORT=${port} && export HOST=0.0.0.0 && nohup ${runtime} server/index.ts --port ${port} --host 0.0.0.0 < /dev/null > "${logFile}" 2>&1 & sleep 1`;
+  // 用 printf 纯净写入 64 位 token，避免 Windows 换行符 \r 破坏 token 校验
+  const launchScript = `mkdir -p ~/.acp-studio && printf "%s\\n" "${effectiveToken}" > ~/.acp-studio/.gateway-token && cd "${linuxProjectRoot}" && ${cleanLinuxPath} && export ACP_GATEWAY_TOKEN='${effectiveToken}' && export PORT=${port} && export HOST=0.0.0.0 && nohup ${runtime} server/index.ts --port ${port} --host 0.0.0.0 < /dev/null > "${logFile}" 2>&1 & sleep 1`;
 
   const launchResult = await execWsl(launchScript, 10000);
   if (launchResult.error) {
@@ -661,7 +673,7 @@ workspaceRouter.post("/wsl-launch", jsonBody(wslLaunchBody), async (c) => {
   while (Date.now() - start < 10000) {
     await new Promise((r) => setTimeout(r, 400));
     if (await probe()) {
-      return json({ ok: true, url: `http://127.0.0.1:${port}`, distro, reused: false, token });
+      return json({ ok: true, url: `http://127.0.0.1:${port}`, distro, reused: false, token: effectiveToken });
     }
   }
 

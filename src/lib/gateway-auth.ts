@@ -53,6 +53,11 @@ function readStoredBase(): string {
         val = "";
         localStorage.removeItem(GATEWAY_BASE_STORAGE_KEY);
       }
+    } else {
+      // WSL 原生真环境模式下：若未设置基址，严格指向 WSL 网关专属端口 13006，绝不穿透回 Windows 宿主机
+      if (!val) {
+        val = "http://127.0.0.1:13006";
+      }
     }
     return val;
   } catch {

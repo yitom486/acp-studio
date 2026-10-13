@@ -89,7 +89,13 @@ export function pruneThreads(
  */
 export function normalizeCwd(cwd?: string | null): string {
   if (!cwd) return "";
-  const cleaned = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  let cleaned = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  // 将 Windows 下的 WSL UNC 路径（如 //wsl.localhost/Ubuntu/home/... 或 //wsl$/Ubuntu/home/...）
+  // 规范化为对应的 Linux 路径 /home/...，彻底打通跨格式工作区匹配
+  const wslMatch = /^\/\/(?:wsl\$|wsl\.localhost)\/[^\/]+(\/.*)?$/i.exec(cleaned);
+  if (wslMatch) {
+    cleaned = wslMatch[1] || "/";
+  }
   if (/^[a-zA-Z]:/.test(cleaned)) {
     return cleaned.charAt(0).toLowerCase() + cleaned.slice(1);
   }

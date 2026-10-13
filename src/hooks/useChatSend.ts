@@ -15,6 +15,7 @@ import {
   type PendingPermission,
   type PendingElicitation,
 } from "@/lib/universal-api";
+import { parseRateLimitsFromStatusText } from "@yitom/acp-client";
 
 export interface UseChatSendOptions {
   qc: QueryClient;
@@ -345,6 +346,24 @@ export function useChatSend({
       }
         const done = useStudioStore.getState();
         done.setAuthOk(agentId, true);
+
+        // 自动解析状态响应中的实时额度与速率限制（例如 /status 输出）
+        try {
+          const finalMsg = done.messages.find((m) => m.id === assistantId);
+          if (finalMsg?.content && /5-hour limit|rate limit|weekly limit|resets in|resets at|limit:/i.test(finalMsg.content)) {
+            const parsed = parseRateLimitsFromStatusText(finalMsg.content);
+            if (parsed && (parsed.primaryWindow || parsed.secondaryWindow)) {
+              const curQuota = done.quota;
+              done.setQuota({
+                ...curQuota,
+                ...parsed,
+                account: curQuota?.account || parsed.account,
+              });
+            }
+          }
+        } catch (e) {
+          console.debug("[useChatSend] 解析限额文本容错:", e);
+        }
 
         // Fine-grained session list update:
         // 1. Do NOT invalidateAgents(qc) — agent process/capabilities do not mutate on turn-end.
