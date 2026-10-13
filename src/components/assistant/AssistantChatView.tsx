@@ -24,6 +24,11 @@ import {
   User,
   Wrench,
   Info,
+  SquareTerminal,
+  Terminal,
+  FileText,
+  PencilLine,
+  Search,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +53,10 @@ import {
   resolveToolDisplayTitle,
   resolveWidgetKey,
   toolPath,
+  toolCommand,
+  toolText,
+  firstLines,
+  strField,
 } from "@/components/assistant/tool-widget-utils";
 import type { Message } from "@/lib/message-types";
 import type { UsageState } from "@/stores/useStudioStore";
@@ -252,7 +261,7 @@ const AcpReasoningView: React.FC<{
 
 type AcpToolCall = WidgetTool;
 
-/** 单条工具行（未知种类回落；含 Diff 快捷入口 + 内联审批）。 */
+/** 单条工具行（含种类图标、Diff、终端打开、耗时、审批与折叠明细）。Memoized 避免无关流式更新时重复刷新。 */
 const ToolCallRow: React.FC<{ tc: AcpToolCall }> = React.memo(({ tc }) => {
   const { kind = "", status } = tc;
   const displayTitle = resolveToolDisplayTitle(tc);
@@ -261,55 +270,124 @@ const ToolCallRow: React.FC<{ tc: AcpToolCall }> = React.memo(({ tc }) => {
     kind === "edit" || kind === "file" || kind === "diff" || !!targetFile;
   const active = status === "running" || status === "pending";
   const shortId = tc.id ? (tc.id.length > 12 ? `${tc.id.slice(0, 8)}…` : tc.id) : null;
+  const widgetKey = resolveWidgetKey(tc);
+  const cmd = toolCommand(tc);
+  const isTerminal = widgetKey === "terminal" || !!cmd;
+
+  const [expanded, setExpanded] = React.useState(false);
+  const output = toolText(tc.rawOutput);
+  const err = toolText(tc.rawError);
+  const hasDetails = Boolean(output || err);
+
+  const openInTerminal = () => {
+    if (!cmd) return;
+    const st = useStudioStore.getState();
+    const toolCwd =
+      strField(tc.rawInput, ["cwd", "workdir", "workDir", "dir", "directory"]) || null;
+    st.setTerminalCwd(toolCwd);
+    st.setTerminalPrefill(cmd);
+    st.setTerminalOpen(true);
+  };
+
+  const cleanTitle =
+    isFileTool && targetFile
+      ? targetFile
+      : isTerminal && cmd
+        ? cmd
+        : displayTitle;
 
   return (
     <div className="rounded-lg bg-background/80 border border-border text-xs text-muted-foreground animate-fade-slide-in">
-      <div className="flex items-center gap-2 px-2.5 py-1.5 font-mono">
-        <Wrench className="w-3.5 h-3.5 text-primary shrink-0" />
+      <div
+        onClick={() => hasDetails && setExpanded((e) => !e)}
+        className={cn(
+          "flex items-center gap-2 px-2.5 h-[32px] font-mono select-none",
+          hasDetails && "cursor-pointer hover:bg-muted/30",
+        )}
+      >
+        {widgetKey === "terminal" ? (
+          <SquareTerminal className="w-3.5 h-3.5 text-primary shrink-0" />
+        ) : widgetKey === "file-read" ? (
+          <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
+        ) : widgetKey === "file-edit" ? (
+          <PencilLine className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        ) : widgetKey === "search" ? (
+          <Search className="w-3.5 h-3.5 text-primary shrink-0" />
+        ) : (
+          <Wrench className="w-3.5 h-3.5 text-primary shrink-0" />
+        )}
         <span
           className={cn("flex-1 truncate", active && "animate-pulse")}
-          title={kind ? `${displayTitle} [${kind}] (ID: ${tc.id})` : `${displayTitle} (ID: ${tc.id})`}
+          title={kind ? `${cleanTitle} [${kind}] (ID: ${tc.id})` : `${cleanTitle} (ID: ${tc.id})`}
         >
-          {displayTitle}
+          {cleanTitle}
         </span>
         {shortId && (
           <span
             className="text-[10px] text-muted-foreground/50 hover:text-foreground font-mono shrink-0 select-all cursor-default"
             title={`调用 ID: ${tc.id}`}
+            onClick={(e) => e.stopPropagation()}
           >
             {shortId}
           </span>
         )}
         <LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />
-        {isFileTool && <DiffButton file={targetFile} />}
+        {isFileTool && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <DiffButton file={targetFile} />
+          </span>
+        )}
+        {isTerminal && cmd && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openInTerminal();
+            }}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-sans transition-colors shrink-0"
+            title="在终端中打开（只填入、不自动执行）"
+          >
+            <Terminal className="w-3 h-3" />
+            <span>终端打开</span>
+          </button>
+        )}
         <StatusDot status={status} />
+        {hasDetails && (
+          <ChevronDown
+            className={cn(
+              "w-3 h-3 text-muted-foreground/70 transition-transform duration-200 shrink-0",
+              expanded && "rotate-180",
+            )}
+          />
+        )}
       </div>
+      {expanded && (output || err) && (
+        <div className="mx-1.5 mb-1.5 rounded-md border border-border/60 bg-muted/60 overflow-hidden font-mono text-[11px] animate-fade-slide-in">
+          {output && (
+            <pre className="px-2.5 py-2 overflow-x-auto text-foreground/90 whitespace-pre-wrap break-words max-h-[160px]">
+              <code>{firstLines(output, 10).shown}</code>
+            </pre>
+          )}
+          {err && (
+            <pre className="px-2.5 py-2 overflow-x-auto text-destructive whitespace-pre-wrap break-words max-h-[120px] border-t border-destructive/30">
+              <code>{firstLines(err, 8).shown}</code>
+            </pre>
+          )}
+        </div>
+      )}
       <InlineApproval tc={tc} />
     </div>
   );
 });
 
-/** 按工具种类分发富卡片，未知种类回落通用行。Memoized 避免无关流式更新时重复刷新已完成卡片。 */
-const ToolWidget: React.FC<{ tc: AcpToolCall }> = React.memo(({ tc }) => {
-  switch (resolveWidgetKey(tc)) {
-    case "terminal":
-      return <TerminalCard tc={tc} />;
-    case "file-read":
-      return <FileReadCard tc={tc} />;
-    case "file-edit":
-      return <FileEditCard tc={tc} />;
-    case "search":
-      return <SearchCard tc={tc} />;
-    default:
-      return <ToolCallRow tc={tc} />;
-  }
-});
+/** 统一使用规范单行工具组件，杜绝各卡片高度膨胀破坏 5 项视口滚动 */
+const ToolWidget: React.FC<{ tc: AcpToolCall }> = ToolCallRow;
 
 /**
  * 工具折叠组（社区 ToolGroup 模式）：连续工具调用收成一行摘要，
- * 运行时默认展开、完成后自动收起，不再逐条侵入正文。
- * 限制最大高度约 5 条工具（max-h-[220px]），超出时在内部容器平滑滚动，
- * 杜绝撑大破坏外部聊天正文排版，避免卡片剧烈忽大忽小；
+ * 流式输出期间始终保持展开，绝不忽开忽关；流式结束或取消时自动折叠收起。
+ * 内部滚动容器高度严格限制为 5 个工具项高度（max-h-[196px]），超出时在专门容器内向上平滑滚动，
+ * 始终露出最新 5 个活跃工具，早期工具向上翻滚，杜绝破坏外部聊天正文排版，避免卡片剧烈忽大忽小；
  * 状态文案展示成功比例（如 67/68 成功），杜绝少量失败/重试引发恐慌。
  */
 const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = React.memo(({ tools, running = false }) => {
@@ -326,11 +404,12 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = Reac
   const failedCount = failedTools.length;
   const successCount = Math.max(0, total - failedCount);
 
-  const [open, setOpen] = React.useState(anyActive);
+  // 流式输出期间组件始终保持打开；若取消或流式结束再折叠
+  const [open, setOpen] = React.useState(running);
   const manual = React.useRef(false);
-  const prevActive = React.useRef(anyActive);
+  const prevRunning = React.useRef(running);
 
-  // 内部滚动容器：限制最大高度约 5 项，新工具追加时容器内自适应滚动到底部，不影响外部正文
+  // 内部滚动容器：限制最大高度为 5 个工具项（约 196px），新工具到达时自适应向上滚动
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const userScrolledUp = React.useRef(false);
 
@@ -341,29 +420,42 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = Reac
   };
 
   React.useEffect(() => {
-    // 当状态从无活动变为有活动（新工具启动）时，重置用户手动标记并自动展开
-    if (anyActive && !prevActive.current) {
+    // 状态从非运行跃迁到运行（新一轮流式开始）：重置手动干预与用户滚动标记，自动展开
+    if (running && !prevRunning.current) {
       manual.current = false;
       userScrolledUp.current = false;
-      setOpen(true);
+      if (tools.length > 0) {
+        setOpen(true);
+      }
     }
-    // 当所有工具完成（从有活动变为无活动），或当前 AI 回答整体结束（running 变 false）时，自动收起
-    else if (!anyActive && prevActive.current) {
+    // 流式输出期间：只要存在工具调用且用户未手动折叠，始终保持展开状态，绝不在单工具完成间歇期折叠
+    else if (running && tools.length > 0) {
+      if (!manual.current) {
+        setOpen(true);
+      }
+    }
+    // 流式输出结束或被用户取消（running 从 true 变为 false）：自动折叠收起
+    else if (!running && prevRunning.current) {
       if (!manual.current) {
         setOpen(false);
       }
-    } else if (!running && !anyActive) {
-      if (!manual.current) {
-        setOpen(false);
-      }
     }
-    prevActive.current = anyActive;
-  }, [anyActive, running]);
 
-  // 工具列表更新或新工具开始执行时，内部滚动到最底端展示最新活跃工具
+    prevRunning.current = running;
+  }, [running, tools.length]);
+
+  // 工具列表更新或状态变化时，容器内平滑向上滚动，保持最新的 5 个工具可见
   React.useEffect(() => {
     if (open && scrollRef.current && !userScrolledUp.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (!el || userScrolledUp.current) return;
+        const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+        el.scrollTo({
+          top: el.scrollHeight,
+          behavior: distance > 250 ? "auto" : "smooth",
+        });
+      });
     }
   }, [tools.length, anyActive, open]);
 
@@ -424,7 +516,7 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = Reac
         />
       </button>
 
-      {/* 展开内容：限定最大高度约 5 条工具卡片，内部自适应纵向滚动，杜绝撑大破坏外部聊天布局 */}
+      {/* 展开内容：高度严格限定为 5 个工具项（max-h-[196px]），在专门容器内向上平滑滚动 */}
       <div
         className={cn(
           "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
@@ -435,7 +527,7 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = Reac
           <div
             ref={scrollRef}
             onScroll={handleScroll}
-            className="px-1.5 pb-1.5 space-y-1.5 max-h-[220px] overflow-y-auto overscroll-contain"
+            className="px-1.5 pb-1.5 pt-0.5 space-y-1.5 max-h-[196px] overflow-y-auto overscroll-contain"
           >
             {tools.map((tc) => (
               <ToolWidget key={tc.id} tc={tc} />

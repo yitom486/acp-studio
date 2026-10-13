@@ -490,7 +490,48 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     // 展示 2/3 成功比例，而不是纯吓人的“有失败”
     expect(el.innerHTML).toContain("2/3 成功");
     expect(el.innerHTML).toContain("1 次失败/重试");
-    expect(el.innerHTML).toContain("max-h-[220px]");
+    expect(el.innerHTML).toContain("max-h-[196px]");
+    root.unmount();
+    el.remove();
+  });
+
+  it("keeps tool group open during streaming and shows latest items with 5-item conveyor container", async () => {
+    const tools = [
+      { id: "t1", title: "read file 1", kind: "file", status: "completed" },
+      { id: "t2", title: "read file 2", kind: "file", status: "completed" },
+      { id: "t3", title: "read file 3", kind: "file", status: "completed" },
+      { id: "t4", title: "read file 4", kind: "file", status: "completed" },
+      { id: "t5", title: "read file 5", kind: "file", status: "completed" },
+      { id: "t6", title: "read file 6", kind: "file", status: "running" },
+    ];
+    useStudioStore.setState({
+      sessionId: "sess1",
+      messages: [
+        {
+          id: "a11",
+          role: "assistant",
+          content: "流式运行中",
+          toolCalls: tools,
+          timestamp: "03:22",
+          isStreaming: true,
+        },
+      ],
+      isStreaming: true,
+    } as any);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+    });
+    // 流式输出期间应处于展开状态（grid-rows-[1fr]），且具备 196px 高度限制的滚动容器
+    expect(el.innerHTML).toContain("grid-rows-[1fr]");
+    expect(el.innerHTML).toContain("max-h-[196px]");
+    expect(el.innerHTML).toContain("正在调用");
+    expect(el.innerHTML).toContain("工具调用 · 6");
     root.unmount();
     el.remove();
   });
