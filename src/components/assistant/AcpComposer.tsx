@@ -526,7 +526,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
 
   return (
     <div className="p-4 md:p-6 bg-background shrink-0 select-none">
-      <div className="max-w-3xl mx-auto space-y-2">
+      <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto space-y-2">
         {notice && (
           <div role="alert" className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] text-foreground">
             <ImagePlus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
