@@ -199,9 +199,11 @@ describe("WSL Native Environment Integration & E2E Isolation Tests", () => {
 
   describe("7. Generic SSH/Remote Environment Full Decoupling and Storage Isolation", () => {
     it("completely isolates workspace storage keys between local, WSL, and SSH/Remote", () => {
-      // 1. 本地 Windows
+      const isHostWin = typeof process !== "undefined" && process.platform === "win32";
+
+      // 1. 本地环境
       expect(getWorkspaceStorageKey()).toBe("acp_workspace_local");
-      expect(isPosixEnvironment()).toBe(false);
+      expect(isPosixEnvironment()).toBe(!isHostWin);
 
       // 2. WSL 环境
       localStorage.setItem("acp_wsl_native_distro", "Ubuntu");
@@ -218,7 +220,7 @@ describe("WSL Native Environment Integration & E2E Isolation Tests", () => {
       // 4. 清空远端切回本地
       localStorage.removeItem("acp_gateway_base");
       expect(getWorkspaceStorageKey()).toBe("acp_workspace_local");
-      expect(isPosixEnvironment()).toBe(false);
+      expect(isPosixEnvironment()).toBe(!isHostWin);
       expect(isLocalMode()).toBe(true);
     });
   });
