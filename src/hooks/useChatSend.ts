@@ -89,11 +89,59 @@ function sleepAbortable(ms: number, signal?: AbortSignal | null): Promise<void> 
 const defaultNow = () =>
   new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-/** Appends a formatted system message for non-chat activity notifications (fs, terminal, compaction). */
-export function appendActivityMessage(a: ActivityEvent, timestamp: string) {
+/** Appends a formatted system message for non-chat activity notifications (fs, terminal, compaction), or attaches to active assistant turn. */
+export function appendActivityMessage(a: ActivityEvent, timestamp: string, assistantId?: string) {
   if (!a?.kind || a.kind === "session_info_update" || a.kind.endsWith("_update") || a.kind === "plan") {
     return;
   }
+  let summary = "";
+  try {
+    const d: any = a.detail || {};
+    summary = d.path || d.command || d.terminalId || d.status || (typeof d === "string" ? d : "");
+  } catch {
+    summary = "";
+  }
+  if (!summary) return;
+
+  // If there is an active streaming assistant turn, attach fs / terminal activities
+  // into the assistant's toolCalls instead of injecting orphan system messages below it.
+  // This keeps the assistant turn unified and prevents @assistant-ui/react
+  // from synthesizing ghost "thinking" placeholders at the thread tail.
+  if (assistantId) {
+    const st = useStudioStore.getState();
+    const target = st.messages.find((m) => m.id === assistantId);
+    if (target && target.isStreaming) {
+      const kind =
+        a.kind === "fs_write"
+          ? "edit"
+          : a.kind === "fs_read"
+            ? "read"
+            : a.kind.startsWith("terminal")
+              ? "terminal"
+              : a.kind;
+
+      const tcId = `act-${a.kind}-${summary}`;
+      const existing = (target.toolCalls || []).some(
+        (tc) => tc.id === tcId || (tc.title === summary && tc.kind === kind),
+      );
+      if (!existing) {
+        const newToolCall = {
+          id: tcId,
+          kind,
+          title: summary,
+          status: "completed" as const,
+          startedAt: Date.now(),
+          completedAt: Date.now(),
+        };
+        st.patchMessage(assistantId, (m) => ({
+          ...m,
+          toolCalls: [...(m.toolCalls || []), newToolCall],
+        }));
+      }
+      return;
+    }
+  }
+
   const icon =
     a.kind === "fs_read"
       ? "📖"
@@ -106,14 +154,6 @@ export function appendActivityMessage(a: ActivityEvent, timestamp: string) {
             : a.kind.startsWith("plan")
               ? "📋"
               : "🔧";
-  let summary = "";
-  try {
-    const d: any = a.detail || {};
-    summary = d.path || d.command || d.terminalId || d.status || (typeof d === "string" ? d : "");
-  } catch {
-    summary = "";
-  }
-  if (!summary) return;
   const line = `${icon} [${a.kind}] ${summary}`.trim();
   useStudioStore.getState().appendMessage({
     id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -318,7 +358,7 @@ export function useChatSend({
             onQuota: (q) => {
               if (q) useStudioStore.getState().setQuota(q);
             },
-            onActivity: (a) => appendActivityMessage(a, now()),
+            onActivity: (a) => appendActivityMessage(a, now(), assistantId),
             onPermissionRequest: (p) => useStudioStore.getState().addPermission(p),
             onElicitationRequest: (e) => useStudioStore.getState().addElicitation(e),
             onDone: (_stopReason, resp) => {

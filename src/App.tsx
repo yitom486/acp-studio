@@ -389,31 +389,6 @@ export default function App() {
             compact={hasTabs}
           />
 
-          <PermissionDialog
-            pending={s.pendingPerms.filter((p) => {
-              if (s.sessionId && p.sessionId !== s.sessionId) return false;
-              // 已在工具卡内联展示的不再进全局弹窗 (匹配器见 acp-assistant.ts)。
-              // 用 getState imperative 读取 messages，避免 shell 订阅流式热路径。
-              if (matchPermToToolCalls(p, useStudioStore.getState().messages, s.sessionId)) return false;
-              return true;
-            })}
-            onRespond={handlePermRespond}
-            respondingId={s.respondingId}
-          />
-
-          {s.pendingElic.length > 0 && (
-            <div className="px-4 pt-2 space-y-2 max-h-64 overflow-y-auto shrink-0">
-              {s.pendingElic.map((e) => (
-                <ElicitationCard
-                  key={e.elicitationId}
-                  e={e}
-                  onRespond={handleElicRespond}
-                  busy={s.respondingId === e.elicitationId}
-                />
-              ))}
-            </div>
-          )}
-
           <AcpAssistantProvider onSend={(t) => { if (!runLocal(t ?? "")) void handleSend(t); }} onStop={handleStop}>
             <AssistantChatView
               onSelectSuggestion={(p) => { if (!runLocal(p)) void handleSend(p); }}
@@ -426,6 +401,30 @@ export default function App() {
               onEnsureSession={() => ensureSession()}
               cwd={effectiveCwd}
             />
+
+            {/* Human-in-the-Loop Interaction Dock (ApprovalCard for questions & permissions) */}
+            {(s.pendingElic.length > 0 || s.pendingPerms.length > 0) && (
+              <div className="px-4 pb-2 z-10 shrink-0 space-y-2 max-h-[340px] overflow-y-auto">
+                {s.pendingElic.map((e) => (
+                  <ElicitationCard
+                    key={e.elicitationId}
+                    e={e}
+                    onRespond={handleElicRespond}
+                    busy={s.respondingId === e.elicitationId}
+                  />
+                ))}
+                <PermissionDialog
+                  pending={s.pendingPerms.filter((p) => {
+                    if (s.sessionId && p.sessionId !== s.sessionId) return false;
+                    // 已在工具卡内联展示的不再进全局弹窗
+                    if (matchPermToToolCalls(p, useStudioStore.getState().messages, s.sessionId)) return false;
+                    return true;
+                  })}
+                  onRespond={handlePermRespond}
+                  respondingId={s.respondingId}
+                />
+              </div>
+            )}
 
             <AcpComposer
               onSendAttachmentOnly={() => handleSend("")}

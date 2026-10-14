@@ -80,6 +80,16 @@ export class InteractionManager {
         }
       }
     }
+    for (const [id, e] of [...this.pendingElicitations]) {
+      if (e.sessionId === sessionId) {
+        this.pendingElicitations.delete(id);
+        try {
+          e.resolve({ action: "cancel" });
+        } catch (err) {
+          console.error(`[UniversalACP:${this.agentId}] elicitation resolve after cancel failed ${id}: ${(err as Error).message}`);
+        }
+      }
+    }
   }
 
   rejectAllOnExit(code: number | null, signal: string | null): void {

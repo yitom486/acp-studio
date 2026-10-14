@@ -902,10 +902,14 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
     }
     return items;
   }, [acp?.citations, acp?.content]);
+  // If this is an orphan/synthetic message id without backing in store, never render a phantom hanging capsule
+  if (!acp && !running) {
+    return null;
+  }
   // 首 token 到达前：无正文、无思考、无工具调用。
   // 不渲染整张卡（空卡会被骨架屏撑成又高又窄），只给一行紧凑状态胶囊。
   const awaitingFirstToken =
-    running && !acp?.content && !acp?.thought && !(acp?.toolCalls && acp.toolCalls.length > 0) && !(acp?.images && acp.images.length > 0);
+    running && Boolean(acp) && !acp?.content && !acp?.thought && !(acp?.toolCalls && acp.toolCalls.length > 0) && !(acp?.images && acp.images.length > 0);
 
   if (awaitingFirstToken) {
     return (
@@ -922,6 +926,10 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
         <ThinkingStateCapsule />
       </MessagePrimitive.Root>
     );
+  }
+
+  if (!acp) {
+    return null;
   }
 
   return (
