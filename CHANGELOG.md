@@ -12,6 +12,18 @@
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
 
+## [0.1.8] - 2026-10-14
+
+### Added
+- 过程与最终结论智能分离（Partition Turn Content）：智能体执行期间的中间进度、思考过程、工具调用与最终交付结论物理分离；单轮结束后中间过程自动收拢折叠进抽屉，卡片最底部直观呈现按时间序排列的最终结论。
+- 精准复制最终结论：单轮卡片复制按钮精确提取最终成果结论，自动剔除冗长的过程流与调试日志。
+- BeUI / Beautiful UI 动效思考加载器：引入全套现代 BeUI 动效加载器（ascii-braille / dot-matrix / morph / comet 等），取代单调静态思考指示。
+- VSCode 风格代码变更审查面板（TurnDiffViewer）：全面替代零散的系统药丸，展示文件增删行数统计（+N -M）、语言类型徽标与就地展开代码 Diff，超出 3 个文件弹性折叠。
+### Fixed
+- 连续系统操作（System Activities）聚拢折叠：连续多个 [fs_write]、[terminal] 等系统事件自动合并为 28px 单行动态折叠胶囊（如“系统记录 · N 项操作 (最新: ...) ▾”），彻底消灭垂直堆叠十几行霸屏推挤正文的问题。
+- 规范全仓换行符：增加根目录 `.gitattributes` 强制源码与计划文件保持 LF 换行，从源头杜绝 Windows CRLF 导致 AI 智能体行匹配失败进而中断会话的隐患。
+- 智能体上下文失步诊断与自愈引导：捕获并识别由于工具异常遗漏回包导致的“No tool output found for function call”，提供直观诊断说明与新建会话恢复引导。
+
 ## [0.1.7] - 2026-10-14
 
 ### Added
@@ -240,7 +252,7 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.8...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
 [0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
 [0.1.2]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.2
@@ -249,3 +261,4 @@
 [0.1.5]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.5
 [0.1.6]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.6
 [0.1.7]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.7
+[0.1.8]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.8
