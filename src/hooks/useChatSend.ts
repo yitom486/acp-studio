@@ -103,43 +103,11 @@ export function appendActivityMessage(a: ActivityEvent, timestamp: string, assis
   }
   if (!summary) return;
 
-  // If there is an active streaming assistant turn, attach fs / terminal activities
-  // into the assistant's toolCalls instead of injecting orphan system messages below it.
-  // This keeps the assistant turn unified and prevents @assistant-ui/react
-  // from synthesizing ghost "thinking" placeholders at the thread tail.
-  if (assistantId) {
-    const st = useStudioStore.getState();
-    const target = st.messages.find((m) => m.id === assistantId);
-    if (target && target.isStreaming) {
-      const kind =
-        a.kind === "fs_write"
-          ? "edit"
-          : a.kind === "fs_read"
-            ? "read"
-            : a.kind.startsWith("terminal")
-              ? "terminal"
-              : a.kind;
-
-      const tcId = `act-${a.kind}-${summary}`;
-      const existing = (target.toolCalls || []).some(
-        (tc) => tc.id === tcId || (tc.title === summary && tc.kind === kind),
-      );
-      if (!existing) {
-        const newToolCall = {
-          id: tcId,
-          kind,
-          title: summary,
-          status: "completed" as const,
-          startedAt: Date.now(),
-          completedAt: Date.now(),
-        };
-        st.patchMessage(assistantId, (m) => ({
-          ...m,
-          toolCalls: [...(m.toolCalls || []), newToolCall],
-        }));
-      }
-      return;
-    }
+  // 智能体流式生成期间：绝不在助手轮次中编造伪工具调用，也绝不插入孤立的 system 消息打断气泡流。
+  // 智能体本身会经由 ACP 协议（onToolCall / onToolCallUpdate）自主下发真实的工具调用。
+  // 伪造工具或插入额外消息会破坏真实的后端 AI 运行时状态。
+  if (assistantId && (a.kind.startsWith("fs_") || a.kind.startsWith("terminal_"))) {
+    return;
   }
 
   const icon =

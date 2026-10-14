@@ -40,21 +40,14 @@ const VARIANTS: Record<
   { active: string; done: string; rows: ThinkingRow[]; query?: string }
 > = {
   Steps: {
-    active: "正在思考",
-    done: "思考完成",
-    rows: [
-      { primary: "解析任务目标与上下文" },
-      { primary: "检索相关代码和符号定义" },
-      { primary: "分析依赖与调用链" },
-      { primary: "构建并生成回复" },
-    ],
+    active: "正在执行",
+    done: "执行完成",
+    rows: [],
   },
   Reasoning: {
-    active: "正在思考",
-    done: "思考过程",
-    rows: [
-      { primary: "正在分析项目架构并推理最合理的改动方案…" },
-    ],
+    active: "思考中",
+    done: "思考完成",
+    rows: [],
   },
   Search: {
     active: "正在搜索",

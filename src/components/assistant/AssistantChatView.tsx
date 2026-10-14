@@ -64,7 +64,6 @@ import type { UsageState } from "@/stores/useStudioStore";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { cn } from "@/lib/utils";
-import ThinkingState from "@/components/primitives/ThinkingState";
 import { MessageScroller } from "@/components/primitives/MessageScroller";
 import { ActionSwap, MagneticButton } from "@/components/atoms/MotionButtons";
 import { Citations, type CitationItem } from "@/components/primitives/Citations";
@@ -85,25 +84,38 @@ export interface AssistantChatViewProps {
 
 // ---------- part renderers (Text 由 AcpMarkdownText 直供 primitive) ----------
 
-/** 智能体首 Token 到达前的思考指示器 (Beautiful UI 驱动，无编造步骤) */
-const ThinkingStateCapsule: React.FC = () => {
-  const [elapsed, setElapsed] = React.useState(0);
+/** 智能体首 Token 到达前的思考/等待指示器 (真实状态驱动，无编造步骤) */
+const ThinkingStateCapsule: React.FC<{ startedAt?: number }> = ({ startedAt }) => {
+  const [elapsed, setElapsed] = React.useState(() =>
+    startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 100) / 10) : 0
+  );
+  const hasPendingPermission = useStudioStore((s) => s.pendingPerms.length > 0);
+  const hasPendingElicitation = useStudioStore((s) => s.pendingElic.length > 0);
+
   React.useEffect(() => {
-    const start = Date.now();
+    if (hasPendingPermission || hasPendingElicitation) return;
+    const start = startedAt || Date.now();
     const timer = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - start) / 100) / 10);
+      setElapsed(Math.max(0, Math.floor((Date.now() - start) / 100) / 10));
     }, 100);
     return () => clearInterval(timer);
-  }, []);
+  }, [startedAt, hasPendingPermission, hasPendingElicitation]);
+
+  let label = `正在思考与分析意图… (${elapsed.toFixed(1)}s)`;
+  let dotClass = "bg-primary animate-pulse";
+
+  if (hasPendingPermission) {
+    label = "等待用户确认授权…";
+    dotClass = "bg-amber-500 animate-ping";
+  } else if (hasPendingElicitation) {
+    label = "等待用户回应提问…";
+    dotClass = "bg-blue-500 animate-ping";
+  }
 
   return (
-    <div className="rounded-card border border-line bg-surface/90 px-3.5 py-2.5 shadow-card backdrop-blur-xs transition-all duration-300 w-fit max-w-sm">
-      <ThinkingState
-        variant="Reasoning"
-        isWorking={true}
-        active={`正在思考与分析意图… (${elapsed.toFixed(1)}s)`}
-        rows={[]}
-      />
+    <div className="rounded-card border border-line bg-surface/90 px-3.5 py-2 shadow-card backdrop-blur-xs transition-all duration-300 w-fit max-w-sm flex items-center gap-2 text-[12px] text-ink-2 font-medium select-none">
+      <span className={cn("size-2 rounded-full shrink-0", dotClass)} />
+      <span>{label}</span>
     </div>
   );
 };
@@ -923,12 +935,23 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
         <div className="shrink-0 w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center text-foreground mt-0.5 shadow-xs">
           <Bot className="w-4 h-4 text-primary" />
         </div>
-        <ThinkingStateCapsule />
+        <ThinkingStateCapsule startedAt={acp?.startedAt} />
       </MessagePrimitive.Root>
     );
   }
 
   if (!acp) {
+    return null;
+  }
+
+  // 如果某轮助手消息非运行中且完全未产生任何正文、思考、工具调用或图片（例如刚开始就被取消），不渲染幽灵空卡
+  const isEmptyTurn =
+    !running &&
+    !acp.content &&
+    !acp.thought &&
+    !(acp.toolCalls && acp.toolCalls.length > 0) &&
+    !(acp.images && acp.images.length > 0);
+  if (isEmptyTurn) {
     return null;
   }
 

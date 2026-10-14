@@ -174,6 +174,18 @@ export class UniversalAgentConnection {
   }
 
   private broadcast(sessionId: string, evt: Record<string, unknown>) {
+    if (!sessionId || sessionId === "*") {
+      for (const set of this.sessionSinks.values()) {
+        for (const send of set) {
+          try {
+            send(evt);
+          } catch {
+            // ignore closed sinks
+          }
+        }
+      }
+      return;
+    }
     const set = this.sessionSinks.get(sessionId);
     if (set) {
       for (const send of set) {
@@ -331,6 +343,9 @@ export class UniversalAgentConnection {
       })
       .onRequest(acp.methods.client.elicitation.create, async (ctx: unknown) => {
         const params = (ctx as { params: Record<string, unknown> }).params;
+        if (!params.sessionId && self.promptLocks.size === 1) {
+          params.sessionId = [...self.promptLocks][0];
+        }
         return (await self.interaction.handleElicitation(params)) as never;
       })
       .onNotification(acp.methods.client.session.update, async (ctx: unknown) => {

@@ -165,16 +165,14 @@ export class InteractionManager {
     const message = String((params as { message?: string }).message || "Input requested");
     console.log(`[UniversalACP:${this.agentId}] elicitation ${elicitationId} session=${sessionId}`);
 
-    if (sessionId) {
-      this.broadcast(sessionId, {
-        type: "elicitation_request",
-        agentId: this.agentId,
-        sessionId,
-        elicitationId,
-        message,
-        schema: params,
-      });
-    }
+    this.broadcast(sessionId || "*", {
+      type: "elicitation_request",
+      agentId: this.agentId,
+      sessionId,
+      elicitationId,
+      message,
+      schema: params,
+    });
 
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
