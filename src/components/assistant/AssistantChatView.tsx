@@ -873,7 +873,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
     const content = acp?.content || "";
     if (!content.includes("http")) return [];
 
-    const regex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+    const regex = /(?<!\!)\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
     const items: CitationItem[] = [];
     const seen = new Set<string>();
     let match;
