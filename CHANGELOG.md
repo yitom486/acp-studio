@@ -12,6 +12,19 @@
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
 
+## [0.1.7] - 2026-10-14
+
+### Added
+- 实时接入 Antigravity 本地语言服务配额探针：动态探测本地 `language_server` 监听端口与 CSRF 凭证，实时获取真实 Gemini 模型（5小时/周限额）与第三方 Claude/GPT 模型的剩余百分比及准确重置时间，彻底消除原先 100% 假数据。
+- 完整接入 OpenAI Codex 配额显示：统一 `runtimeId` 映射规范，支持在顶栏状态面板实时查看 ChatGPT 账号、5小时限额、周限额以及余额 Credits。
+- 本轮改动文件查看器（TurnDiffViewer）：会话每轮执行完毕后自动汇总改动文件胶囊（新增/修改/删除），支持点击直接展开内嵌逐行 Diff 视图或在编辑器中打开。
+### Performance
+- 极致流式渲染降载与去重：为消息滚动器（MessageScroller）增加 150ms 防抖合并与用户消息浅比较 bailout，在 AI 流式输出期间完全避免滚动轨与父级元素频繁重排重绘。
+- 移除流式块 `filter: blur(3px)` 高开销 GPU 模糊滤镜，改用硬件加速透明度过渡；流式期间延迟全文 Citations 正则解析，彻底消除打字机输出卡顿与掉帧。
+### Fixed
+- 移除首包到达前思考状态胶囊（ThinkingStateCapsule）中硬编码的 4 条虚构模拟步骤，重构为真实经过时间计时的极简呼吸态。
+- 桌面安装包构建与字体精简：KaTeX 样式表收敛至仅引用 WOFF2，避免重复携带旧版字体文件；优化原生终端依赖与发布目录结构。
+
 ## [0.1.6] - 2026-10-14
 
 ### Added
@@ -227,7 +240,7 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.7...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
 [0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
 [0.1.2]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.2
@@ -235,3 +248,4 @@
 [0.1.4]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.4
 [0.1.5]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.5
 [0.1.6]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.6
+[0.1.7]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.7
