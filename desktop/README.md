@@ -42,6 +42,12 @@ electron electron-dist/main.cjs   # main 内起网关并打开窗口
 外置原生依赖 `node-pty`，附当前平台/架构的原生运行文件及第三方许可证汇总。
 Mermaid、Markdown、数学公式等前端依赖已编译进 `dist`，不再额外复制其 npm 原始包。
 `bun run stage:desktop` 可以单独检查发布目录；不要跳过 staging 直接调用 builder。
+发布构建压缩主进程与 preload，KaTeX CSS 只引用 WOFF2 字体（不打包重复的
+WOFF/TTF）。界面和开发演示共用 `public/icon.png`；高清猫咪原图保存在
+`build/acp-studio-cat.png`，不复制到前端发布目录。
+原生终端使用系统 ConPTY（显式 `useConptyDll: false`），保留 WinPTY 回退文件；
+发布目录不带实验版 `conpty.dll` / `OpenConsole.exe` 和仅用于编译的
+`node-addon-api`。其许可证仍保留在第三方声明中，开发依赖不变。
 注意两件事（均已踩坑）：
 
 1. `electron/` 不能作为源码目录名——会与 npm `electron` 包撞名导致

@@ -268,7 +268,7 @@ export const AboutPanel: React.FC = () => {
   return (
     <div>
       <div className="flex items-center gap-4 pb-5 border-b border-border/70">
-        <img src="/acp-studio-cat.png" alt="" className="h-14 w-14 rounded-xl border border-border bg-muted p-2" />
+        <img src="/icon.png" alt="" className="h-14 w-14 rounded-xl border border-border bg-muted p-2" />
         <div>
           <div className="text-lg font-semibold tracking-tight">ACP Studio</div>
           <div className="text-xs text-muted-foreground font-mono">

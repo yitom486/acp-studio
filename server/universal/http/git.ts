@@ -77,9 +77,9 @@ function parsePorcelain(out: string): GitFileChange[] {
 
 /** Resolve `file` inside `repo`; null when it escapes the repo. */
 function repoRelative(repo: string, file: string): { abs: string; rel: string } | null {
-  const abs = path.normalize(path.join(repo, file));
+  const abs = path.normalize(path.resolve(repo, file));
   if (!file || (abs !== repo && !abs.startsWith(repo + path.sep))) return null;
-  return { abs, rel: path.relative(repo, abs) };
+  return { abs, rel: path.relative(repo, abs).replace(/\\/g, "/") };
 }
 
 const fileOpBody = z.looseObject({ cwd: optStr, file: optStr });

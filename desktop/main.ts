@@ -100,8 +100,8 @@ function getAppIcon(): Electron.NativeImage | undefined {
   ];
 
   const candidateNames = process.platform === "win32"
-    ? ["icon.ico", "icon.png", "acp-studio-cat.png"]
-    : ["icon.png", "acp-studio-cat.png", "icon.ico"];
+    ? ["icon.ico", "icon.png"]
+    : ["icon.png", "icon.ico"];
 
   for (const dir of candidateDirs) {
     for (const name of candidateNames) {

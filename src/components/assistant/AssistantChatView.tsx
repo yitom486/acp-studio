@@ -36,6 +36,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AcpMarkdownText } from "@/components/assistant/AcpMarkdown";
 import { AcpImagePart } from "@/components/assistant/AcpMedia";
 import { TurnChanges } from "@/components/assistant/TurnChanges";
+import { TurnDiffViewer } from "@/components/assistant/TurnDiffViewer";
 import {
   DiffButton,
   FileEditCard,
@@ -84,7 +85,7 @@ export interface AssistantChatViewProps {
 
 // ---------- part renderers (Text 由 AcpMarkdownText 直供 primitive) ----------
 
-/** 智能体首 Token 到达前的多阶段灵动思考指示器 (Beautiful UI 驱动) */
+/** 智能体首 Token 到达前的思考指示器 (Beautiful UI 驱动，无编造步骤) */
 const ThinkingStateCapsule: React.FC = () => {
   const [elapsed, setElapsed] = React.useState(0);
   React.useEffect(() => {
@@ -95,25 +96,13 @@ const ThinkingStateCapsule: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const getStatusText = (s: number) => {
-    if (s < 2.5) return "正在思考与理解意图…";
-    if (s < 6) return "正在分析代码与上下文…";
-    if (s < 12) return "正在规划多步执行方案…";
-    return "正在组织语言生成流式回复…";
-  };
-
   return (
-    <div className="rounded-card border border-line bg-surface/90 px-3.5 py-2.5 shadow-card backdrop-blur-xs transition-all duration-300 w-full max-w-sm">
+    <div className="rounded-card border border-line bg-surface/90 px-3.5 py-2.5 shadow-card backdrop-blur-xs transition-all duration-300 w-fit max-w-sm">
       <ThinkingState
-        variant="Steps"
+        variant="Reasoning"
         isWorking={true}
-        active={`${getStatusText(elapsed)} (${elapsed.toFixed(1)}s)`}
-        rows={[
-          { primary: "解析任务目标与上下文" },
-          { primary: "检索相关代码和符号定义" },
-          { primary: "分析依赖与调用链" },
-          { primary: "构建并生成回复" },
-        ]}
+        active={`正在思考与分析意图… (${elapsed.toFixed(1)}s)`}
+        rows={[]}
       />
     </div>
   );
@@ -879,6 +868,8 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
     if (acp?.citations && Array.isArray(acp.citations) && acp.citations.length > 0) {
       return acp.citations;
     }
+    // 流式生成期间跳过反复的全文字符串正则扫描，等流式结束再一次性解析
+    if (running) return [];
     const content = acp?.content || "";
     if (!content.includes("http")) return [];
 
@@ -1026,6 +1017,14 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
           )}
           <AssistantMessageBody />
           {citations.length > 0 && <Citations citations={citations} idPrefix={`msg-${messageId}`} />}
+          {editedFiles.length > 0 && !running && (
+            <TurnDiffViewer
+              files={editedFiles}
+              cwd={cwd}
+              className="mt-2.5"
+              onOpenChangesModal={() => setTurnChangesOpen(true)}
+            />
+          )}
         </>
 
         {/* 固定 h-7 槽位：bar 的挂载/卸载只换透明度，不挤布局；

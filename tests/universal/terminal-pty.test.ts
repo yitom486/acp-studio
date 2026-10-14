@@ -68,7 +68,11 @@ describe("pty helpers (真终端服务端)", () => {
 
   it("swallows resize-after-exit (ConPTY 死后 resize 不崩进程）", () => {
     const log: string[] = [];
-    const s = createPtySession("test-pty-1", os.tmpdir(), { cols: 80, rows: 24 }, fakeSpawner(log));
+    const fake = fakeSpawner(log);
+    const s = createPtySession("test-pty-1", os.tmpdir(), { cols: 80, rows: 24 }, (shell, args, opts) => {
+      expect(opts.useConptyDll).toBe(false);
+      return fake(shell, args, opts);
+    });
     expect(getPtySession("test-pty-1")).toBe(s);
     s.resize(100, 30);
     expect(log).toContain("resize:100x30");

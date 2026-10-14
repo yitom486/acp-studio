@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { universalRegistry } from "../registry";
 import { anyBody, gatewayError, json, jsonBody, optStr } from "./shared";
+import { probeLiveAgyQuota } from "../runtimes/agy-quota";
 
 export const agentsRouter = new Hono();
 
@@ -97,8 +98,19 @@ agentsRouter.get("/:agentId/status", (c) => {
 });
 
 agentsRouter.get("/:agentId/quota", async (c) => {
+  const agentId = c.req.param("agentId");
   try {
-    const conn = universalRegistry.connFor(c.req.param("agentId"));
+    if (agentId === "antigravity-stdio" || agentId === "agy") {
+      const live = await probeLiveAgyQuota(agentId);
+      if (live) {
+        try {
+          const conn = universalRegistry.connFor(agentId);
+          (conn as any).lastQuota = live;
+        } catch {}
+        return json({ ok: true, quota: live });
+      }
+    }
+    const conn = universalRegistry.connFor(agentId);
     const quota = await conn.probeQuotaBackground();
     return json({ ok: true, quota: quota || conn.status().quota });
   } catch (err) {

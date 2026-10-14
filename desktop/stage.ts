@@ -6,7 +6,7 @@ const NOTICE_FILE = /^(?:licen[cs]e|copying|notice|copyright)(?:[._-].*)?$/i;
 const OMIT_FILE = /(?:\.map|\.pdb|\.d\.ts|\.test\.js)$/i;
 const NATIVE_FILES = new Set([
   "pty.node", "conpty.node", "conpty_console_list.node", "spawn-helper",
-  "winpty.dll", "winpty-agent.exe", "conpty",
+  "winpty.dll", "winpty-agent.exe",
 ]);
 
 function readPackage(dir: string) {
@@ -84,8 +84,6 @@ export function stageDesktopApp(projectRoot: string, platform = process.platform
   }
   const notices = thirdPartyNotices(root);
   const runtimePkg = readPackage(source);
-  const addonSource = resolvePackage("node-addon-api", source);
-  if (!addonSource) throw new Error("Missing node-pty dependency node-addon-api");
 
   fs.rmSync(destination, { recursive: true, force: true });
   fs.mkdirSync(destination, { recursive: true });
@@ -97,7 +95,12 @@ export function stageDesktopApp(projectRoot: string, platform = process.platform
   }
   const runtimeDir = path.join(destination, "node_modules", "node-pty");
   fs.mkdirSync(runtimeDir, { recursive: true });
-  fs.copyFileSync(path.join(source, "package.json"), path.join(runtimeDir, "package.json"));
+  // node-addon-api supplies compile-time headers; the staged native binary is
+  // already built. Remove only that dependency from the release manifest so
+  // builder cannot pull the headers back in from the development installation.
+  const stagedRuntimePkg = { ...runtimePkg, dependencies: { ...runtimePkg.dependencies } };
+  delete stagedRuntimePkg.dependencies["node-addon-api"];
+  fs.writeFileSync(path.join(runtimeDir, "package.json"), JSON.stringify(stagedRuntimePkg, null, 2) + "\n");
   for (const e of fs.readdirSync(source, { withFileTypes: true })) {
     if (e.isFile() && NOTICE_FILE.test(e.name)) fs.copyFileSync(path.join(source, e.name), path.join(runtimeDir, e.name));
   }
@@ -112,10 +115,6 @@ export function stageDesktopApp(projectRoot: string, platform = process.platform
       recursive: true, filter: (file) => !OMIT_FILE.test(file),
     });
   }
-  // Retain node-pty's declared dependency so builder never resolves it from the dev tree.
-  fs.cpSync(addonSource, path.join(destination, "node_modules", "node-addon-api"), {
-    recursive: true, dereference: true, filter: (file) => !OMIT_FILE.test(file),
-  });
   const pkg = readPackage(root);
   const { name, version, description, author, license, homepage, repository, type, main } = pkg;
   fs.writeFileSync(path.join(destination, "package.json"), JSON.stringify({

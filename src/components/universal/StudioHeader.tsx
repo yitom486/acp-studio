@@ -110,11 +110,14 @@ export const AgentStatusChip: React.FC<{
   }, [open]);
 
   const active = agents.find((a) => a.id === activeAgentId);
+
   const isMatchingStoreQuota =
     storeQuota &&
     (storeQuota.runtimeId === activeAgentId ||
-      (activeAgentId === "antigravity-stdio" && (storeQuota.runtimeId === "agy" || storeQuota.runtimeId === "antigravity-stdio")) ||
-      (activeAgentId === "agy" && (storeQuota.runtimeId === "agy" || storeQuota.runtimeId === "antigravity-stdio")));
+      ((activeAgentId === "antigravity-stdio" || activeAgentId === "agy") &&
+        (storeQuota.runtimeId === "agy" || storeQuota.runtimeId === "antigravity-stdio")) ||
+      (activeAgentId === "codex" &&
+        (storeQuota.runtimeId === "codex" || storeQuota.runtimeId === "codex-acp")));
   const quota = isMatchingStoreQuota ? storeQuota : (active?.status?.quota ?? null);
   const connected = Boolean(active?.status?.connected);
   const caps = active?.status?.agentCapabilities as any;
@@ -138,12 +141,12 @@ export const AgentStatusChip: React.FC<{
     }
   }, [activeAgentId, setQuota]);
 
-  // 展开智能体卡片时，自动静默触发最新配额探测（无需用户手动点击刷新）
+  // 切换智能体或展开卡片时，自动静默触发最新配额探测
   useEffect(() => {
-    if (open && activeAgentId) {
+    if (activeAgentId) {
       void handleRefreshQuota();
     }
-  }, [open, activeAgentId, handleRefreshQuota]);
+  }, [activeAgentId, open, handleRefreshQuota]);
 
   const rawTitle = active?.title || activeAgentId;
   const displayTitle = rawTitle.includes("OpenCode (") ? "OpenCode" : rawTitle;

@@ -78,7 +78,7 @@ async function maybeSeedDevFixture() {
  */
 async function seedMathFixture() {
   const { useStudioStore } = await import("@/stores/useStudioStore");
-  const img = await fetch("/acp-studio-cat.png").then((r) => r.blob()).then((b) => new Promise<string>((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result)); fr.readAsDataURL(b); }));
+  const img = await fetch("/icon.png").then((r) => r.blob()).then((b) => new Promise<string>((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result)); fr.readAsDataURL(b); }));
   const st = useStudioStore.getState();
   st.setSessionId("fixture-math");
   st.setMessages([

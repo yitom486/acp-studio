@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 /* ─────────────────────────────────────────────────────────
  * THINKING — expandable agent trace
@@ -147,9 +148,16 @@ export default function ThinkingState({
       <button
         type="button"
         aria-expanded={expanded}
-        onClick={() => setManualExpanded((current) => !(current ?? autoExpanded))}
-        className="-mx-1.5 flex w-fit items-center gap-2 rounded-control px-2 py-1
-          transition-colors duration-100 hover:bg-hover-2 cursor-pointer select-none"
+        disabled={v.rows.length === 0}
+        onClick={() => {
+          if (v.rows.length > 0) {
+            setManualExpanded((current) => !(current ?? autoExpanded));
+          }
+        }}
+        className={cn(
+          "-mx-1.5 flex w-fit items-center gap-2 rounded-control px-2 py-1 transition-colors duration-100 select-none",
+          v.rows.length > 0 ? "hover:bg-hover-2 cursor-pointer" : "cursor-default"
+        )}
       >
         {icon ? (
           <span className="flex shrink-0 transition-colors duration-200" style={{ color: working ? "var(--ink-2)" : "var(--ink-3)" }}>
@@ -182,13 +190,15 @@ export default function ThinkingState({
             </span>
           )}
         </span>
-        <svg
-          width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
-          className="transition-transform duration-300 ml-0.5"
-          style={{ transform: expanded ? "rotate(180deg)" : "rotate(0)" }}
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        {v.rows.length > 0 && (
+          <svg
+            width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+            className="transition-transform duration-300 ml-0.5"
+            style={{ transform: expanded ? "rotate(180deg)" : "rotate(0)" }}
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        )}
       </button>
 
       {/* expandable trace */}

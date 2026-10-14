@@ -212,17 +212,42 @@ export const MessageScroller = forwardRef<MessageScrollerHandle, MessageScroller
           };
         });
 
-        setScannedItems(found);
+        setScannedItems((prev) => {
+          if (
+            prev.length === found.length &&
+            prev.every(
+              (p, idx) =>
+                p.id === found[idx]?.id &&
+                p.label === found[idx]?.label &&
+                p.description === found[idx]?.description,
+            )
+          ) {
+            return prev;
+          }
+          return found;
+        });
       };
 
       scan();
 
+      let timer: number | null = null;
+      const debouncedScan = () => {
+        if (timer !== null) return;
+        timer = window.setTimeout(() => {
+          timer = null;
+          scan();
+        }, 150);
+      };
+
       const observer = new MutationObserver(() => {
-        scan();
+        debouncedScan();
       });
 
       observer.observe(vp, { childList: true, subtree: true });
-      return () => observer.disconnect();
+      return () => {
+        observer.disconnect();
+        if (timer !== null) window.clearTimeout(timer);
+      };
     }, [controlledItems, getViewport, targetRole]);
 
     // Active message tracking and stick-to-bottom detection on scroll

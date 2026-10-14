@@ -5,7 +5,23 @@ import path from "node:path";
 import pkg from "./package.json" with { type: "json" };
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    {
+      name: "katex-woff2-only",
+      enforce: "pre",
+      transform(code, id) {
+        if (!/(?:^|[\\/])katex(?:\.min)?\.css(?:\?|$)/.test(id)) return;
+        // Drop legacy font fallbacks before Vite resolves and emits their assets.
+        // Electron and the browsers supported by Vite all support WOFF2.
+        return code.replace(
+          /src:\s*(url\([^)]*\.woff2\)\s*format\(["']woff2["']\))[^;]*;/g,
+          "src:$1;",
+        );
+      },
+    },
+    react(),
+    tailwindcss(),
+  ],
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(pkg.version),
   },

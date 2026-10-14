@@ -65,12 +65,17 @@ describe("desktop release app", () => {
     const app = stageDesktopApp(root, "win32", "x64");
     fs.mkdirSync(path.join(app, "node_modules/mermaid"));
     stageDesktopApp(root, "win32", "x64");
-    for (const file of ["node_modules/node-pty/lib/index.js", "node_modules/node-pty/prebuilds/win32-x64/conpty.node", "node_modules/node-pty/prebuilds/win32-x64/conpty/OpenConsole.exe", "node_modules/node-addon-api/package.json"]) {
+    for (const file of ["node_modules/node-pty/lib/index.js", "node_modules/node-pty/prebuilds/win32-x64/conpty.node"]) {
       expect(fs.existsSync(path.join(app, file))).toBe(true);
     }
-    for (const file of ["node_modules/mermaid", "node_modules/node-pty/prebuilds/win32-arm64", "node_modules/node-pty/src", "node_modules/node-pty/lib/index.test.js", "node_modules/node-pty/lib/index.js.map", "node_modules/node-pty/prebuilds/win32-x64/conpty.pdb", "dist/assets/mermaid.js.map"]) {
+    for (const file of ["node_modules/mermaid", "node_modules/node-addon-api", "node_modules/node-pty/prebuilds/win32-x64/conpty", "node_modules/node-pty/prebuilds/win32-arm64", "node_modules/node-pty/src", "node_modules/node-pty/lib/index.test.js", "node_modules/node-pty/lib/index.js.map", "node_modules/node-pty/prebuilds/win32-x64/conpty.pdb", "dist/assets/mermaid.js.map"]) {
       expect(fs.existsSync(path.join(app, file))).toBe(false);
     }
+    const staged = JSON.parse(fs.readFileSync(path.join(app, "node_modules/node-pty/package.json"), "utf8"));
+    const source = JSON.parse(fs.readFileSync(path.join(root, "node_modules/node-pty/package.json"), "utf8"));
+    expect(staged.dependencies).toEqual({});
+    expect(source.dependencies).toEqual({ "node-addon-api": "7.1.0" });
+    expect(fs.readFileSync(path.join(app, "THIRD-PARTY-NOTICES.txt"), "utf8")).toContain("addon attribution");
   });
 
   it("supports source-built Linux native files and fails before replacing a valid stage when missing", () => {

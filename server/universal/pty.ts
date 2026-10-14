@@ -195,6 +195,9 @@ export function createPtySession(
   const plan = ptySpawnForCwd(process.platform, cwd, process.cwd());
   const size0 = clampPtySize(size.cols, size.rows);
   const child = spawn(plan.shell, plan.args, {
+    // Use the OS ConPTY implementation; release packages omit node-pty's
+    // opt-in experimental conpty.dll/OpenConsole.exe pair.
+    useConptyDll: false,
     name: "xterm-256color",
     cwd: plan.spawnCwd,
     cols: size0.cols,

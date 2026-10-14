@@ -22,6 +22,7 @@ import {
 } from "./platform/spawn";
 import { InteractionManager } from "./interaction";
 import { FsGuard } from "./fs-guard";
+import { probeLiveAgyQuota } from "./runtimes/agy-quota";
 
 // Re-export platform helpers for external consumers & test compatibility
 export {
@@ -80,8 +81,12 @@ export class UniversalAgentConnection {
       let q: AcpAgentQuota | null = null;
       if (id === "codex") {
         q = (await codexAdapter.probeQuota?.()) ?? null;
+        if (q) q.runtimeId = "codex";
       } else if (id === "antigravity-stdio" || id === "agy") {
-        q = (await agyAdapter.probeQuota?.()) ?? null;
+        const live = await probeLiveAgyQuota(id);
+        console.log(`[probeQuotaBackground] live agy quota:`, live ? "SUCCESS" : "NULL");
+        q = live ?? (await agyAdapter.probeQuota?.()) ?? null;
+        if (q) q.runtimeId = id;
       } else if (id === "claude") {
         q = (await claudeAdapter.probeQuota?.()) ?? null;
       } else if (id === "opencode" || id === "opencode-v2") {
