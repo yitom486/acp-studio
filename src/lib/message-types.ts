@@ -41,4 +41,6 @@ export interface Message {
   completedAt?: number;
   /** Client-observed reasoning timing: first thought chunk -> turn end. */
   thoughtTiming?: { startedAt?: number; completedAt?: number };
+  /** Grounded citations or reference sources. */
+  citations?: Array<{ id: string; title: string; domain?: string; url?: string; icon?: any }>;
 }

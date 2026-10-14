@@ -13,6 +13,7 @@ import { closeOpenFences, hasMath } from "@/lib/markdown-preprocess";
 import { getMathPlugins, loadMathPlugins, subscribeMath } from "@/components/assistant/math-plugins";
 import { cn } from "@/lib/utils";
 import { AcpImageView, isSafeLinkHref, isSafeMediaSrc } from "@/components/assistant/AcpMedia";
+import { Citation } from "@/components/primitives/Citations";
 
 const AcpCodeHeader: React.FC<CodeHeaderProps> = ({ language, code }) => {
   const [copied, setCopied] = useState(false);
@@ -66,9 +67,23 @@ const acpComponents = memoizeMarkdownComponents({
     if (!isSafeLinkHref(href)) {
       return <span className="text-muted-foreground">{children}</span>;
     }
+    const text = typeof children === "string" ? children.trim() : Array.isArray(children) ? children.join("").trim() : "";
+    const citationMatch = text.match(/^\[?(\d+)\]?$/);
+    if (citationMatch) {
+      const idx = parseInt(citationMatch[1], 10);
+      return (
+        <Citation
+          citationId={`ref-${idx}`}
+          index={idx}
+          idPrefix="source"
+          label={`查看引用 ${idx}`}
+          className={className}
+        />
+      );
+    }
     return (
       <a
-        className={cn("text-primary underline-offset-2 hover:underline")}
+        className={cn("text-primary underline-offset-2 hover:underline", className)}
         target="_blank"
         rel="noreferrer"
         href={href}

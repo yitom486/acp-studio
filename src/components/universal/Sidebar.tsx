@@ -23,6 +23,8 @@ import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { isSameCwd, normalizeCwd, toEnvironmentNativeCwd } from "@/lib/threads";
 import type { AgentSummary } from "@/lib/universal-api";
 import { getWorkspaceEnv, isPosixEnvironment, type RecentWorkspace } from "@/stores/useStudioStore";
+import { SPRING_LAYOUT, SPRING_SWAP } from "@/lib/motion-primitives";
+import { MarqueeLabel } from "@/components/primitives/AISidebar";
 
 export interface SessionItem {
   sessionId: string;
@@ -131,22 +133,27 @@ export interface SessionRowProps {
 export const SessionRow = React.memo<SessionRowProps>(
   ({ session, active, supportsFork, onOpen, onFork, onDelete }) => {
     const time = compactTimeAgo(session.updatedAt);
+    const [hovered, setHovered] = useState(false);
     return (
       <motion.div
         layout
-        transition={{ type: "spring", stiffness: 400, damping: 32 }}
+        transition={SPRING_LAYOUT}
         onClick={() => onOpen(session)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         className={`group relative flex items-center justify-between rounded-md px-2 py-1.5 cursor-pointer text-xs transition-colors select-none ${
           active
-            ? "bg-accent text-foreground"
+            ? "bg-accent text-foreground font-medium"
             : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
         }`}
       >
         <div
           title={session.title || session.sessionId}
-          className="truncate flex-1 pr-1.5 flex items-center gap-1.5"
+          className="min-w-0 flex-1 pr-1.5 flex items-center gap-1.5 overflow-hidden"
         >
-          <span className="truncate">{session.title || session.sessionId.slice(0, 16)}</span>
+          <MarqueeLabel active={hovered || active} className="text-xs">
+            {session.title || session.sessionId.slice(0, 16)}
+          </MarqueeLabel>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
@@ -632,16 +639,20 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
                   }}
                   className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors shrink-0"
                 >
-                  {isCollapsed ? (
+                  <motion.span
+                    className="grid size-3 place-items-center"
+                    animate={{ rotate: isCollapsed ? 0 : 90 }}
+                    transition={SPRING_SWAP}
+                  >
                     <ChevronRight className="w-3 h-3 shrink-0" />
-                  ) : (
-                    <ChevronDown className="w-3 h-3 shrink-0" />
-                  )}
+                  </motion.span>
                 </button>
                 {grp.isCloud ? (
                   <Cloud className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                ) : (
+                ) : isCollapsed ? (
                   <Folder className="w-3.5 h-3.5 text-primary/80 shrink-0" />
+                ) : (
+                  <FolderOpen className="w-3.5 h-3.5 text-primary shrink-0" />
                 )}
                 <span className="truncate flex-1 font-medium" title={grp.path || grp.name}>
                   {grp.name}
@@ -673,7 +684,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
 
               {/* Child sessions */}
               {!isCollapsed && (
-                <div className="pl-2 space-y-px border-l border-border ml-3.5 my-0.5">
+                <div className="pl-2 space-y-px border-l border-border/70 ml-3.5 my-0.5">
                   {grp.items.length === 0 ? (
                     <div className="px-2 py-1.5 text-[11px] text-muted-foreground flex items-center justify-between">
                       <span>暂无会话</span>

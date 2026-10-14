@@ -64,6 +64,9 @@ import { useStudioStore } from "@/stores/useStudioStore";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { cn } from "@/lib/utils";
 import ThinkingState from "@/components/primitives/ThinkingState";
+import { MessageScroller } from "@/components/primitives/MessageScroller";
+import { ActionSwap, MagneticButton } from "@/components/atoms/MotionButtons";
+import { Citations, type CitationItem } from "@/components/primitives/Citations";
 
 export interface AssistantChatViewProps {
   agentName?: string;
@@ -743,9 +746,18 @@ const UserMessageView: React.FC = () => {
   if (isEditing) return <EditComposerView />;
   const threadRunning = useAuiState((s) => s.thread.isRunning);
   return (
-    <MessagePrimitive.Root className="flex gap-3 justify-end items-start group animate-fade-slide-in">
+    <MessagePrimitive.Root
+      id={messageId}
+      data-slot="message"
+      data-message-id={messageId}
+      data-from="user"
+      className="flex gap-3 justify-end items-start group animate-fade-slide-in"
+    >
       <div className="relative max-w-[80%]">
-        <div className="rounded-lg bg-secondary text-secondary-foreground px-3.5 py-2 break-words whitespace-pre-wrap text-sm leading-relaxed font-sans">
+        <div
+          data-slot="message-bubble-content"
+          className="rounded-lg bg-secondary text-secondary-foreground px-3.5 py-2 break-words whitespace-pre-wrap text-sm leading-relaxed font-sans"
+        >
           <MessagePrimitive.Parts components={USER_MESSAGE_PARTS} />
           {/* 底部 meta 单行：常驻挂载，只换透明度，宽高恒定不挤布局 */}
           <div className="flex items-center justify-end gap-0.5 pt-1.5">
@@ -753,22 +765,26 @@ const UserMessageView: React.FC = () => {
               <span className="text-[10px] font-mono text-muted-foreground/80 select-none mr-1">{acp.timestamp}</span>
             )}
             <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-sm:opacity-100 transition-opacity">
-              <button
+              <MagneticButton
+                strength={0.2}
                 onClick={copy}
                 className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
                 title="复制内容"
               >
-                {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
-              </button>
+                <ActionSwap stateKey={copied ? "copied" : "idle"}>
+                  {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
+                </ActionSwap>
+              </MagneticButton>
               <ActionBarPrimitive.Root className="flex items-center">
                 <ActionBarPrimitive.Edit asChild>
-                  <button
+                  <MagneticButton
+                    strength={0.2}
                     disabled={threadRunning}
                     className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors disabled:opacity-40"
                     title="编辑后重发"
                   >
                     <Pencil className="w-3 h-3" />
-                  </button>
+                  </MagneticButton>
                 </ActionBarPrimitive.Edit>
               </ActionBarPrimitive.Root>
             </span>
@@ -858,6 +874,43 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
     }
     return out;
   }, [acp?.toolCalls]);
+
+  const citations: CitationItem[] = React.useMemo(() => {
+    if (acp?.citations && Array.isArray(acp.citations) && acp.citations.length > 0) {
+      return acp.citations;
+    }
+    const content = acp?.content || "";
+    if (!content.includes("http")) return [];
+
+    const regex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+    const items: CitationItem[] = [];
+    const seen = new Set<string>();
+    let match;
+    let idx = 1;
+    while ((match = regex.exec(content)) !== null) {
+      const title = match[1].trim();
+      const url = match[2].trim();
+      if (!seen.has(url)) {
+        seen.add(url);
+        try {
+          const u = new URL(url);
+          items.push({
+            id: `ref-${idx++}`,
+            title: title.match(/^\d+$/) ? u.hostname : title,
+            domain: u.hostname,
+            url,
+          });
+        } catch {
+          items.push({
+            id: `ref-${idx++}`,
+            title,
+            url,
+          });
+        }
+      }
+    }
+    return items;
+  }, [acp?.citations, acp?.content]);
   // 首 token 到达前：无正文、无思考、无工具调用。
   // 不渲染整张卡（空卡会被骨架屏撑成又高又窄），只给一行紧凑状态胶囊。
   const awaitingFirstToken =
@@ -865,7 +918,13 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
 
   if (awaitingFirstToken) {
     return (
-      <MessagePrimitive.Root className="flex gap-3 justify-start items-start group animate-fade-slide-in">
+      <MessagePrimitive.Root
+        id={messageId}
+        data-slot="message"
+        data-message-id={messageId}
+        data-from="assistant"
+        className="flex gap-3 justify-start items-start group animate-fade-slide-in"
+      >
         <div className="shrink-0 w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center text-foreground mt-0.5 shadow-xs">
           <Bot className="w-4 h-4 text-primary" />
         </div>
@@ -875,7 +934,13 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
   }
 
   return (
-    <MessagePrimitive.Root className="flex gap-3 justify-start items-start group animate-fade-slide-in">
+    <MessagePrimitive.Root
+      id={messageId}
+      data-slot="message"
+      data-message-id={messageId}
+      data-from="assistant"
+      className="flex gap-3 justify-start items-start group animate-fade-slide-in"
+    >
       <div className={cn(
         "shrink-0 w-7 h-7 rounded-lg border border-border flex items-center justify-center mt-0.5 shadow-xs transition-colors",
         running ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
@@ -960,6 +1025,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
             </div>
           )}
           <AssistantMessageBody />
+          {citations.length > 0 && <Citations citations={citations} idPrefix={`msg-${messageId}`} />}
         </>
 
         {/* 固定 h-7 槽位：bar 的挂载/卸载只换透明度，不挤布局；
@@ -984,20 +1050,24 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
             className="flex items-center gap-1 data-[floating=true]:absolute data-[floating=true]:bottom-2 data-[floating=true]:left-3 data-[floating=true]:z-10 data-[floating=true]:rounded-full data-[floating=true]:border data-[floating=true]:border-border data-[floating=true]:bg-card/95 data-[floating=true]:px-1.5 data-[floating=true]:py-1 data-[floating=true]:shadow-md data-[floating=true]:backdrop-blur"
           >
             <ActionBarPrimitive.Copy asChild>
-              <button
+              <MagneticButton
+                strength={0.2}
                 className="p-1.5 rounded-lg hover:text-foreground hover:bg-muted/80 transition-colors"
                 title="复制内容"
               >
-                {isCopied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
+                <ActionSwap stateKey={isCopied ? "copied" : "idle"}>
+                  {isCopied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                </ActionSwap>
+              </MagneticButton>
             </ActionBarPrimitive.Copy>
             <ActionBarPrimitive.Reload asChild>
-              <button
+              <MagneticButton
+                strength={0.2}
                 className="p-1.5 rounded-lg hover:text-foreground hover:bg-muted/80 transition-colors"
                 title="重新生成"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
-              </button>
+              </MagneticButton>
             </ActionBarPrimitive.Reload>
           </ActionBarPrimitive.Root>
         </div>
@@ -1019,7 +1089,13 @@ const SystemMessageView: React.FC = () => {
   const content = acp?.content || "";
 
   return (
-    <MessagePrimitive.Root className="w-full flex items-center justify-center my-3 px-4 select-none animate-fade-slide-in">
+    <MessagePrimitive.Root
+      id={messageId}
+      data-slot="message"
+      data-message-id={messageId}
+      data-from="system"
+      className="w-full flex items-center justify-center my-3 px-4 select-none animate-fade-slide-in"
+    >
       <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-muted/60 border border-border/70 text-muted-foreground text-xs shadow-xs max-w-xl text-center">
         <Info className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
         <span className="leading-relaxed">{content}</span>
@@ -1069,43 +1145,50 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
 }) => {
   const { viewportRef, contentRef } = useStickToBottom<HTMLDivElement>();
   return (
-    <ThreadPrimitive.Root className="flex-1 flex flex-col min-h-0 bg-background">
-      <ThreadPrimitive.Viewport
-        ref={viewportRef}
-        turnAnchor="top"
-        autoScroll={false}
-        className="flex-1 overflow-y-auto [scrollbar-gutter:stable] p-4 md:p-6"
+    <ThreadPrimitive.Root className="flex-1 flex flex-col min-h-0 bg-background relative overflow-hidden">
+      <MessageScroller
+        navigation="rail"
+        externalViewportRef={viewportRef}
+        showScrollToBottom={false}
+        railClassName="right-2.5 z-20"
       >
-        <ThreadPrimitive.Empty>
-          <AssistantWelcome
-            agentName={agentName}
-            onSelectSuggestion={onSelectSuggestion}
-            connected={connected}
-            sessionId={sessionId}
-            sessionError={sessionError}
-            sessionLoading={sessionLoading}
-            onEnsureSession={onEnsureSession}
-            cwd={cwd}
-          />
-        </ThreadPrimitive.Empty>
-        <div ref={contentRef} className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-6 px-3 sm:px-4">
-          <ThreadLoadEarlier />
-          <ThreadPrimitive.Messages>
-            {() => <ThreadMessageRouter agentName={agentName} cwd={cwd} />}
-          </ThreadPrimitive.Messages>
-        </div>
-        <ThreadPrimitive.ViewportFooter className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto sticky bottom-0 z-10 flex justify-center pointer-events-none h-0 overflow-visible">
-          <ThreadPrimitive.ScrollToBottom asChild>
-            <button
-              className="absolute bottom-3 pointer-events-auto flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border bg-popover text-xs text-muted-foreground hover:text-foreground shadow-md transition-colors disabled:invisible"
-              title="回到底部"
-            >
-              <ArrowDown className="w-3.5 h-3.5" />
-              回到底部
-            </button>
-          </ThreadPrimitive.ScrollToBottom>
-        </ThreadPrimitive.ViewportFooter>
-      </ThreadPrimitive.Viewport>
+        <ThreadPrimitive.Viewport
+          ref={viewportRef}
+          turnAnchor="top"
+          autoScroll={false}
+          className="flex-1 overflow-y-auto [scrollbar-gutter:stable] p-4 md:p-6"
+        >
+          <ThreadPrimitive.Empty>
+            <AssistantWelcome
+              agentName={agentName}
+              onSelectSuggestion={onSelectSuggestion}
+              connected={connected}
+              sessionId={sessionId}
+              sessionError={sessionError}
+              sessionLoading={sessionLoading}
+              onEnsureSession={onEnsureSession}
+              cwd={cwd}
+            />
+          </ThreadPrimitive.Empty>
+          <div ref={contentRef} className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-6 px-3 sm:px-4">
+            <ThreadLoadEarlier />
+            <ThreadPrimitive.Messages>
+              {() => <ThreadMessageRouter agentName={agentName} cwd={cwd} />}
+            </ThreadPrimitive.Messages>
+          </div>
+          <ThreadPrimitive.ViewportFooter className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto sticky bottom-0 z-10 flex justify-center pointer-events-none h-0 overflow-visible">
+            <ThreadPrimitive.ScrollToBottom asChild>
+              <button
+                className="absolute bottom-3 pointer-events-auto flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border bg-popover text-xs text-muted-foreground hover:text-foreground shadow-md transition-colors disabled:invisible"
+                title="回到底部"
+              >
+                <ArrowDown className="w-3.5 h-3.5" />
+                回到底部
+              </button>
+            </ThreadPrimitive.ScrollToBottom>
+          </ThreadPrimitive.ViewportFooter>
+        </ThreadPrimitive.Viewport>
+      </MessageScroller>
     </ThreadPrimitive.Root>
   );
 };

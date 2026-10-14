@@ -121,6 +121,19 @@ function fileIcon(name: string) {
   return File;
 }
 
+function fileColor(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  if (["ts", "tsx"].includes(ext)) return "text-sky-500";
+  if (["js", "jsx", "mjs", "cjs"].includes(ext)) return "text-amber-400";
+  if (["json", "jsonc"].includes(ext)) return "text-amber-500";
+  if (["css", "scss", "less"].includes(ext)) return "text-violet-400";
+  if (["md", "markdown", "txt"].includes(ext)) return "text-emerald-500";
+  if (["png", "jpg", "jpeg", "svg", "ico", "webp"].includes(ext)) return "text-pink-400";
+  if (["py"].includes(ext)) return "text-blue-400";
+  if (["rs"].includes(ext)) return "text-orange-500";
+  return "text-muted-foreground";
+}
+
 const joinAbs = (cwd: string, rel: string) => {
   const sep = cwd.includes("\\") && !cwd.includes("/") ? "\\" : "/";
   return rel ? `${cwd.replace(/[\\/]$/, "")}${sep}${rel.split("/").join(sep)}` : cwd;
@@ -359,10 +372,10 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
           ref={dragHandle}
           style={style}
           className={cn(
-            "group flex h-full items-center gap-1 pr-2 text-[13px] cursor-pointer select-none rounded-sm",
-            node.isSelected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-            node.isFocused && !node.isSelected && "bg-accent/40",
-            d.id === activeId && !node.isSelected && "text-foreground",
+            "group relative flex h-full items-center gap-1.5 pr-2 text-xs cursor-pointer select-none rounded-md transition-colors",
+            node.isSelected ? "bg-accent/85 font-medium text-foreground ring-1 ring-border/50" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            node.isFocused && !node.isSelected && "bg-accent/35",
+            d.id === activeId && !node.isSelected && "text-foreground font-medium",
           )}
           onDragStart={(e) => {
             // 拖到聊天输入框 = @ 引用（文件树内部移动仍由 react-dnd 处理）
@@ -390,15 +403,38 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
           }}
           title={st ? `${d.id} · ${STATUS_LABEL[st] || st}` : d.id}
         >
-          <span className="w-3.5 shrink-0 flex justify-center">
-            {isDir && <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", node.isOpen && "rotate-90")} />}
+          {/* beUI Branch connecting lines for nested depth */}
+          {node.level > 0 &&
+            Array.from({ length: node.level }).map((_, i) => (
+              <span
+                key={i}
+                aria-hidden="true"
+                className="pointer-events-none absolute top-0 bottom-0 w-px bg-border/60"
+                style={{ left: `${8 + i * 16}px` }}
+              />
+            ))}
+
+          <span className="w-3.5 shrink-0 flex justify-center z-10">
+            {isDir && (
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-200 ease-out",
+                  node.isOpen ? "rotate-90 text-foreground" : "text-muted-foreground/80"
+                )}
+              />
+            )}
           </span>
-          <Icon className={cn("h-3.5 w-3.5 shrink-0", isDir ? "text-foreground/70" : "text-muted-foreground")} />
+          <Icon
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 z-10 transition-colors",
+              isDir ? (node.isOpen ? "text-primary" : "text-primary/75") : fileColor(d.name)
+            )}
+          />
           {node.isEditing ? (
             <input
               autoFocus
               defaultValue={d.name}
-              className="h-5 flex-1 min-w-0 rounded-sm border border-ring bg-background px-1 text-[13px] text-foreground outline-none"
+              className="h-5 flex-1 min-w-0 rounded-sm border border-ring bg-background px-1 text-xs text-foreground outline-none z-10"
               onFocus={(e) => e.currentTarget.select()}
               onBlur={() => node.reset()}
               onKeyDown={(e) => {
@@ -407,10 +443,12 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
               }}
             />
           ) : (
-            <span className={cn("flex-1 truncate", st && statusClass(st), st === "D" && "line-through")}>{d.name}</span>
+            <span className={cn("flex-1 truncate z-10 text-xs", st && statusClass(st), st === "D" && "line-through")}>
+              {d.name}
+            </span>
           )}
-          {st && <span className={cn("ml-1 w-3 text-right font-mono text-[10px] font-semibold", statusClass(st))}>{st === "?" ? "U" : st}</span>}
-          {dirChanged && <span className="ml-1 h-1.5 w-1.5 rounded-full bg-warning/80" aria-label="包含改动" />}
+          {st && <span className={cn("ml-1 w-3 text-right font-mono text-[10px] font-semibold z-10", statusClass(st))}>{st === "?" ? "U" : st}</span>}
+          {dirChanged && <span className="ml-1 h-1.5 w-1.5 rounded-full bg-warning/80 z-10" aria-label="包含改动" />}
         </div>
       );
     };
@@ -493,8 +531,8 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
             data={data}
             width={size.w}
             height={size.h}
-            rowHeight={24}
-            indent={12}
+            rowHeight={26}
+            indent={16}
             overscanCount={8}
             openByDefault={false}
             disableMultiSelection
