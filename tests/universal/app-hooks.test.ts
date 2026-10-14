@@ -259,7 +259,7 @@ describe("Controller hooks & App invariants", () => {
 
       expect(el.textContent).toContain("First Session");
       expect(el.textContent).toContain("Second Session");
-      const items = el.querySelectorAll("div[title]");
+      const items = el.querySelectorAll('[data-slot="session-row"]');
       expect(items.length).toBe(2);
 
       act(() => root.unmount());

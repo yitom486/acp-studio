@@ -17,6 +17,9 @@ import {
   MoreHorizontal,
   X,
   FolderOpen,
+  Copy,
+  Terminal,
+  MessageSquare,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
@@ -25,6 +28,16 @@ import type { AgentSummary } from "@/lib/universal-api";
 import { getWorkspaceEnv, isPosixEnvironment, type RecentWorkspace } from "@/stores/useStudioStore";
 import { SPRING_LAYOUT, SPRING_SWAP } from "@/lib/motion-primitives";
 import { MarqueeLabel } from "@/components/primitives/AISidebar";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuLabel,
+  ContextMenuShortcut,
+} from "@/components/motion/ContextMenu";
+import { PullToRefresh } from "@/components/motion/PullToRefresh";
 
 export interface SessionItem {
   sessionId: string;
@@ -134,70 +147,117 @@ export const SessionRow = React.memo<SessionRowProps>(
   ({ session, active, supportsFork, onOpen, onFork, onDelete }) => {
     const time = compactTimeAgo(session.updatedAt);
     const [hovered, setHovered] = useState(false);
+    const sessionTitle = session.title || session.sessionId;
+
     return (
-      <motion.div
-        layout
-        transition={SPRING_LAYOUT}
-        onClick={() => onOpen(session)}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        className={`group relative flex items-center justify-between rounded-md px-2 py-1.5 cursor-pointer text-xs transition-colors select-none ${
-          active
-            ? "bg-accent text-foreground font-medium"
-            : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-        }`}
-      >
-        <div
-          title={session.title || session.sessionId}
-          className="min-w-0 flex-1 pr-1.5 flex items-center gap-1.5 overflow-hidden"
-        >
-          <MarqueeLabel active={hovered || active} className="text-xs">
-            {session.title || session.sessionId.slice(0, 16)}
-          </MarqueeLabel>
-        </div>
+      <ContextMenu>
+        <ContextMenuTrigger>
+          <motion.div
+            layout
+            transition={SPRING_LAYOUT}
+            onClick={() => onOpen(session)}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            data-slot="session-row"
+            data-session-id={session.sessionId}
+            className={`group relative flex items-center justify-between rounded-md px-2 py-1.5 cursor-pointer text-xs transition-colors select-none ${
+              active
+                ? "bg-accent text-foreground font-medium"
+                : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+            }`}
+          >
+            {/* 彻底去除原生 title 属性，告别生硬白底遮挡 tooltip */}
+            <div className="min-w-0 flex-1 pr-1.5 flex items-center gap-1.5 overflow-hidden">
+              <MarqueeLabel active={hovered || active} className="text-xs">
+                {session.title || session.sessionId.slice(0, 16)}
+              </MarqueeLabel>
+            </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Action icons on hover */}
-          <span className="hidden group-hover:flex items-center gap-1">
-            {supportsFork && (
-              <button
-                type="button"
-                title="Fork 会话"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onFork(session);
-                }}
-                className="p-0.5 rounded hover:text-foreground transition-colors"
-              >
-                <GitFork className="w-3 h-3" />
-              </button>
-            )}
-            <button
-              type="button"
-              title="删除会话"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(session);
-              }}
-              className="p-0.5 rounded hover:text-destructive transition-colors"
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-          </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Action icons on hover */}
+              <span className="hidden group-hover:flex items-center gap-1">
+                {supportsFork && (
+                  <button
+                    type="button"
+                    title="Fork 会话"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onFork(session);
+                    }}
+                    className="p-0.5 rounded hover:text-foreground transition-colors"
+                  >
+                    <GitFork className="w-3 h-3" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  title="删除会话"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(session);
+                  }}
+                  className="p-0.5 rounded hover:text-destructive transition-colors"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </span>
 
-          {/* Timestamp or Active blue indicator */}
-          {active ? (
-            <span
-              className="w-1.5 h-1.5 rounded-full bg-signal shrink-0 group-hover:hidden"
-              title="活动会话"
-            />
-          ) : time ? (
-            <span className="text-[10px] font-mono text-muted-foreground/60 tabular-nums shrink-0 group-hover:hidden">
-              {time}
-            </span>
-          ) : null}
-        </div>
-      </motion.div>
+              {/* Timestamp or Active blue indicator */}
+              {active ? (
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-signal shrink-0 group-hover:hidden"
+                  title="活动会话"
+                />
+              ) : time ? (
+                <span className="text-[10px] font-mono text-muted-foreground/60 tabular-nums shrink-0 group-hover:hidden">
+                  {time}
+                </span>
+              ) : null}
+            </div>
+          </motion.div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent ariaLabel={`会话 ${sessionTitle} 操作菜单`}>
+          <ContextMenuLabel>会话操作</ContextMenuLabel>
+          <ContextMenuItem onSelect={() => onOpen(session)}>
+            <MessageSquare className="w-3.5 h-3.5 text-primary shrink-0" />
+            <span>进入会话</span>
+          </ContextMenuItem>
+          {supportsFork && (
+            <ContextMenuItem onSelect={() => onFork(session)}>
+              <GitFork className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span>分叉新会话 (Fork)</span>
+              <ContextMenuShortcut>Fork</ContextMenuShortcut>
+            </ContextMenuItem>
+          )}
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onSelect={() => {
+              void navigator.clipboard.writeText(sessionTitle);
+            }}
+          >
+            <Copy className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <span>复制会话标题</span>
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => {
+              void navigator.clipboard.writeText(session.sessionId);
+            }}
+          >
+            <Terminal className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <span>复制会话 ID</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            tone="destructive"
+            onSelect={() => onDelete(session)}
+          >
+            <Trash2 className="w-3.5 h-3.5 text-destructive shrink-0" />
+            <span>删除此会话</span>
+            <ContextMenuShortcut>Del</ContextMenuShortcut>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   }
 );
@@ -610,8 +670,14 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
         </div>
       </div>
 
-      {/* 5. Scrollable Project Groups & Conversations Tree */}
-      <div className="flex-1 overflow-y-auto px-2 space-y-1.5 py-1">
+      {/* 5. Scrollable Project Groups & Conversations Tree with BeUI PullToRefresh */}
+      <PullToRefresh
+        onRefresh={async () => {
+          p.onRefreshSessions();
+        }}
+        refreshing={p.sessionsLoading}
+        className="flex-1 px-2 space-y-1.5 py-1"
+      >
         {projectGroups.map((grp) => {
           const isCollapsed = Boolean(collapsedProjects[grp.id || grp.name]);
           return (
@@ -778,7 +844,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
             暂无会话项目
           </div>
         )}
-      </div>
+      </PullToRefresh>
 
       {/* 6. Bottom Sticky Settings Bar */}
       <div className="p-2 border-t border-border shrink-0">

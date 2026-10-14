@@ -3,7 +3,7 @@
  * Starts the Node gateway in-process, then opens the Studio window on it.
  * Dev: ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:5188 (external vite+gateway).
  */
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, shell } from "electron";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { serve } from "@hono/node-server";
@@ -235,6 +235,42 @@ async function createWindow(cwd?: string) {
   w.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // 注册全局编辑上下文右键菜单（输入框、聊天框、文本选区）
+  w.webContents.on("context-menu", (_event, params) => {
+    const { isEditable, selectionText } = params;
+    const menuTemplate: Electron.MenuItemConstructorOptions[] = [];
+
+    if (isEditable) {
+      menuTemplate.push(
+        { role: "undo", label: "撤销" },
+        { role: "redo", label: "重做" },
+        { type: "separator" },
+        { role: "cut", label: "剪切" },
+        { role: "copy", label: "复制" },
+        { role: "paste", label: "粘贴" },
+        { type: "separator" },
+        { role: "selectAll", label: "全选" }
+      );
+    } else if (selectionText.trim().length > 0) {
+      menuTemplate.push(
+        { role: "copy", label: "复制" },
+        { role: "selectAll", label: "全选" }
+      );
+    }
+
+    if (isDev) {
+      if (menuTemplate.length > 0) menuTemplate.push({ type: "separator" });
+      menuTemplate.push({
+        label: "检查元素",
+        click: () => w.webContents.inspectElement(params.x, params.y),
+      });
+    }
+
+    if (menuTemplate.length > 0) {
+      Menu.buildFromTemplate(menuTemplate).popup({ window: w });
+    }
   });
   w.on("focus", () => {
     win = w;
