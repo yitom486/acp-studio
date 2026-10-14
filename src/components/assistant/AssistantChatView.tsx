@@ -643,7 +643,7 @@ const AssistantWelcome: React.FC<{
   onEnsureSession?: () => void;
   cwd?: string | null;
 }> = ({ agentName, onSelectSuggestion, connected, sessionId, sessionError, sessionLoading, onEnsureSession, cwd }) => (
-  <div className="max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto pt-[10vh] pb-8 px-2 space-y-6">
+  <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto pt-[10vh] pb-8 px-2 space-y-6">
     <div className="space-y-1.5 select-none">
       <h2 className="text-[22px] leading-tight font-semibold text-foreground tracking-[-0.01em]">
         {agentName}
@@ -1088,13 +1088,13 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
             cwd={cwd}
           />
         </ThreadPrimitive.Empty>
-        <div ref={contentRef} className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto space-y-6 px-3 sm:px-4">
+        <div ref={contentRef} className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-6 px-3 sm:px-4">
           <ThreadLoadEarlier />
           <ThreadPrimitive.Messages>
             {() => <ThreadMessageRouter agentName={agentName} cwd={cwd} />}
           </ThreadPrimitive.Messages>
         </div>
-        <ThreadPrimitive.ViewportFooter className="max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto sticky bottom-0 z-10 flex justify-center pointer-events-none h-0 overflow-visible">
+        <ThreadPrimitive.ViewportFooter className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto sticky bottom-0 z-10 flex justify-center pointer-events-none h-0 overflow-visible">
           <ThreadPrimitive.ScrollToBottom asChild>
             <button
               className="absolute bottom-3 pointer-events-auto flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border bg-popover text-xs text-muted-foreground hover:text-foreground shadow-md transition-colors disabled:invisible"
@@ -1111,7 +1111,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
 };
 
 export const AssistantLoadingSkeleton: React.FC = () => (
-  <div className="space-y-2 py-1 max-w-5xl xl:max-w-6xl 2xl:max-w-7xl mx-auto px-3 sm:px-4">
+  <div className="space-y-2 py-1 max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto px-3 sm:px-4">
     <Skeleton className="h-3.5 w-[92%]" />
     <Skeleton className="h-3.5 w-[78%]" />
     <Skeleton className="h-3.5 w-[64%]" />
