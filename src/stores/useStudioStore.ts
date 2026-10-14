@@ -11,6 +11,7 @@ import type {
 import {
   findThreadBySessionId,
   loadThreads,
+  mergeAssistantTurns,
   newThreadId,
   pruneThreads,
   saveThreads,
@@ -563,8 +564,8 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
   setUsage: (u) => set({ usage: u }),
   setQuota: (q) => set({ quota: q }),
   setSessionInfo: (info) => set({ sessionInfo: info }),
-  setMessages: (m) => set({ messages: m }),
-  appendMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
+  setMessages: (m) => set({ messages: mergeAssistantTurns(m) }),
+  appendMessage: (m) => set((s) => ({ messages: mergeAssistantTurns([...s.messages, m]) })),
   patchMessage: (id, patch) =>
     set((s) => ({
       messages: s.messages.map((m) => (m.id === id ? (typeof patch === "function" ? patch(m) : { ...m, ...patch }) : m)),
@@ -731,7 +732,7 @@ export const useStudioStore = create<StudioState>()((set, get) => ({
         sessionId,
         availableCommands: cmdsFor(st, agentId, sessionId),
         activeThreadId: existing.id,
-        messages: existing.messages.map((m) => ({ ...m })),
+        messages: mergeAssistantTurns(existing.messages).map((m) => ({ ...m })),
         sessionInfo: {
           ...(st.sessionInfo || {}),
           title: existing.title || title || st.sessionInfo?.title,

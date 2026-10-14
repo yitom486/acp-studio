@@ -18,3 +18,7 @@ launcher/
 run-zed-acp-silent.exe
 *.exe
 *.bun-build*
+scratch/bui*
+scratch/*.ts
+scratch/*.js
+scratch/*.css

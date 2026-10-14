@@ -63,6 +63,7 @@ import type { UsageState } from "@/stores/useStudioStore";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { cn } from "@/lib/utils";
+import ThinkingState from "@/components/primitives/ThinkingState";
 
 export interface AssistantChatViewProps {
   agentName?: string;
@@ -80,16 +81,7 @@ export interface AssistantChatViewProps {
 
 // ---------- part renderers (Text 由 AcpMarkdownText 直供 primitive) ----------
 
-/** 流式等待中的灵动跳跃微点。 */
-const BouncingDots: React.FC = () => (
-  <span className="inline-flex items-center gap-1 opacity-80" aria-hidden>
-    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bouncing-dot [animation-delay:0ms]" />
-    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bouncing-dot [animation-delay:160ms]" />
-    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bouncing-dot [animation-delay:320ms]" />
-  </span>
-);
-
-/** 智能体首 Token 到达前的多阶段灵动思考指示器 */
+/** 智能体首 Token 到达前的多阶段灵动思考指示器 (Beautiful UI 驱动) */
 const ThinkingStateCapsule: React.FC = () => {
   const [elapsed, setElapsed] = React.useState(0);
   React.useEffect(() => {
@@ -101,25 +93,25 @@ const ThinkingStateCapsule: React.FC = () => {
   }, []);
 
   const getStatusText = (s: number) => {
-    if (s < 2.5) return "正在思考…";
+    if (s < 2.5) return "正在思考与理解意图…";
     if (s < 6) return "正在分析代码与上下文…";
-    if (s < 12) return "正在规划执行方案…";
-    return "正在组织语言生成回复…";
+    if (s < 12) return "正在规划多步执行方案…";
+    return "正在组织语言生成流式回复…";
   };
 
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-border/80 bg-card px-3.5 py-2 shadow-xs transition-all duration-300">
-      <span className="relative flex h-2 w-2 shrink-0">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-      </span>
-      <span className="inline-flex items-center text-muted-foreground text-xs font-medium">
-        {getStatusText(elapsed)}
-      </span>
-      <span className="font-mono text-[10px] text-muted-foreground/60 tabular-nums">
-        {elapsed.toFixed(1)}s
-      </span>
-      <BouncingDots />
+    <div className="rounded-card border border-line bg-surface/90 px-3.5 py-2.5 shadow-card backdrop-blur-xs transition-all duration-300 w-full max-w-sm">
+      <ThinkingState
+        variant="Steps"
+        isWorking={true}
+        active={`${getStatusText(elapsed)} (${elapsed.toFixed(1)}s)`}
+        rows={[
+          { primary: "解析任务目标与上下文" },
+          { primary: "检索相关代码和符号定义" },
+          { primary: "分析依赖与调用链" },
+          { primary: "构建并生成回复" },
+        ]}
+      />
     </div>
   );
 };
@@ -201,7 +193,7 @@ const UsagePanel: React.FC<{ msg: Message }> = ({ msg }) => {
   );
 };
 /**
- * 思维链 · 思考过程折叠卡（社区 ChainOfThought 的轻量实现）。
+ * 思维链 · 思考过程折叠卡（Beautiful UI 风格思维链）。
  * 运行时默认展开，完成后自动收起；用户手动切换后不再自动干预。
  */
 const AcpReasoningView: React.FC<{
@@ -220,37 +212,62 @@ const AcpReasoningView: React.FC<{
       ? timing.completedAt - timing.startedAt
       : null;
   return (
-    <div className="rounded-lg bg-background/70 border border-border text-xs text-muted-foreground overflow-hidden">
+    <div className="rounded-card bg-surface/85 border border-line text-xs text-ink-2 overflow-hidden shadow-xs transition-colors">
       <button
         type="button"
         onClick={() => {
           manual.current = true;
           setOpen((o) => !o);
         }}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/40 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-hover-2 transition-colors cursor-pointer select-none"
       >
-        <Brain className="w-3.5 h-3.5 shrink-0" />
-        <span className="font-medium text-foreground">思考过程</span>
-        <span className="font-mono text-[10px] opacity-70">({thought.length} 字)</span>
+        <span className="flex shrink-0 text-ink-3">
+          <Brain className="w-3.5 h-3.5" />
+        </span>
         {running ? (
-          <span className="inline-flex items-center text-muted-foreground text-[11px]">思考中…</span>
+          <span
+            className="bg-clip-text text-[13px] font-medium whitespace-nowrap text-transparent"
+            style={{
+              backgroundImage:
+                "linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%)",
+              backgroundSize: "200% 100%",
+              animation: "shimmer-text 1.4s linear infinite",
+            }}
+          >
+            思考中…
+          </span>
         ) : (
-          doneMs != null && (
-            <span className="font-mono text-[10px] opacity-70">用时 {fmtElapsed(doneMs)}</span>
-          )
+          <span className="font-medium text-[13px] text-ink">
+            思考过程
+          </span>
         )}
-        <ChevronDown
+        <span className="font-mono text-[10px] text-ink-3">({thought.length} 字)</span>
+        {!running && doneMs != null && (
+          <span className="font-mono text-[10px] text-ink-3">用时 {fmtElapsed(doneMs)}</span>
+        )}
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--ink-3)"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
           className={cn("w-3.5 h-3.5 ml-auto transition-transform duration-300", open && "rotate-180")}
-        />
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
       </button>
       <div
         className={cn(
           "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
         )}
+        style={{ transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)" }}
       >
         <div className="overflow-hidden">
-          <div className="px-3 pb-2.5 pt-0.5 whitespace-pre-wrap font-sans break-words opacity-90">
+          <div className="relative mt-0.5 ml-3 pl-3.5 pb-2.5 pt-0.5 border-l border-line text-[12.5px] leading-relaxed text-ink-2 font-sans break-words whitespace-pre-wrap">
             {thought}
           </div>
         </div>
@@ -296,47 +313,73 @@ const ToolCallRow: React.FC<{ tc: AcpToolCall }> = React.memo(({ tc }) => {
         ? cmd
         : displayTitle;
 
+  const toolVerb =
+    widgetKey === "terminal"
+      ? "执行"
+      : widgetKey === "file-read"
+        ? "读取"
+        : widgetKey === "file-edit"
+          ? "编辑"
+          : widgetKey === "search"
+            ? "检索"
+            : "调用";
+
   return (
-    <div className="rounded-lg bg-background/80 border border-border text-xs text-muted-foreground animate-fade-slide-in">
+    <div className="rounded-control bg-surface border border-line text-xs text-ink-2 animate-fade-slide-in transition-colors">
       <div
         onClick={() => hasDetails && setExpanded((e) => !e)}
         className={cn(
-          "flex items-center gap-2 px-2.5 h-[32px] font-mono select-none",
-          hasDetails && "cursor-pointer hover:bg-muted/30",
+          "flex items-center gap-2 px-2.5 h-[34px] select-none",
+          hasDetails && "cursor-pointer hover:bg-hover-2",
         )}
       >
-        {widgetKey === "terminal" ? (
-          <SquareTerminal className="w-3.5 h-3.5 text-primary shrink-0" />
-        ) : widgetKey === "file-read" ? (
-          <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
-        ) : widgetKey === "file-edit" ? (
-          <PencilLine className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-        ) : widgetKey === "search" ? (
-          <Search className="w-3.5 h-3.5 text-primary shrink-0" />
-        ) : (
-          <Wrench className="w-3.5 h-3.5 text-primary shrink-0" />
-        )}
+        <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
+          {widgetKey === "terminal" ? (
+            <Terminal className="w-3.5 h-3.5 text-accent" />
+          ) : widgetKey === "file-read" ? (
+            <FileText className="w-3.5 h-3.5 text-accent" />
+          ) : widgetKey === "file-edit" ? (
+            <PencilLine className="w-3.5 h-3.5 text-amber-500" />
+          ) : widgetKey === "search" ? (
+            <Search className="w-3.5 h-3.5 text-accent" />
+          ) : (
+            <Wrench className="w-3.5 h-3.5 text-accent" />
+          )}
+        </span>
+
+        <span className="shrink-0 text-[11.5px] font-medium text-ink">
+          {toolVerb}
+        </span>
+
+        {/* Beautiful UI styled inline chip */}
         <span
-          className={cn("flex-1 truncate", active && "animate-pulse")}
+          className={cn(
+            "inline-flex h-5.5 min-w-0 flex-1 items-center truncate rounded-chip bg-field px-2 font-mono text-[11px] text-ink-2 shadow-hairline transition-colors hover:bg-hover-2",
+            active && "animate-pulse"
+          )}
           title={kind ? `${cleanTitle} [${kind}] (ID: ${tc.id})` : `${cleanTitle} (ID: ${tc.id})`}
         >
           {cleanTitle}
         </span>
+
         {shortId && (
           <span
-            className="text-[10px] text-muted-foreground/50 hover:text-foreground font-mono shrink-0 select-all cursor-default"
+            className="text-[10px] text-ink-3/60 hover:text-ink font-mono shrink-0 select-all cursor-default"
             title={`调用 ID: ${tc.id}`}
             onClick={(e) => e.stopPropagation()}
           >
             {shortId}
           </span>
         )}
+
         <LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />
+
         {isFileTool && (
           <span onClick={(e) => e.stopPropagation()}>
             <DiffButton file={targetFile} />
           </span>
         )}
+
         {isTerminal && cmd && (
           <button
             type="button"
@@ -344,32 +387,45 @@ const ToolCallRow: React.FC<{ tc: AcpToolCall }> = React.memo(({ tc }) => {
               e.stopPropagation();
               openInTerminal();
             }}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-sans transition-colors shrink-0"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-chip bg-field border border-line-strong hover:bg-hover-2 text-ink-2 text-[10px] font-sans transition-colors shrink-0 cursor-pointer"
             title="在终端中打开（只填入、不自动执行）"
           >
             <Terminal className="w-3 h-3" />
             <span>终端打开</span>
           </button>
         )}
+
         <StatusDot status={status} />
+
         {hasDetails && (
-          <ChevronDown
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--ink-3)"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
             className={cn(
-              "w-3 h-3 text-muted-foreground/70 transition-transform duration-200 shrink-0",
+              "w-3 h-3 text-ink-3 transition-transform duration-200 shrink-0",
               expanded && "rotate-180",
             )}
-          />
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
         )}
       </div>
+
       {expanded && (output || err) && (
-        <div className="mx-1.5 mb-1.5 rounded-md border border-border/60 bg-muted/60 overflow-hidden font-mono text-[11px] animate-fade-slide-in">
+        <div className="mx-1.5 mb-1.5 rounded-control border border-line bg-inset/70 overflow-hidden font-mono text-[11px] animate-fade-slide-in">
           {output && (
-            <pre className="px-2.5 py-2 overflow-x-auto text-foreground/90 whitespace-pre-wrap break-words max-h-[160px]">
+            <pre className="px-2.5 py-2 overflow-x-auto text-ink whitespace-pre-wrap break-words max-h-[160px]">
               <code>{firstLines(output, 10).shown}</code>
             </pre>
           )}
           {err && (
-            <pre className="px-2.5 py-2 overflow-x-auto text-destructive whitespace-pre-wrap break-words max-h-[120px] border-t border-destructive/30">
+            <pre className="px-2.5 py-2 overflow-x-auto text-red whitespace-pre-wrap break-words max-h-[120px] border-t border-red/30">
               <code>{firstLines(err, 8).shown}</code>
             </pre>
           )}
@@ -384,7 +440,7 @@ const ToolCallRow: React.FC<{ tc: AcpToolCall }> = React.memo(({ tc }) => {
 const ToolWidget: React.FC<{ tc: AcpToolCall }> = ToolCallRow;
 
 /**
- * 工具折叠组（社区 ToolGroup 模式）：连续工具调用收成一行摘要，
+ * 工具折叠组（Beautiful UI ToolChips 灵感与防布局扰动容器）：
  * 流式输出期间始终保持展开，绝不忽开忽关；流式结束或取消时自动折叠收起。
  * 内部滚动容器高度严格限制为 5 个工具项高度（max-h-[196px]），超出时在专门容器内向上平滑滚动，
  * 始终露出最新 5 个活跃工具，早期工具向上翻滚，杜绝破坏外部聊天正文排版，避免卡片剧烈忽大忽小；
@@ -463,32 +519,34 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = Reac
   if (!tools || tools.length === 0) return null;
 
   return (
-    <div className="rounded-lg bg-background/70 border border-border overflow-hidden transition-[box-shadow,border-color]">
+    <div className="rounded-card bg-surface/85 border border-line overflow-hidden shadow-xs transition-colors">
       <button
         type="button"
         onClick={() => {
           manual.current = true;
           setOpen((o) => !o);
         }}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none"
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-ink-2 hover:bg-hover-2 transition-colors cursor-pointer select-none"
       >
-        <Wrench className="w-3.5 h-3.5 text-primary shrink-0" />
-        <span className="font-medium text-foreground">
+        <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
+          <Wrench className="w-3.5 h-3.5 text-accent" />
+        </span>
+        <span className="font-semibold text-ink text-[12.5px]">
           工具调用 · {total}
         </span>
         {latest ? (
-          <span className="inline-flex items-center text-muted-foreground text-[11px] truncate min-w-0 flex-1">
+          <span className="inline-flex items-center text-ink-2 text-[11px] truncate min-w-0 flex-1">
             正在调用 {resolveToolDisplayTitle(latest)}…
           </span>
         ) : failedCount > 0 ? (
-          <span className="font-mono text-[10px] text-muted-foreground flex items-center gap-1.5 ml-1">
-            <span className={cn(successCount > 0 ? "text-amber-500 font-semibold" : "text-destructive font-semibold")}>
+          <span className="font-mono text-[10px] text-ink-3 flex items-center gap-1.5 ml-1">
+            <span className={cn(successCount > 0 ? "text-amber-500 font-semibold" : "text-red font-semibold")}>
               {successCount}/{total} 成功
             </span>
             <span className="opacity-70">({failedCount} 次失败/重试)</span>
           </span>
         ) : (
-          <span className="font-mono text-[10px] opacity-80 text-emerald-500 font-medium ml-1">
+          <span className="font-mono text-[10px] text-green font-medium ml-1">
             全部成功 ({total}/{total})
           </span>
         )}
@@ -496,12 +554,12 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = Reac
           className={cn(
             "w-2 h-2 rounded-full shrink-0 ml-auto",
             anyActive
-              ? "bg-warning animate-pulse"
+              ? "bg-amber-500 animate-pulse"
               : failedCount === 0
-                ? "bg-success"
+                ? "bg-green"
                 : successCount > 0
                   ? "bg-amber-500"
-                  : "bg-destructive",
+                  : "bg-red",
           )}
           title={
             anyActive
@@ -511,9 +569,19 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = Reac
                 : `${total} 次调用中 ${successCount} 次成功，${failedCount} 次失败/重试`
           }
         />
-        <ChevronDown
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--ink-3)"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
           className={cn("w-3.5 h-3.5 transition-transform duration-300 shrink-0", open && "rotate-180")}
-        />
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
       </button>
 
       {/* 展开内容：高度严格限定为 5 个工具项（max-h-[196px]），在专门容器内向上平滑滚动 */}
@@ -522,12 +590,13 @@ const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = Reac
           "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
         )}
+        style={{ transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)" }}
       >
         <div className="overflow-hidden">
           <div
             ref={scrollRef}
             onScroll={handleScroll}
-            className="px-1.5 pb-1.5 pt-0.5 space-y-1.5 max-h-[196px] overflow-y-auto overscroll-contain"
+            className="px-2 pb-2 pt-0.5 space-y-1.5 max-h-[196px] overflow-y-auto overscroll-contain"
           >
             {tools.map((tc) => (
               <ToolWidget key={tc.id} tc={tc} />

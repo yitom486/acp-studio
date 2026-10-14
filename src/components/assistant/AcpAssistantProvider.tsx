@@ -7,6 +7,7 @@ import {
 } from "@assistant-ui/react";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { convertAcpMessages, extractAppendText } from "@/lib/acp-assistant";
+import { mergeAssistantTurns } from "@/lib/threads";
 
 export interface AcpAssistantProviderProps {
   children: React.ReactNode;
@@ -36,8 +37,11 @@ export const AcpAssistantProvider: React.FC<AcpAssistantProviderProps> = ({
   onSend,
   onStop,
 }) => {
-  const messages = useStudioStore((s) => s.messages);
+  const rawMessages = useStudioStore((s) => s.messages);
   const isStreaming = useStudioStore((s) => s.isStreaming);
+
+  // Auto-heal: Ensure all consecutive assistant bubbles within the same turn are unified
+  const messages = useMemo(() => mergeAssistantTurns(rawMessages), [rawMessages]);
 
   // Pagination: long ACP histories (session replay can be hundreds of
   // messages) only expose the latest page to the runtime. Older pages load

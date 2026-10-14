@@ -4,7 +4,7 @@ import {
   consumeUniversalChat,
   buildTranscriptFromReplay,
 } from "../../src/lib/universal-api";
-import { THREADS_KEY, pruneThreads } from "../../src/lib/threads";
+import { THREADS_KEY, pruneThreads, mergeAssistantTurns } from "../../src/lib/threads";
 
 function sseFrame(payload: unknown): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
@@ -250,4 +250,45 @@ describe("turn persist (mock model events -> disk)", () => {
       ["assistant", "最终答案。"],
     ]);
   });
+
+  test("mergeAssistantTurns auto-heals existing fragmented history (e.g. standalone thought bubble + answer bubble)", () => {
+    // Simulates the exact user historical session bug:
+    // Message 1: User prompt
+    // Message 2: Assistant with thought ONLY, empty text body (99 chars)
+    // Message 3: Assistant with answer text
+    const fragmented = [
+      {
+        id: "msg-1",
+        role: "user" as const,
+        content: "在 server / desktop / scripts 下硬编码扫描完成",
+        timestamp: "11:15",
+      },
+      {
+        id: "msg-2",
+        role: "assistant" as const,
+        content: "",
+        thought: "思考过程 (99 字)...",
+        timestamp: "11:16",
+      },
+      {
+        id: "msg-3",
+        role: "assistant" as const,
+        content: "是的，在这个项目里硬编码不是代码洁癖问题，是直接变成用户体感问题的：\n1. 端口写死\n2. 路径写死",
+        timestamp: "11:16",
+      },
+    ];
+
+    const healed = mergeAssistantTurns(fragmented);
+
+    // Exactly 2 messages: 1 user, 1 unified assistant
+    expect(healed.length).toBe(2);
+    expect(healed[0].role).toBe("user");
+    expect(healed[0].content).toBe("在 server / desktop / scripts 下硬编码扫描完成");
+
+    const asst = healed[1];
+    expect(asst.role).toBe("assistant");
+    expect(asst.thought).toBe("思考过程 (99 字)...");
+    expect(asst.content).toBe("是的，在这个项目里硬编码不是代码洁癖问题，是直接变成用户体感问题的：\n1. 端口写死\n2. 路径写死");
+  });
 });
+

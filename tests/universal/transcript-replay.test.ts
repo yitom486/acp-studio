@@ -231,4 +231,79 @@ describe("Transcript Rebuilder (buildTranscriptFromReplay)", () => {
     expect(transcript.messages[3].thought).toBe("思考第 2 轮");
     expect(transcript.messages[3].content).toBe("第 2 轮回答");
   });
+
+  it("aggregates OpenCode multi-step assistant turns (status chunks, tools, thoughts, answers) into ONE assistant message", () => {
+    // Simulates the exact user problem: OpenCode replays intermediate status texts,
+    // tool calls, thought chunks, and final text, each with different step messageIds.
+    const replayed = [
+      {
+        sessionUpdate: "user_message_chunk",
+        messageId: "u_prompt",
+        content: { text: "那你看看目前工作区是进行了哪些优化呢请问" },
+      },
+      // Step 1: Intermediate status text
+      {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "step_status_1",
+        content: { text: "正在盘点工作区已落地的优化项。" },
+      },
+      // Tool call in step 1
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tc_git_1",
+        title: "git log --oneline -n 10",
+        kind: "execute",
+        status: "in_progress",
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tc_git_1",
+        status: "completed",
+      },
+      // Step 2: Intermediate status text
+      {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "step_status_2",
+        content: { text: "已提炼安全与体验改进的脉络，现细读变更记录确认全貌。" },
+      },
+      // Step 3: Thought chunk with its own messageId
+      {
+        sessionUpdate: "agent_thought_chunk",
+        messageId: "step_thought_3",
+        content: { text: "梳理最近的 commit 记录，重点归纳 UI 美化与历史回放逻辑..." },
+      },
+      // Step 4: Final response
+      {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "step_final_4",
+        content: { text: "当前工作区已落地的优化主要涵盖以下三大方面：\n1. Beautiful UI 升级\n2. 历史回放 Turn 聚合" },
+      },
+    ];
+
+    const transcript = buildTranscriptFromReplay(replayed);
+
+    // Must NOT produce 4 separate assistant bubbles!
+    // Exactly 2 messages: 1 user turn, 1 aggregated assistant turn.
+    expect(transcript.messages.length).toBe(2);
+
+    const user = transcript.messages[0];
+    expect(user.role).toBe("user");
+    expect(user.content).toBe("那你看看目前工作区是进行了哪些优化呢请问");
+
+    const asst = transcript.messages[1];
+    expect(asst.role).toBe("assistant");
+    // Thought properly aggregated
+    expect(asst.thought).toBe("梳理最近的 commit 记录，重点归纳 UI 美化与历史回放逻辑...");
+    // Tool calls properly aggregated
+    expect(asst.toolCalls?.length).toBe(1);
+    expect(asst.toolCalls?.[0].id).toBe("tc_git_1");
+    // Content properly joined with paragraphs
+    expect(asst.content).toContain("正在盘点工作区已落地的优化项。");
+    expect(asst.content).toContain("已提炼安全与体验改进的脉络，现细读变更记录确认全貌。");
+    expect(asst.content).toContain("当前工作区已落地的优化主要涵盖以下三大方面：");
+    expect(asst.content).toBe(
+      "正在盘点工作区已落地的优化项。\n\n已提炼安全与体验改进的脉络，现细读变更记录确认全貌。\n\n当前工作区已落地的优化主要涵盖以下三大方面：\n1. Beautiful UI 升级\n2. 历史回放 Turn 聚合"
+    );
+  });
 });
+

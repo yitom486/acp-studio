@@ -35,6 +35,39 @@
   --color-sidebar: hsl(var(--sidebar));
   --color-signal: hsl(var(--signal));
 
+  /* Beautiful UI tokens */
+  --color-page: var(--page);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-inset: var(--inset);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-hover: var(--hover);
+  --color-hover-2: var(--hover-2);
+  --color-field: var(--field);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-green: var(--green);
+  --color-green-tint: var(--green-tint);
+  --color-orange: var(--orange);
+  --color-orange-tint: var(--orange-tint);
+  --color-red: var(--red);
+  --color-red-tint: var(--red-tint);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+
+  --radius-chip: 6px;
+  --radius-control: 8px;
+  --radius-card: 10px;
+  --radius-window: 14px;
+
+  --shadow-hairline: var(--shadow-hairline);
+  --shadow-btn: var(--shadow-btn);
+  --shadow-card: var(--shadow-card);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-overlay: var(--shadow-overlay);
+
   /* 圆角按层级（--radius 0.5rem，取自 vercel）：容器 12px > 控件 8px > 内嵌 6px > 标签 4px，不再全局统一 */
   --radius-xl: calc(var(--radius) + 4px);
   --radius-lg: var(--radius);
@@ -53,9 +86,61 @@
   --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   --animate-fade-slide-in: fade-slide-in 0.25s ease-out;
 
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-link: cubic-bezier(0.16, 1, 0.3, 1);
+
   /* Tailwind 默认 transition 工具类统一绑定设计令牌 */
   --default-transition-duration: var(--theme-transition-duration);
   --default-transition-timing-function: var(--theme-transition-timing);
+}
+
+@keyframes shimmer-text {
+  from {
+    background-position: 150% center;
+  }
+  to {
+    background-position: -50% center;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes caret-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 @keyframes pulse-slow {
@@ -84,6 +169,36 @@
      * （Tailwind transition-* 工具类的默认时长也绑在这里，见 @theme） */
     --theme-transition-duration: 180ms;
     --theme-transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Beautiful UI tokens — dark/neutral default */
+    --page: oklch(0.209 0.004 264.477);
+    --canvas: oklch(0.231 0.004 264.487);
+    --surface: oklch(0.26 0.006 271.191);
+    --inset: oklch(0.243 0.004 264.492);
+    --hover: oklch(0.289 0.006 271.22);
+    --hover-2: oklch(0.318 0.007 274.747);
+    --ink: oklch(0.964 0.002 247.839);
+    --ink-2: oklch(0.731 0.008 260.731);
+    --ink-3: oklch(0.541 0.01 264.484);
+    --line: oklch(0.308 0.006 258.354);
+    --line-strong: oklch(0.356 0.007 264.474);
+    --line-soft: oklch(0.278 0.006 258.354);
+    --field: oklch(0.293 0.006 271.223);
+    --accent-ink: oklch(0.788 0.113 248.33);
+    --accent-tint: oklch(0.68 0.173 253.301 / 0.16);
+    --green: oklch(0.705 0.154 153.814);
+    --green-tint: oklch(0.705 0.154 153.814 / 0.14);
+    --orange: oklch(0.746 0.156 55.642);
+    --orange-tint: oklch(0.746 0.156 55.642 / 0.14);
+    --red: oklch(0.666 0.18 21.433);
+    --red-tint: oklch(0.666 0.18 21.433 / 0.14);
+
+    --shadow-hairline: 0 0 0 1px var(--line);
+    --shadow-btn: 0 0 0 1px oklch(1 0 0 / 0.1), 0 1px 2px oklch(0 0 0 / 0.3);
+    --shadow-card: 0 0 0 1px oklch(1 0 0 / 0.11), 0 1px 2px oklch(0 0 0 / 0.2), 0 2px 6px oklch(0 0 0 / 0.2);
+    --shadow-raised: 0 0 0 1px oklch(1 0 0 / 0.13), 0 2px 10px oklch(0 0 0 / 0.22);
+    --shadow-overlay: 0 0 0 1px oklch(1 0 0 / 0.15), 0 8px 28px oklch(0 0 0 / 0.34);
+    --shadow-inset-field: inset 0 1px 2px oklch(0 0 0 / 0.4);
   }
 
 
@@ -252,6 +367,36 @@
 
     --titlebar-bg: 0 0% 98.7%;
     --titlebar-border: 0 0% 89.6%;
+
+    /* Beautiful UI tokens — light mode */
+    --page: oklch(0.985 0.001 286.376);
+    --canvas: oklch(0.961 0.002 247.84);
+    --surface: oklch(1 0 0);
+    --inset: oklch(0.979 0.002 247.839);
+    --hover: oklch(0.97 0.002 247.839);
+    --hover-2: oklch(0.933 0.003 247.86);
+    --ink: oklch(0.247 0.006 258.361);
+    --ink-2: oklch(0.506 0.01 264.477);
+    --ink-3: oklch(0.695 0.009 264.505);
+    --line: oklch(0.946 0.003 264.542);
+    --line-strong: oklch(0.912 0.005 258.326);
+    --line-soft: oklch(0.966 0.002 264.542);
+    --field: oklch(0.961 0.001 286.375);
+    --accent-ink: oklch(0.556 0.187 255.617);
+    --accent-tint: oklch(0.96 0.019 252.878);
+    --green: oklch(0.603 0.155 150.883);
+    --green-tint: oklch(0.958 0.017 159.118);
+    --orange: oklch(0.689 0.179 49.902);
+    --orange-tint: oklch(0.964 0.021 67.581);
+    --red: oklch(0.621 0.192 23.042);
+    --red-tint: oklch(0.956 0.017 17.462);
+
+    --shadow-hairline: 0 0 0 1px var(--line);
+    --shadow-btn: 0 0 0 1px var(--line-strong), 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-card: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-raised: 0 0 0 1px var(--line), 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-overlay: 0 0 0 1px var(--line), 0 12px 28px rgba(0, 0, 0, 0.12);
+    --shadow-inset-field: inset 0 1px 2px oklch(0 0 0 / 0.12);
   }
 }
 

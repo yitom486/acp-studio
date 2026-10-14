@@ -1140,6 +1140,8 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
   let seq = 0;
   let lastUserKey: string | null = null;
   let lastAssistantKey: string | null = null;
+  let lastAssistantStepId: string | null = null;
+  let lastThoughtStepId: string | null = null;
 
   const ensureMessage = (role: "user" | "assistant", mid?: string) => {
     if (mid && byId.has(mid)) {
@@ -1162,6 +1164,8 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
       const k = u.messageId ? ensureMessage("user", u.messageId) : (lastUserKey || ensureMessage("user"));
       lastUserKey = k;
       lastAssistantKey = null; // Reset assistant turn
+      lastAssistantStepId = null;
+      lastThoughtStepId = null;
       const m = byId.get(k)!;
       m.role = "user";
       m.content += extractText(u);
@@ -1169,21 +1173,50 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
       const uimg = u.content?.type === "image" ? toChatImage(u.content) : null;
       if (uimg) m.images = [...(m.images || []), uimg].slice(-8);
     } else if (kind === "agent_message_chunk") {
-      const k = u.messageId ? ensureMessage("assistant", u.messageId) : (lastAssistantKey || ensureMessage("assistant"));
+      // Aggregate into current assistant turn so intermediate step messageIds don't fragment the bubble
+      const k = lastAssistantKey || ensureMessage("assistant", u.messageId);
       lastAssistantKey = k;
+      lastUserKey = null;
       const m = byId.get(k)!;
-      m.content += extractText(u);
+      const newText = extractText(u);
+      if (newText) {
+        // If this text chunk belongs to a new step (different messageId) and follows previous text,
+        // separate cleanly with double newline if previous text did not end with newline.
+        const isNewStep = Boolean(u.messageId && lastAssistantStepId && u.messageId !== lastAssistantStepId);
+        if (isNewStep && m.content && !m.content.endsWith("\n") && !newText.startsWith("\n")) {
+          m.content += "\n\n" + newText;
+        } else {
+          m.content += newText;
+        }
+        if (u.messageId) {
+          lastAssistantStepId = u.messageId;
+        }
+      }
       const img = u.content?.type === "image" ? toChatImage(u.content) : null;
       if (img) m.images = [...(m.images || []), img].slice(-8);
     } else if (kind === "agent_thought_chunk") {
-      const k = u.messageId ? ensureMessage("assistant", u.messageId) : (lastAssistantKey || ensureMessage("assistant"));
+      // Aggregate thoughts into current assistant turn
+      const k = lastAssistantKey || ensureMessage("assistant", u.messageId);
       lastAssistantKey = k;
+      lastUserKey = null;
       const m = byId.get(k)!;
-      m.thought = (m.thought || "") + extractText(u);
+      const thoughtText = extractText(u);
+      if (thoughtText) {
+        const isNewStep = Boolean(u.messageId && lastThoughtStepId && u.messageId !== lastThoughtStepId);
+        if (isNewStep && m.thought && !m.thought.endsWith("\n") && !thoughtText.startsWith("\n")) {
+          m.thought += "\n\n" + thoughtText;
+        } else {
+          m.thought = (m.thought || "") + thoughtText;
+        }
+        if (u.messageId) {
+          lastThoughtStepId = u.messageId;
+        }
+      }
     } else if (kind === "tool_call") {
       // Aggregate tool calls into current assistant turn
       const k = lastAssistantKey || ensureMessage("assistant", u.messageId);
       lastAssistantKey = k;
+      lastUserKey = null;
       const m = byId.get(k)!;
       const newTool: ToolCallItem = {
         id: u.toolCallId || `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1192,7 +1225,12 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
         status: (u.status as ToolCallItem["status"]) || "pending",
         ...pickToolExtras(u),
       };
-      m.toolCalls = [...(m.toolCalls || []), newTool];
+      const existing = m.toolCalls?.find((x) => x.id === newTool.id);
+      if (existing) {
+        Object.assign(existing, newTool);
+      } else {
+        m.toolCalls = [...(m.toolCalls || []), newTool];
+      }
     } else if (kind === "tool_call_update") {
       for (const m of byId.values()) {
         const t = m.toolCalls?.find((x) => x.id === u.toolCallId);

@@ -63,6 +63,88 @@ function hasUserMessage(t: ChatThread): boolean {
 }
 
 /**
+ * Auto-heal and normalize assistant turns:
+ * Merges consecutive assistant messages (e.g. from fragmented replays,
+ * standalone thought chunks, or step-by-step tool/status outputs) into a
+ * single cohesive assistant turn.
+ */
+export function mergeAssistantTurns<T extends Partial<Message> & { role: string; content?: string }>(
+  messages: T[]
+): T[] {
+  if (!Array.isArray(messages) || messages.length <= 1) return messages;
+
+  const result: T[] = [];
+  for (const msg of messages) {
+    const prev = result[result.length - 1];
+    // If consecutive assistant messages occur in the same turn without user interruption, merge them
+    if (prev && prev.role === "assistant" && msg.role === "assistant") {
+      // 1. Merge thought
+      let mergedThought = prev.thought;
+      if (msg.thought) {
+        if (!mergedThought) {
+          mergedThought = msg.thought;
+        } else if (!mergedThought.endsWith("\n") && !msg.thought.startsWith("\n")) {
+          mergedThought = mergedThought + "\n\n" + msg.thought;
+        } else {
+          mergedThought = mergedThought + "\n" + msg.thought;
+        }
+      }
+
+      // 2. Merge content
+      let mergedContent = prev.content || "";
+      const incomingContent = msg.content || "";
+      if (incomingContent) {
+        if (!mergedContent) {
+          mergedContent = incomingContent;
+        } else if (!mergedContent.endsWith("\n") && !incomingContent.startsWith("\n")) {
+          mergedContent = mergedContent + "\n\n" + incomingContent;
+        } else {
+          mergedContent = mergedContent + "\n" + incomingContent;
+        }
+      }
+
+      // 3. Merge toolCalls (deduplicate by id)
+      let mergedTools = prev.toolCalls ? [...prev.toolCalls] : undefined;
+      if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
+        mergedTools = mergedTools ? [...mergedTools] : [];
+        for (const tc of msg.toolCalls) {
+          const idx = mergedTools.findIndex((x) => x.id === tc.id);
+          if (idx >= 0) {
+            mergedTools[idx] = { ...mergedTools[idx], ...tc };
+          } else {
+            mergedTools.push(tc);
+          }
+        }
+      }
+
+      // 4. Merge images
+      const mergedImages = [
+        ...(prev.images || []),
+        ...(msg.images || []),
+      ].slice(-8);
+
+      result[result.length - 1] = {
+        ...prev,
+        content: mergedContent,
+        thought: mergedThought,
+        toolCalls: mergedTools && mergedTools.length > 0 ? mergedTools : undefined,
+        images: mergedImages.length > 0 ? mergedImages : undefined,
+        plan: msg.plan || prev.plan,
+        usage: msg.usage || prev.usage,
+        model: msg.model || prev.model,
+        mode: msg.mode || prev.mode,
+        isStreaming: Boolean(prev.isStreaming || msg.isStreaming),
+        timestamp: msg.timestamp || prev.timestamp,
+        thoughtTiming: prev.thoughtTiming || msg.thoughtTiming,
+      };
+    } else {
+      result.push({ ...msg });
+    }
+  }
+  return result;
+}
+
+/**
  * Prune for storage: drop blank threads (except preserved ids, e.g. the
  * live draft), freeze messages, cap counts. Pure — safe to unit test.
  */
@@ -76,9 +158,10 @@ export function pruneThreads(
   kept.sort((a, b) => b.updatedAt - a.updatedAt);
   const out: Record<string, ChatThread> = {};
   for (const t of kept.slice(0, MAX_THREADS)) {
+    const normalized = mergeAssistantTurns(t.messages);
     out[t.id] = {
       ...t,
-      messages: t.messages.slice(-MAX_MSGS_PER_THREAD).map(freezeMessage),
+      messages: normalized.slice(-MAX_MSGS_PER_THREAD).map(freezeMessage),
     };
   }
   return out;
@@ -203,7 +286,13 @@ export function loadThreads(): Record<string, ChatThread> {
       if (!t || typeof t !== "object" || typeof (t as any).agentId !== "string") continue;
       const th = t as ChatThread;
       if (!Array.isArray(th.messages)) continue;
-      out[id] = { ...th, id, sessionId: th.sessionId ?? null, updatedAt: th.updatedAt ?? 0 };
+      out[id] = {
+        ...th,
+        id,
+        sessionId: th.sessionId ?? null,
+        updatedAt: th.updatedAt ?? 0,
+        messages: mergeAssistantTurns(th.messages),
+      };
     }
     return out;
   } catch {

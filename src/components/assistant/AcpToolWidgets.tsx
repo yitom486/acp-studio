@@ -148,9 +148,9 @@ export const InlineApproval: React.FC<{ tc: Pick<WidgetTool, "id" | "title"> }> 
   const { perm, busy, respond } = useInlinePerm(tc);
   if (!perm) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-2 border-t border-border font-sans">
-      <span className="flex items-center gap-1 text-foreground font-medium text-[11px] mr-1">
-        <ShieldAlert className="w-3.5 h-3.5 text-signal" />
+    <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-2 border-t border-line bg-inset/40 font-sans">
+      <span className="flex items-center gap-1 text-ink font-medium text-[11px] mr-1">
+        <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
         需要授权
       </span>
       {(perm.options || []).slice(0, 3).map((o, i) => (
@@ -160,21 +160,21 @@ export const InlineApproval: React.FC<{ tc: Pick<WidgetTool, "id" | "title"> }> 
           disabled={busy}
           onClick={() => respond(o.optionId)}
           className={cn(
-            "h-6 px-2 rounded-md border text-[11px] font-medium transition-colors disabled:opacity-40",
+            "h-6 px-2.5 rounded-chip text-[11px] font-medium transition-colors disabled:opacity-40 cursor-pointer shadow-btn",
             i === 0
-              ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-              : "border-border text-foreground hover:bg-accent",
+              ? "bg-ink text-canvas hover:opacity-90"
+              : "bg-surface text-ink-2 hover:bg-hover border border-line",
           )}
           title={o.kind || o.optionId}
         >
-          {busy ? "提交中..." : o.name}
+          {busy ? "提交中…" : o.name}
         </button>
       ))}
       <button
         type="button"
         disabled={busy}
         onClick={() => respond(null)}
-        className="px-2 py-0.5 rounded-md text-muted-foreground text-[11px] hover:text-destructive transition-colors disabled:opacity-40"
+        className="px-2 py-0.5 rounded-chip text-ink-3 text-[11px] hover:text-red hover:bg-red-tint transition-colors disabled:opacity-40 cursor-pointer ml-auto"
         title="拒绝 / 取消"
       >
         拒绝
@@ -190,10 +190,10 @@ export const DiffButton: React.FC<{ file: string | null }> = ({ file }) => {
     <button
       type="button"
       onClick={() => onOpenDiff(true, file)}
-      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-sans transition-colors shrink-0"
+      className="flex items-center gap-1 px-1.5 py-0.5 rounded-chip bg-field border border-line hover:bg-hover-2 text-ink-2 text-[10px] font-sans transition-colors shrink-0 cursor-pointer"
       title={`在 Git 审查中查看 ${file}`}
     >
-      <FileDiff className="w-3 h-3" />
+      <FileDiff className="w-3 h-3 text-accent" />
       <span>Diff</span>
     </button>
   );
