@@ -238,9 +238,17 @@ export function useChatSend({
             c2.setAuthOk(agentId, false);
             c2.setAuthOpen(true);
           }
+          const isToolCallDesync =
+            typeof err?.message === "string" &&
+            (err.message.includes("No tool output found") ||
+              err.message.includes("tool call output") ||
+              err.message.includes("tool_call_id"));
+          const diagnosticHint = isToolCallDesync
+            ? "\n\n> 💡 **会话上下文失步诊断**：智能体在工具调用异常后遗漏了回包（Tool Call 状态断裂），导致上游模型服务拒绝了当前历史记录。建议点击**新建会话**以开启干净上下文继续任务。"
+            : "";
           c2.patchMessage(assistantId, (m) => ({
             ...m,
-            content: stripRetryNotes(m.content) + `\n\n> ❌ [${agentId}] ${err.message}`,
+            content: stripRetryNotes(m.content) + `\n\n> ❌ [${agentId}] ${err.message}${diagnosticHint}`,
           }));
           stampTurnEnd(assistantId);
         };
