@@ -68,6 +68,7 @@ import { cn } from "@/lib/utils";
 import { MessageScroller } from "@/components/primitives/MessageScroller";
 import { ActionSwap, MagneticButton } from "@/components/atoms/MotionButtons";
 import { Citations, type CitationItem } from "@/components/primitives/Citations";
+import { Loader } from "@/components/motion/Loader";
 
 export interface AssistantChatViewProps {
   agentName?: string;
@@ -114,9 +115,15 @@ const ThinkingStateCapsule: React.FC<{ startedAt?: number }> = ({ startedAt }) =
   }
 
   return (
-    <div className="rounded-card border border-line bg-surface/90 px-3.5 py-2 shadow-card backdrop-blur-xs transition-all duration-300 w-fit max-w-sm flex items-center gap-2 text-[12px] text-ink-2 font-medium select-none">
-      <span className={cn("size-2 rounded-full shrink-0", dotClass)} />
-      <span>{label}</span>
+    <div className="rounded-card border border-line bg-surface/90 px-3 py-1.5 shadow-card backdrop-blur-xs transition-all duration-300 w-fit max-w-sm flex items-center gap-2.5 text-[12px] text-ink-2 font-medium select-none">
+      {hasPendingPermission ? (
+        <span className="size-2 rounded-full shrink-0 bg-amber-500 animate-ping" />
+      ) : hasPendingElicitation ? (
+        <span className="size-2 rounded-full shrink-0 bg-blue-500 animate-ping" />
+      ) : (
+        <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
+      )}
+      <span className="tabular-nums font-sans">{label}</span>
     </div>
   );
 };
@@ -227,7 +234,11 @@ const AcpReasoningView: React.FC<{
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-hover-2 transition-colors cursor-pointer select-none"
       >
         <span className="flex shrink-0 text-ink-3">
-          <Brain className="w-3.5 h-3.5" />
+          {running ? (
+            <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
+          ) : (
+            <Brain className="w-3.5 h-3.5" />
+          )}
         </span>
         {running ? (
           <span
@@ -332,7 +343,11 @@ const AgentProgressAccordion: React.FC<{
           className="flex-1 flex items-center gap-2 cursor-pointer select-none text-left min-w-0"
         >
           <span className="flex shrink-0 text-ink-3">
-            <PencilLine className="w-3.5 h-3.5 text-primary" />
+            {running ? (
+              <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
+            ) : (
+              <PencilLine className="w-3.5 h-3.5 text-primary" />
+            )}
           </span>
           <span className="font-semibold text-ink text-[12.5px]">
             阶段推进记录 · {charCount} 字

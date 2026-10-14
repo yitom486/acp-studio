@@ -210,100 +210,115 @@ export const TurnDiffViewer: React.FC<TurnDiffViewerProps> = ({
         </div>
       </div>
 
-      {/* File Pills List: 默认仅展示最新 3 个文件，其余收拢至展开容器，杜绝挤爆视口 */}
-      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+      {/* VSCode-style Changes Table / List: 默认展示最新 3 个文件，其余收拢 */}
+      <div className="space-y-1.5 pt-0.5">
         {displayedFiles.map((file) => {
           const isSelected = expandedFile === file;
           const { name, relPath, ext } = formatFilePath(file, cwd);
           const extCls = getExtColor(ext);
           const diffData = cache[file];
+          const addCount = diffData?.lines ? diffData.lines.filter((l) => l.type === "added").length : 0;
+          const delCount = diffData?.lines ? diffData.lines.filter((l) => l.type === "removed").length : 0;
 
           return (
-            <motion.button
-              key={file}
-              type="button"
-              onClick={() => toggleFile(file)}
-              whileTap={{ scale: 0.97 }}
-              transition={SPRING_PRESS}
-              title={relPath}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-[11px] transition-colors outline-none cursor-pointer",
-                isSelected
-                  ? "border-primary/50 bg-primary/10 text-primary font-medium shadow-xs"
-                  : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <FileCode2 className="size-3.5 shrink-0" />
-              <span className="truncate max-w-[200px]">{name}</span>
-              {ext && (
-                <span className={cn("text-[9px] px-1 py-0.2 rounded border font-sans", extCls)}>
-                  {ext}
-                </span>
-              )}
-              {diffData?.loading ? (
-                <LoaderCircle className="size-3 animate-spin text-primary ml-0.5" />
-              ) : (
-                <motion.span
-                  animate={{ rotate: isSelected ? 180 : 0 }}
-                  transition={SPRING_SWAP}
-                  className="ml-0.5"
-                >
-                  <ChevronDown className="size-3 opacity-60" />
-                </motion.span>
-              )}
-            </motion.button>
+            <div key={file} className="space-y-1">
+              <motion.button
+                type="button"
+                onClick={() => toggleFile(file)}
+                whileTap={{ scale: 0.98 }}
+                transition={SPRING_PRESS}
+                title={relPath}
+                className={cn(
+                  "w-full flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 font-mono text-xs transition-colors outline-none cursor-pointer text-left",
+                  isSelected
+                    ? "border-primary/50 bg-primary/10 text-primary font-medium shadow-xs"
+                    : "border-border/60 bg-muted/30 text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                )}
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <FileCode2 className="size-3.5 shrink-0 opacity-70" />
+                  {ext && (
+                    <span className={cn("text-[9px] px-1 py-0.2 rounded border font-sans font-semibold shrink-0 uppercase", extCls)}>
+                      {ext}
+                    </span>
+                  )}
+                  <span className="font-semibold text-foreground truncate max-w-[200px]">{name}</span>
+                  <span className="text-[10px] text-muted-foreground/60 truncate min-w-0 hidden sm:inline">
+                    {relPath}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {diffData && !diffData.loading && (addCount > 0 || delCount > 0) && (
+                    <span className="font-mono text-[10.5px] tabular-nums font-semibold flex items-center gap-1">
+                      {addCount > 0 && <span className="text-emerald-500 font-bold">+{addCount}</span>}
+                      {delCount > 0 && <span className="text-rose-500 font-bold">-{delCount}</span>}
+                    </span>
+                  )}
+                  {diffData?.loading ? (
+                    <LoaderCircle className="size-3 animate-spin text-primary" />
+                  ) : (
+                    <motion.span
+                      animate={{ rotate: isSelected ? 180 : 0 }}
+                      transition={SPRING_SWAP}
+                    >
+                      <ChevronDown className="size-3.5 opacity-60" />
+                    </motion.span>
+                  )}
+                </div>
+              </motion.button>
+
+              {/* Inline FileDiff view for this file */}
+              <AnimatePresence mode="wait">
+                {isSelected && (
+                  <motion.div
+                    key={`${file}-diff`}
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.18 }}
+                    className="pt-0.5"
+                  >
+                    {cache[file]?.loading ? (
+                      <div className="flex items-center justify-center p-4 text-xs text-muted-foreground gap-2 rounded-lg border border-border/50 bg-background/50">
+                        <LoaderCircle className="size-4 animate-spin text-primary" />
+                        <span>正在加载 {name} 的代码差异…</span>
+                      </div>
+                    ) : cache[file]?.error ? (
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                        {cache[file]?.error}
+                      </div>
+                    ) : cache[file]?.lines && cache[file]?.lines.length > 0 ? (
+                      <FileDiff
+                        file={relPath}
+                        lines={cache[file]?.lines || []}
+                        status="complete"
+                        defaultOpen={true}
+                        maxHeight={280}
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center p-3 text-xs text-muted-foreground gap-2 rounded-lg border border-border/50 bg-background/50">
+                        <Check className="size-3.5 text-success" />
+                        <span>该文件无未暂存的代码改动（或改动已提交）</span>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           );
         })}
         {files.length > 3 && (
           <button
             type="button"
             onClick={() => setShowAllFiles((s) => !s)}
-            className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer select-none"
+            className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/70 bg-muted/20 py-1.5 font-mono text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer select-none"
             title={showAllFiles ? "收拢为最新 3 个文件" : `展开其余 ${files.length - 3} 个修改文件`}
           >
-            <span>{showAllFiles ? "收拢为最新 3 个" : `+${files.length - 3} 个文件`}</span>
-            <ChevronDown className={cn("size-3 transition-transform duration-200", showAllFiles && "rotate-180")} />
+            <span>{showAllFiles ? "收拢为最新 3 个" : `展开其余 ${files.length - 3} 个修改文件`}</span>
+            <ChevronDown className={cn("size-3.5 transition-transform duration-200", showAllFiles && "rotate-180")} />
           </button>
         )}
       </div>
-
-      {/* Expanded FileDiff view */}
-      <AnimatePresence mode="wait">
-        {expandedFile && (
-          <motion.div
-            key={expandedFile}
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.18 }}
-            className="pt-1"
-          >
-            {cache[expandedFile]?.loading ? (
-              <div className="flex items-center justify-center p-6 text-xs text-muted-foreground gap-2 rounded-lg border border-border/50 bg-background/50">
-                <LoaderCircle className="size-4 animate-spin text-primary" />
-                <span>正在加载 {formatFilePath(expandedFile, cwd).name} 的代码差异…</span>
-              </div>
-            ) : cache[expandedFile]?.error ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-                {cache[expandedFile]?.error}
-              </div>
-            ) : cache[expandedFile]?.lines && cache[expandedFile]?.lines.length > 0 ? (
-              <FileDiff
-                file={formatFilePath(expandedFile, cwd).relPath}
-                lines={cache[expandedFile]?.lines || []}
-                status="complete"
-                defaultOpen={true}
-                maxHeight={280}
-              />
-            ) : (
-              <div className="flex items-center justify-center p-4 text-xs text-muted-foreground gap-2 rounded-lg border border-border/50 bg-background/50">
-                <Check className="size-3.5 text-success" />
-                <span>该文件无未暂存的代码改动（或改动已提交）</span>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };
