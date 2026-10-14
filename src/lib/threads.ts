@@ -51,6 +51,7 @@ export function freezeMessage(m: Message): Message {
   return {
     ...m,
     content: trunc(m.content),
+    progressContent: typeof m.progressContent === "string" ? trunc(m.progressContent) : m.progressContent,
     thought: typeof m.thought === "string" ? trunc(m.thought) : m.thought,
     isStreaming: false,
     toolCalls: undefined,
@@ -103,6 +104,18 @@ export function mergeAssistantTurns<T extends Partial<Message> & { role: string;
         }
       }
 
+      // 2.5 Merge progressContent
+      let mergedProgress = (prev as any).progressContent || "";
+      const incomingProgress = (msg as any).progressContent || "";
+      if (incomingProgress) {
+        if (!mergedProgress) mergedProgress = incomingProgress;
+        else if (!mergedProgress.endsWith("\n") && !incomingProgress.startsWith("\n")) {
+          mergedProgress = mergedProgress + "\n\n" + incomingProgress;
+        } else {
+          mergedProgress = mergedProgress + "\n" + incomingProgress;
+        }
+      }
+
       // 3. Merge toolCalls (deduplicate by id)
       let mergedTools = prev.toolCalls ? [...prev.toolCalls] : undefined;
       if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
@@ -126,6 +139,7 @@ export function mergeAssistantTurns<T extends Partial<Message> & { role: string;
       result[result.length - 1] = {
         ...prev,
         content: mergedContent,
+        progressContent: mergedProgress || undefined,
         thought: mergedThought,
         toolCalls: mergedTools && mergedTools.length > 0 ? mergedTools : undefined,
         images: mergedImages.length > 0 ? mergedImages : undefined,
@@ -142,6 +156,55 @@ export function mergeAssistantTurns<T extends Partial<Message> & { role: string;
     }
   }
   return result;
+}
+
+export interface PartitionedTurnContent {
+  progress?: string;
+  conclusion: string;
+}
+
+/**
+ * 分区助手轮次内容：
+ * 1. 若显式携带 progressContent，则 progressContent 为阶段过程记录，content 为结论。
+ * 2. 若未显式携带，但包含工具调用或多阶段标记（如“接线”、“总结”、“结论”、“验证”、“改动说明”等）：
+ *    将前面的过渡文本收拢为阶段记录，将最终定稿与结论保留在底部。
+ */
+export function partitionTurnContent(
+  content: string,
+  progressContent?: string,
+  hasTools?: boolean
+): PartitionedTurnContent {
+  const trimmedProgress = progressContent?.trim();
+  const trimmedContent = content?.trim() || "";
+
+  if (trimmedProgress) {
+    return {
+      progress: trimmedProgress,
+      conclusion: trimmedContent,
+    };
+  }
+
+  // 若无显式 progressContent，检测是否有段落级的定稿/结论标题分界
+  if (trimmedContent.length > 50) {
+    const conclusionRegex =
+      /(?:\n\n|\r?\n)(?=(?:#{1,4}\s+|(?:\*\*|__))(?:总结|结论|完成|验证|接线|结果|最终|改动说明|变更说明|实施方案|Summary|Conclusion|Resolution|Verified|Implementation|Deliverables)[\s\S]*?(?:\*\*|__|\n))/i;
+    const match = conclusionRegex.exec(trimmedContent);
+    if (match && match.index > 15) {
+      const progressPart = trimmedContent.slice(0, match.index).trim();
+      const conclusionPart = trimmedContent.slice(match.index).trim();
+      if (progressPart && conclusionPart) {
+        return {
+          progress: progressPart,
+          conclusion: conclusionPart,
+        };
+      }
+    }
+  }
+
+  return {
+    progress: undefined,
+    conclusion: trimmedContent,
+  };
 }
 
 /**

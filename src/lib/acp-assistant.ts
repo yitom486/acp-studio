@@ -1,6 +1,7 @@
 import type { ThreadMessageLike } from "@assistant-ui/react";
 import type { Message } from "@/lib/message-types";
 import type { PendingPermission } from "@/lib/universal-api";
+import { partitionTurnContent } from "@/lib/threads";
 
 /**
  * ACP Message -> assistant-ui ThreadMessageLike.
@@ -94,8 +95,13 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
     });
   }
 
-  // Always keep a text part so streaming / empty states render.
-  content.push({ type: "text", text: msg.content || "" });
+  // Always keep a text part so streaming / empty states render (conclusions directly surfaced at bottom).
+  const { conclusion } = partitionTurnContent(
+    msg.content,
+    (msg as any).progressContent,
+    Boolean(msg.toolCalls && msg.toolCalls.length > 0)
+  );
+  content.push({ type: "text", text: conclusion || msg.content || "" });
 
   // Agent-sent images (after text; order within a turn is text-then-images).
   for (const img of msg.images || []) {

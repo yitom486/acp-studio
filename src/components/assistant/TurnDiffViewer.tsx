@@ -163,6 +163,8 @@ export const TurnDiffViewer: React.FC<TurnDiffViewerProps> = ({
     [cache, cwd],
   );
 
+  const [showAllFiles, setShowAllFiles] = useState(false);
+
   const toggleFile = (file: string) => {
     if (expandedFile === file) {
       setExpandedFile(null);
@@ -173,6 +175,8 @@ export const TurnDiffViewer: React.FC<TurnDiffViewerProps> = ({
   };
 
   if (!files || files.length === 0) return null;
+
+  const displayedFiles = files.length <= 3 || showAllFiles ? files : files.slice(-3);
 
   return (
     <div
@@ -206,9 +210,9 @@ export const TurnDiffViewer: React.FC<TurnDiffViewerProps> = ({
         </div>
       </div>
 
-      {/* File Pills List */}
-      <div className="flex flex-wrap gap-1.5 pt-0.5">
-        {files.map((file) => {
+      {/* File Pills List: 默认仅展示最新 3 个文件，其余收拢至展开容器，杜绝挤爆视口 */}
+      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+        {displayedFiles.map((file) => {
           const isSelected = expandedFile === file;
           const { name, relPath, ext } = formatFilePath(file, cwd);
           const extCls = getExtColor(ext);
@@ -223,7 +227,7 @@ export const TurnDiffViewer: React.FC<TurnDiffViewerProps> = ({
               transition={SPRING_PRESS}
               title={relPath}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-[11px] transition-colors outline-none",
+                "inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-[11px] transition-colors outline-none cursor-pointer",
                 isSelected
                   ? "border-primary/50 bg-primary/10 text-primary font-medium shadow-xs"
                   : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -250,6 +254,17 @@ export const TurnDiffViewer: React.FC<TurnDiffViewerProps> = ({
             </motion.button>
           );
         })}
+        {files.length > 3 && (
+          <button
+            type="button"
+            onClick={() => setShowAllFiles((s) => !s)}
+            className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer select-none"
+            title={showAllFiles ? "收拢为最新 3 个文件" : `展开其余 ${files.length - 3} 个修改文件`}
+          >
+            <span>{showAllFiles ? "收拢为最新 3 个" : `+${files.length - 3} 个文件`}</span>
+            <ChevronDown className={cn("size-3 transition-transform duration-200", showAllFiles && "rotate-180")} />
+          </button>
+        )}
       </div>
 
       {/* Expanded FileDiff view */}

@@ -274,10 +274,23 @@ export function useChatSend({
                 return { ...m, images: images.slice(-8) };
               }),
             onToolCall: (c) =>
-              cur.patchMessage(assistantId, (m) => ({
-                ...m,
-                toolCalls: [...(m.toolCalls || []), { ...c, startedAt: Date.now() }],
-              })),
+              cur.patchMessage(assistantId, (m) => {
+                const existingText = m.content?.trim();
+                let updatedProgress = m.progressContent;
+                let newContent = m.content;
+                if (existingText) {
+                  updatedProgress = updatedProgress
+                    ? `${updatedProgress}\n\n${existingText}`
+                    : existingText;
+                  newContent = "";
+                }
+                return {
+                  ...m,
+                  content: newContent,
+                  progressContent: updatedProgress,
+                  toolCalls: [...(m.toolCalls || []), { ...c, startedAt: Date.now() }],
+                };
+              }),
             onToolCallUpdate: (c) =>
               cur.patchMessage(assistantId, (m) => {
                 const calls = [...(m.toolCalls || [])];
@@ -346,6 +359,17 @@ export function useChatSend({
                   c2.patchMessage(assistantId, { usage: merged });
                 }
               }
+              // 若该轮次结束且没有最终正文输出（仅工具前有阶段说明），将阶段说明回退为正文保证不丢失任何内容
+              useStudioStore.getState().patchMessage(assistantId, (m) => {
+                if (!m.content?.trim() && m.progressContent) {
+                  return {
+                    ...m,
+                    content: m.progressContent,
+                    progressContent: undefined,
+                  };
+                }
+                return m;
+              });
               stampTurnEnd(assistantId);
             },
             onError: (err) => {

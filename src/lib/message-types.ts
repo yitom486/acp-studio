@@ -3,6 +3,8 @@ export interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  /** 中间阶段执行过程文本（多阶段/工具调用时自动收拢折叠，正文区仅展示最终结论）。 */
+  progressContent?: string;
   thought?: string;
   plan?: Array<{ content: string; priority?: string; status?: string }>;
   usage?: {

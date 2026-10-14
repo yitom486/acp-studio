@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   findThreadBySessionId,
   freezeMessage,
+  partitionTurnContent,
   pruneThreads,
   threadForAgent,
   type ChatThread,
@@ -114,6 +115,26 @@ describe("threads (per-agent persisted records)", () => {
     expect(findThreadBySessionId(dict, "gemini", "sess-123")?.id).toBe("t3");
     expect(findThreadBySessionId(dict, "codex", "sess-unknown")).toBeNull();
     expect(findThreadBySessionId(dict, "codex", "")).toBeNull();
+  });
+
+  test("partitionTurnContent separates intermediate progress and final conclusion", () => {
+    // 1. Explicit progressContent
+    const res1 = partitionTurnContent("最终完成，所有测试通过。", "排查代码中...\n核对配置...");
+    expect(res1.progress).toBe("排查代码中...\n核对配置...");
+    expect(res1.conclusion).toBe("最终完成，所有测试通过。");
+
+    // 2. Auto-detection of concluding section headers from legacy long stream text
+    const combined =
+      "收到，按计划排查问题。核查渲染端与主进程核心链路。确认包导出存在。\n\n**接线（非 demo）**\n- 官方引擎已对齐\n- 协议层已升级\n\n**验证**\n- 96 项测试通过";
+    const res2 = partitionTurnContent(combined, undefined, true);
+    expect(res2.progress).toBe("收到，按计划排查问题。核查渲染端与主进程核心链路。确认包导出存在。");
+    expect(res2.conclusion).toContain("**接线（非 demo）**");
+    expect(res2.conclusion).toContain("**验证**");
+
+    // 3. Short plain content without markers
+    const res3 = partitionTurnContent("你好，有什么我可以帮你的？");
+    expect(res3.progress).toBeUndefined();
+    expect(res3.conclusion).toBe("你好，有什么我可以帮你的？");
   });
 });
 

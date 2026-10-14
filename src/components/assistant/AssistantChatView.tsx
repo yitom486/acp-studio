@@ -60,6 +60,7 @@ import {
   strField,
 } from "@/components/assistant/tool-widget-utils";
 import type { Message } from "@/lib/message-types";
+import { partitionTurnContent } from "@/lib/threads";
 import type { UsageState } from "@/stores/useStudioStore";
 import { useStudioStore } from "@/stores/useStudioStore";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
@@ -279,6 +280,117 @@ const AcpReasoningView: React.FC<{
     </div>
   );
 };
+
+/**
+ * 阶段推进记录折叠组件（各时期中间态会话内容收拢容器）：
+ * 流式推进期间可动态跟踪；运行完成或取消后自动收拢折叠，
+ * 绝不与最终结论混杂，保证底部正文纯净，快速查看核心结论。
+ */
+const AgentProgressAccordion: React.FC<{
+  progress: string;
+  running?: boolean;
+}> = React.memo(({ progress, running = false }) => {
+  const [open, setOpen] = React.useState(running);
+  const manual = React.useRef(false);
+  const prevRunning = React.useRef(running);
+  const [copied, setCopied] = React.useState(false);
+
+  React.useEffect(() => {
+    // 运行状态从非运行变为运行：自动展开
+    if (running && !prevRunning.current) {
+      manual.current = false;
+      setOpen(true);
+    }
+    // 运行结束或取消：自动折叠收拢
+    else if (!running && prevRunning.current) {
+      if (!manual.current) {
+        setOpen(false);
+      }
+    }
+    prevRunning.current = running;
+  }, [running]);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(progress).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  if (!progress || !progress.trim()) return null;
+  const charCount = progress.trim().length;
+
+  return (
+    <div className="rounded-card bg-surface/85 border border-line text-xs text-ink-2 overflow-hidden shadow-xs transition-colors">
+      <div className="w-full flex items-center justify-between px-3 py-2 hover:bg-hover-2 transition-colors">
+        <button
+          type="button"
+          onClick={() => {
+            manual.current = true;
+            setOpen((o) => !o);
+          }}
+          className="flex-1 flex items-center gap-2 cursor-pointer select-none text-left min-w-0"
+        >
+          <span className="flex shrink-0 text-ink-3">
+            <PencilLine className="w-3.5 h-3.5 text-primary" />
+          </span>
+          <span className="font-semibold text-ink text-[12.5px]">
+            阶段推进记录 · {charCount} 字
+          </span>
+          {running ? (
+            <span className="font-mono text-[10px] text-amber-500 font-medium flex items-center gap-1 ml-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              正在推进…
+            </span>
+          ) : (
+            <span className="font-mono text-[10px] text-muted-foreground ml-1">
+              (已收拢)
+            </span>
+          )}
+        </button>
+        <div className="flex items-center gap-1.5 ml-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            title="复制阶段过程记录"
+          >
+            {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              manual.current = true;
+              setOpen((o) => !o);
+            }}
+            className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            title={open ? "收起" : "展开"}
+          >
+            <ChevronDown
+              className={cn("w-3.5 h-3.5 text-ink-3 transition-transform duration-300 shrink-0", open && "rotate-180")}
+            />
+          </button>
+        </div>
+      </div>
+
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+        )}
+        style={{ transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)" }}
+      >
+        <div className="overflow-hidden">
+          <div className="px-3 pb-3 pt-1">
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-3 max-h-[220px] overflow-y-auto overscroll-contain text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words font-sans">
+              {progress}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 type AcpToolCall = WidgetTool;
 
@@ -860,6 +972,12 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
   const acp = useStudioStore((s) => s.messages.find((m) => m.id === messageId));
   const isSystem = acp?.role === "system";
   const [turnChangesOpen, setTurnChangesOpen] = React.useState(false);
+
+  const { progress, conclusion } = React.useMemo(
+    () => partitionTurnContent(acp?.content || "", acp?.progressContent, (acp?.toolCalls?.length ?? 0) > 0),
+    [acp?.content, acp?.progressContent, acp?.toolCalls]
+  );
+
   // 本轮实际改动过的文件（edit/diff/delete 且能定位路径），去重保序。
   const editedFiles = React.useMemo(() => {
     const seen = new Set<string>();
@@ -1035,27 +1153,30 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
 
         {/* 等待态已提前 return 胶囊；此处只有到达过 token 的消息 */}
         <>
-          {/* 思维链：思考 + 工具组收拢，正文保持干净 */}
-          {(!!acp?.thought || (acp?.toolCalls && acp.toolCalls.length > 0)) && (
+          {/* 过程区：思考链 + 阶段推进记录 + 工具组收拢，正文保持干净 */}
+          {(!!acp?.thought || !!progress || (acp?.toolCalls && acp.toolCalls.length > 0)) && (
             <div className="space-y-1.5">
               {!!acp?.thought && (
                 <AcpReasoningView thought={acp.thought} running={running} timing={acp.thoughtTiming} />
+              )}
+              {!!progress && (
+                <AgentProgressAccordion progress={progress} running={running} />
               )}
               {acp?.toolCalls && acp.toolCalls.length > 0 && (
                 <AcpToolGroup tools={acp.toolCalls} running={running} />
               )}
             </div>
           )}
-          <AssistantMessageBody />
-          {citations.length > 0 && <Citations citations={citations} idPrefix={`msg-${messageId}`} />}
           {editedFiles.length > 0 && !running && (
             <TurnDiffViewer
               files={editedFiles}
               cwd={cwd}
-              className="mt-2.5"
+              className="my-2"
               onOpenChangesModal={() => setTurnChangesOpen(true)}
             />
           )}
+          <AssistantMessageBody />
+          {citations.length > 0 && <Citations citations={citations} idPrefix={`msg-${messageId}`} />}
         </>
 
         {/* 固定 h-7 槽位：bar 的挂载/卸载只换透明度，不挤布局；
@@ -1082,8 +1203,14 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
             <ActionBarPrimitive.Copy asChild>
               <MagneticButton
                 strength={0.2}
-                className="p-1.5 rounded-lg hover:text-foreground hover:bg-muted/80 transition-colors"
-                title="复制内容"
+                onClick={() => {
+                  const toCopy = conclusion || acp?.content || "";
+                  if (toCopy) {
+                    navigator.clipboard.writeText(toCopy).catch(() => {});
+                  }
+                }}
+                className="p-1.5 rounded-lg hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+                title="复制最终结论"
               >
                 <ActionSwap stateKey={isCopied ? "copied" : "idle"}>
                   {isCopied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1115,8 +1242,50 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
 
 const SystemMessageView: React.FC = () => {
   const messageId = useAuiState((s) => s.message.id);
-  const acp = useStudioStore((s) => s.messages.find((m) => m.id === messageId));
-  const content = acp?.content || "";
+  const messages = useStudioStore((s) => s.messages);
+  const idx = messages.findIndex((m) => m.id === messageId);
+  const [open, setOpen] = React.useState(false);
+
+  // 若未找到，或非连续系统消息首条，直接返回 null（由首条聚合渲染整个集群）
+  if (idx < 0) return null;
+  if (idx > 0 && messages[idx - 1]?.role === "system") {
+    return null;
+  }
+
+  // 收集自当前节点开始的所有连续系统消息
+  const cluster: Message[] = [];
+  for (let i = idx; i < messages.length; i++) {
+    if (messages[i].role === "system") {
+      cluster.push(messages[i]);
+    } else {
+      break;
+    }
+  }
+
+  if (cluster.length === 0) return null;
+
+  // 单条系统消息：保持经典胶囊
+  if (cluster.length === 1) {
+    const content = cluster[0].content || "";
+    return (
+      <MessagePrimitive.Root
+        id={messageId}
+        data-slot="message"
+        data-message-id={messageId}
+        data-from="system"
+        className="w-full flex items-center justify-center my-3 px-4 select-none animate-fade-slide-in"
+      >
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-muted/60 border border-border/70 text-muted-foreground text-xs shadow-xs max-w-xl text-center">
+          <Info className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+          <span className="leading-relaxed">{content}</span>
+        </div>
+      </MessagePrimitive.Root>
+    );
+  }
+
+  // 多条连续系统消息：合并为单行紧凑动态容器，显示最新状态并支持展开，杜绝堆积霸屏
+  const latest = cluster[cluster.length - 1];
+  const latestSummary = latest.content.replace(/^.*?\]\s*/, "") || latest.content;
 
   return (
     <MessagePrimitive.Root
@@ -1124,11 +1293,35 @@ const SystemMessageView: React.FC = () => {
       data-slot="message"
       data-message-id={messageId}
       data-from="system"
-      className="w-full flex items-center justify-center my-3 px-4 select-none animate-fade-slide-in"
+      className="w-full flex flex-col items-center justify-center my-2.5 px-4 select-none animate-fade-slide-in"
     >
-      <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-muted/60 border border-border/70 text-muted-foreground text-xs shadow-xs max-w-xl text-center">
-        <Info className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
-        <span className="leading-relaxed">{content}</span>
+      <div className="rounded-2xl bg-muted/60 border border-border/70 text-muted-foreground text-xs shadow-xs max-w-xl w-fit overflow-hidden transition-all">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-2 px-3.5 py-1.5 hover:bg-muted/80 transition-colors cursor-pointer select-none"
+        >
+          <Info className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+          <span className="font-semibold text-foreground text-[12px]">
+            系统记录 · {cluster.length} 项操作
+          </span>
+          <span className="text-[11px] text-muted-foreground truncate max-w-[280px]">
+            (最新: {latestSummary})
+          </span>
+          <ChevronDown
+            className={cn("w-3.5 h-3.5 ml-1 transition-transform duration-200 shrink-0", open && "rotate-180")}
+          />
+        </button>
+        {open && (
+          <div className="border-t border-border/60 bg-muted/30 px-3.5 py-2 max-h-[140px] overflow-y-auto space-y-1 text-[11px] font-mono divide-y divide-border/40">
+            {cluster.map((m, i) => (
+              <div key={m.id || i} className="py-1 text-muted-foreground flex items-center justify-between gap-3">
+                <span className="truncate">{m.content}</span>
+                {m.timestamp && <span className="text-[10px] opacity-70 shrink-0 font-sans">{m.timestamp}</span>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </MessagePrimitive.Root>
   );

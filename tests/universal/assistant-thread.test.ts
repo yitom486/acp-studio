@@ -535,4 +535,73 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     root.unmount();
     el.remove();
   });
+
+  it("renders intermediate progress accordion and separates final conclusion", async () => {
+    useStudioStore.setState({
+      sessionId: "sess-progress-1",
+      messages: [
+        {
+          id: "asst-prog",
+          role: "assistant",
+          progressContent: "收到，按 G0–G5 接线排查。核对官方包能力、梳理 present 真实链路...",
+          content: "**最终接线结论**\n所有接口接线完毕，单测通过。",
+          timestamp: "03:30",
+          isStreaming: false,
+        },
+      ],
+      isStreaming: false,
+    } as any);
+
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+    });
+
+    const html = el.innerHTML;
+    // 阶段记录折叠卡
+    expect(html).toContain("阶段推进记录");
+    expect(html).toContain("(已收拢)");
+    // 最终结论直接显示在正文区
+    expect(html).toContain("最终接线结论");
+    // 复制按钮
+    expect(html).toContain("复制最终结论");
+
+    root.unmount();
+    el.remove();
+  });
+
+  it("clusters consecutive system messages into single row capsule to avoid flooding", async () => {
+    useStudioStore.setState({
+      sessionId: "sess-cluster-1",
+      messages: [
+        { id: "s1", role: "system", content: "📝 [fs_write] packages/contracts/component-ui.ts", timestamp: "03:31" },
+        { id: "s2", role: "system", content: "📝 [fs_write] packages/contracts/present-result.ts", timestamp: "03:32" },
+        { id: "s3", role: "system", content: "📝 [fs_write] packages/contracts/tool-display.ts", timestamp: "03:33" },
+      ],
+      isStreaming: false,
+    } as any);
+
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+    });
+
+    const html = el.innerHTML;
+    // 聚合成单条系统记录
+    expect(html).toContain("系统记录 · 3 项操作");
+    expect(html).toContain("packages/contracts/tool-display.ts");
+
+    root.unmount();
+    el.remove();
+  });
 });
