@@ -14,6 +14,7 @@
 | **03** | **协议转译与事件映射规范** | 详尽的协议双向映射字典：ACP JSON-RPC 2.0 方法与 Google `agy` CLI `stream-json`（NDJSON）事件字段的逐一转换对照表。 | [03_protocol_and_mapping_spec.md](file:///d:/project/js/Electron/antigravity-acp/docs/03_protocol_and_mapping_spec.md) |
 | **04** | **认证机制与会话生命周期白皮书** | 系统分析 Google Antigravity 本地凭证继承原理、会话隔离、进程生命周期守护、异常退出回收机制与安全策略。 | [antigravity_acp_auth_and_lifecycle.md](file:///d:/project/js/Electron/antigravity-acp/docs/antigravity_acp_auth_and_lifecycle.md) |
 | **05** | **技能系统与生成式 UI 架构技术白皮书** | 深入剖析零环境污染的复合技能分发机制、MCP 原生按需调用、ACP 会话级目录授权与出版级矢量图表设计规范。 | [04_studio_skills_and_generative_ui.md](file:///d:/project/js/Electron/antigravity-acp/docs/04_studio_skills_and_generative_ui.md) |
+| **06** | **动态环境注入与零污染隔离设计范式** | 深度拆解传统提示词拼接与改写配置的反模式，阐述 ACP 传输层内存挂载原理、全生命周期对称注入与多端共存无缝退化机制。 | [05_acp_native_injection_and_isolation_paradigm.md](file:///d:/project/js/Electron/antigravity-acp/docs/05_acp_native_injection_and_isolation_paradigm.md) |
 
 ---
 
