@@ -38,11 +38,13 @@ export type SseSend = (evt: Record<string, unknown>) => void;
 
 /**
  * Encouraging client capability guidance injected into the first turn of each agent session.
- * Gently reminds the agent that Generative UI & Editorial Diagram tools are available on `studio-ui`.
+ * Gently reminds the agent that Generative UI & Editorial Diagram tools are available on `studio-ui`
+ * — IF the agent actually has them in its tool list (honesty gate: some agents/runtimes do not
+ * load MCP servers in headless sessions; never promise tools the session does not have).
  */
 export const CLIENT_GENERATIVE_UI_HINT = [
   "【客户端交互能力与体验建议 / Client Interactive Capabilities】",
-  "当前客户端已连接并支持专用的富交互式 UI 与出版级矢量图表服务（MCP 服务：studio-ui）。在本次会话中，鼓励（非强制）在契合场景下优先调用以下工具，为用户提供清晰生动的视觉与交互体验：",
+  "当前客户端支持专用的富交互式 UI 与出版级矢量图表服务（MCP 服务：studio-ui）。请先检查你本次会话可用工具列表中是否包含该 MCP 服务的工具；仅当以下工具真实存在并可调用时，才在契合场景下优先调用它们，为用户提供清晰生动的视觉与交互体验。如果你的工具列表中没有这些工具，请直接忽略本段，切勿向用户承诺你可以调用它们：",
   "- 出版级矢量图表（render_editorial_diagram）：当呈现系统架构分层拓扑、服务调用时序、流程业务状态机、技术选型四象限决策矩阵或项目演进里程碑时，鼓励优先调用生成出版级矢量图表，代替原始简陋的 Mermaid 文本；",
   "- 结构化富交互卡片（show_interactive_card）：当向用户提供方案对比决策(decision)、任务排查或门禁清单(checklist)、核心性能与指标看板(metrics)时，鼓励直接渲染富交互卡片；",
   "- 人机协同交互表单（prompt_form）与动态组件沙箱原型（render_react_sandbox）；",
