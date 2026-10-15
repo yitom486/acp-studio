@@ -40,12 +40,25 @@ function trunc(text: unknown): string {
     : text;
 }
 
+function freezeToolCall(tc: any) {
+  if (!tc) return tc;
+  return {
+    id: tc.id,
+    title: tc.title,
+    kind: tc.kind,
+    status: tc.status,
+    name: tc.name,
+    rawInput: tc.rawInput,
+    rawOutput: typeof tc.rawOutput === "string" ? trunc(tc.rawOutput) : tc.rawOutput,
+    startedAt: tc.startedAt,
+    completedAt: tc.completedAt,
+  };
+}
+
 /**
  * Freeze a live message for storage: drop streaming flags, cap sizes.
- * Persist policy (user-visible history = Q&A only): the persisted record
- * keeps the final answer text (+thought), but NEVER tool calls/results or
- * agent images (data URLs would blow up localStorage) — they are live-view
- * only and are stripped here, not at render time.
+ * Persists user Q&A text (+thought) and compact toolCalls (enabling generative cards
+ * to survive thread switches/reloads). Massive raw outputs are truncated.
  */
 export function freezeMessage(m: Message): Message {
   return {
@@ -54,7 +67,7 @@ export function freezeMessage(m: Message): Message {
     progressContent: typeof m.progressContent === "string" ? trunc(m.progressContent) : m.progressContent,
     thought: typeof m.thought === "string" ? trunc(m.thought) : m.thought,
     isStreaming: false,
-    toolCalls: undefined,
+    toolCalls: Array.isArray(m.toolCalls) ? m.toolCalls.map(freezeToolCall) : undefined,
     images: undefined,
   };
 }

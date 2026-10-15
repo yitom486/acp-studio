@@ -49,6 +49,10 @@ import {
   type WidgetTool,
 } from "@/components/assistant/AcpToolWidgets";
 import {
+  isGenerativeTool,
+  AcpGenerativeToolCard,
+} from "@/components/assistant/toolkit";
+import {
   extractFileFromTool,
   fmtElapsed,
   resolveToolDisplayTitle,
@@ -1009,16 +1013,14 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
     return out;
   }, [acp?.toolCalls]);
 
+  // 提取属于 Generative UI 的富组件工具（卡片、矢量图表、沙箱、表单）
+  const generativeTools = React.useMemo(() => {
+    return (acp?.toolCalls || []).filter((tc) => isGenerativeTool(tc));
+  }, [acp?.toolCalls]);
+
+  // 常规工具（命令执行、文件编辑等）保持在折叠区
   const regularTools = React.useMemo(() => {
-    return (acp?.toolCalls || []).filter((tc) => {
-      const name = (tc.name || tc.title || "").toLowerCase();
-      return (
-        name !== "show_interactive_card" &&
-        name !== "render_react_sandbox" &&
-        name !== "prompt_form" &&
-        name !== "render_editorial_diagram"
-      );
-    });
+    return (acp?.toolCalls || []).filter((tc) => !isGenerativeTool(tc));
   }, [acp?.toolCalls]);
 
   const citations: CitationItem[] = React.useMemo(() => {
@@ -1201,6 +1203,14 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
               className="my-2"
               onOpenChangesModal={() => setTurnChangesOpen(true)}
             />
+          )}
+          {/* 生成式富交互卡片 / 出版级矢量图表：优先直接高亮渲染 */}
+          {generativeTools.length > 0 && (
+            <div className="my-2.5 space-y-3">
+              {generativeTools.map((tc) => (
+                <AcpGenerativeToolCard key={tc.id} tool={tc} />
+              ))}
+            </div>
           )}
           <AssistantMessageBody />
           {citations.length > 0 && <Citations citations={citations} idPrefix={`msg-${messageId}`} />}

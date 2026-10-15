@@ -10,6 +10,11 @@ import {
 import { ReactArtifactCard } from "../../src/components/assistant/ReactArtifactCard";
 import { AcpCodeHeader } from "../../src/components/assistant/AcpMarkdown";
 import { EditorialDiagramCard } from "../../src/components/assistant/EditorialDiagramCard";
+import {
+  AcpGenerativeToolCard,
+  isGenerativeTool,
+  normalizeGenerativeToolName,
+} from "../../src/components/assistant/toolkit";
 
 // Helper to reliably trigger React 19 synthetic onChange events on uncontrolled/controlled inputs in happy-dom
 function setInputValue(input: HTMLInputElement, value: string | boolean) {
@@ -432,5 +437,65 @@ describe("Generative UI - Front-End Component End-to-End Tests", () => {
 
     expect(writeTextMock).toHaveBeenCalledTimes(1);
     expect(writeTextMock.mock.calls[0][0]).toContain("<svg");
+  });
+
+  it("E2E: AcpGenerativeToolCard strips namespace prefixes and renders decision cards & diagrams from stringified rawInput", async () => {
+    // 1. Test normalization helpers
+    expect(normalizeGenerativeToolName("studio-ui_show_interactive_card")).toBe("show_interactive_card");
+    expect(normalizeGenerativeToolName("studio-ui.render_editorial_diagram")).toBe("render_editorial_diagram");
+    expect(normalizeGenerativeToolName("studio-ui/prompt_form")).toBe("prompt_form");
+    expect(isGenerativeTool({ name: "studio-ui_show_interactive_card" })).toBe(true);
+    expect(isGenerativeTool({ title: "studio-ui_render_editorial_diagram" })).toBe(true);
+    expect(isGenerativeTool({ name: "bash" })).toBe(false);
+
+    // 2. Render decision card with stringified JSON rawInput and namespaced tool name
+    const onAction = vi.fn();
+    const decisionTool = {
+      id: "tc-test-decision",
+      name: "studio-ui_show_interactive_card",
+      rawInput: JSON.stringify({
+        title: "状态管理方案选型",
+        cardType: "decision",
+        description: "选择最匹配项目架构的状态层",
+        data: {
+          options: [
+            { id: "zustand", label: "维持 Zustand", recommended: true, description: "轻量无缝" },
+            { id: "jotai", label: "迁移 Jotai", description: "原子订阅" },
+          ],
+        },
+      }),
+    };
+
+    await act(async () => {
+      root.render(<AcpGenerativeToolCard tool={decisionTool} onAction={onAction} />);
+    });
+
+    expect(container.textContent).toContain("状态管理方案选型");
+    expect(container.textContent).toContain("维持 Zustand");
+    expect(container.textContent).toContain("迁移 Jotai");
+    expect(container.textContent).toContain("推荐");
+
+    // 3. Render editorial diagram with namespaced tool name
+    const diagramTool = {
+      id: "tc-test-diagram",
+      name: "studio-ui_render_editorial_diagram",
+      rawInput: {
+        title: "OAuth 鉴权时序流程",
+        diagramType: "sequence",
+        data: {
+          steps: [
+            { id: "s1", source: "Client", target: "Gateway", label: "POST /login" },
+            { id: "s2", source: "Gateway", target: "AuthService", label: "Verify Credentials" },
+          ],
+        },
+      },
+    };
+
+    await act(async () => {
+      root.render(<AcpGenerativeToolCard tool={diagramTool} />);
+    });
+
+    expect(container.textContent).toContain("OAuth 鉴权时序流程");
+    expect(container.querySelector("svg")).not.toBeNull();
   });
 });

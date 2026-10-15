@@ -83,11 +83,23 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
   }
 
   for (const tc of msg.toolCalls || []) {
-    const toolName = tc.name || tc.title || "tool";
-    const args =
-      tc.rawInput && typeof tc.rawInput === "object"
-        ? (tc.rawInput as Record<string, any>)
-        : { kind: tc.kind ?? "", status: tc.status };
+    const rawName = tc.name || tc.title || "tool";
+    const cleanName = rawName.replace(/^studio[-_]ui[:_./]/i, "");
+    const toolName = cleanName || rawName;
+    let args: Record<string, any> = {};
+    if (tc.rawInput && typeof tc.rawInput === "object") {
+      args = tc.rawInput as Record<string, any>;
+    } else if (typeof tc.rawInput === "string") {
+      try {
+        const parsed = JSON.parse(tc.rawInput);
+        if (parsed && typeof parsed === "object") args = parsed;
+        else args = { rawText: tc.rawInput };
+      } catch {
+        args = { rawText: tc.rawInput };
+      }
+    } else {
+      args = { kind: tc.kind ?? "", status: tc.status };
+    }
     const argsText =
       typeof tc.rawInput === "string"
         ? tc.rawInput
