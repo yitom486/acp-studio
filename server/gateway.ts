@@ -12,6 +12,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { staticFileResponse } from "./static-files";
+import { stopMcpUiServer } from "./universal/mcp-ui-server";
 
 export function setupEnv() {
   // 生成/复用网关 token 并注入进程环境，同一机器前后端共享（详见 universal/security.ts）。
@@ -261,6 +262,9 @@ export function buildApp() {
 }
 
 export async function shutdownBridges() {
+  await stopMcpUiServer().catch((err) => {
+    console.warn(`[Server] 关闭 MCP UI 服务失败: ${(err as Error)?.message || err}`);
+  });
   await universalRegistry.shutdown().catch((err) => {
     console.warn(`[Server] 关闭 agent 桥接失败：${(err as Error)?.message || err}`);
   });

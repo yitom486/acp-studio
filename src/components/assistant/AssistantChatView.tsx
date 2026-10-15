@@ -1009,6 +1009,17 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
     return out;
   }, [acp?.toolCalls]);
 
+  const regularTools = React.useMemo(() => {
+    return (acp?.toolCalls || []).filter((tc) => {
+      const name = (tc.name || tc.title || "").toLowerCase();
+      return (
+        name !== "show_interactive_card" &&
+        name !== "render_react_sandbox" &&
+        name !== "prompt_form"
+      );
+    });
+  }, [acp?.toolCalls]);
+
   const citations: CitationItem[] = React.useMemo(() => {
     if (acp?.citations && Array.isArray(acp.citations) && acp.citations.length > 0) {
       return acp.citations;
@@ -1169,7 +1180,7 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
         {/* 等待态已提前 return 胶囊；此处只有到达过 token 的消息 */}
         <>
           {/* 过程区：思考链 + 阶段推进记录 + 工具组收拢，正文保持干净 */}
-          {(!!acp?.thought || !!progress || (acp?.toolCalls && acp.toolCalls.length > 0)) && (
+          {(!!acp?.thought || !!progress || regularTools.length > 0) && (
             <div className="space-y-1.5">
               {!!acp?.thought && (
                 <AcpReasoningView thought={acp.thought} running={running} timing={acp.thoughtTiming} />
@@ -1177,8 +1188,8 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
               {!!progress && (
                 <AgentProgressAccordion progress={progress} running={running} />
               )}
-              {acp?.toolCalls && acp.toolCalls.length > 0 && (
-                <AcpToolGroup tools={acp.toolCalls} running={running} />
+              {regularTools.length > 0 && (
+                <AcpToolGroup tools={regularTools} running={running} />
               )}
             </div>
           )}

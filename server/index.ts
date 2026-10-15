@@ -1,5 +1,6 @@
 import { setupEnv, PORT, HOST, buildApp, freePortIfOccupied, shutdownBridges } from "./gateway";
 import { gatewayBootstrapUrl, gatewayTokenPreview } from "./universal/security";
+import { startMcpUiServer } from "./universal/mcp-ui-server";
 
 setupEnv();
 await freePortIfOccupied(PORT);
@@ -11,6 +12,11 @@ const server = Bun.serve({
   hostname: HOST,
   idleTimeout: 0, // Disable idle timeout so server never exits
   fetch: app.fetch,
+});
+
+// Start dedicated 5-digit MCP Server (auto-cascade starting from 13920)
+await startMcpUiServer().catch((err) => {
+  console.warn(`[Server] 启动 MCP UI 端口服务失败: ${(err as Error)?.message || err}`);
 });
 
 // Explicit keepalive timer to ensure Bun process never drains event loop when idle on Windows

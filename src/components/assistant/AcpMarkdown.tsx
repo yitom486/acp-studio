@@ -15,21 +15,70 @@ import { cn } from "@/lib/utils";
 import { AcpImageView, isSafeLinkHref, isSafeMediaSrc } from "@/components/assistant/AcpMedia";
 import { Citation } from "@/components/primitives/Citations";
 
+const ReactArtifactCard = lazy(() =>
+  import("./ReactArtifactCard").then((m) => ({ default: m.ReactArtifactCard }))
+);
+
 const AcpCodeHeader: React.FC<CodeHeaderProps> = ({ language, code }) => {
   const [copied, setCopied] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const cleanLang = (language || "").toLowerCase().trim();
+  const isPreviewable = cleanLang === "react" || cleanLang === "tsx" || cleanLang === "jsx" || cleanLang === "html";
+
   const copy = () => {
     if (!code || copied) return;
     navigator.clipboard.writeText(code).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
   return (
-    <div className="mt-2 flex items-center justify-between rounded-t-lg border border-b-0 border-border bg-background/80 px-3 py-1 text-[11px] font-mono text-muted-foreground">
-      <span>{language || "code"}</span>
-      <button onClick={copy} className="flex items-center gap-1 hover:text-foreground transition-colors" title="复制代码">
-        {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-        {copied ? "已复制" : "复制"}
-      </button>
+    <div className="mt-2">
+      <div className="flex items-center justify-between rounded-t-lg border border-b-0 border-border bg-background/80 px-3 py-1 text-[11px] font-mono text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <span>{language || "code"}</span>
+          {isPreviewable && (
+            <button
+              type="button"
+              onClick={() => setShowPreview((p) => !p)}
+              className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-sans font-medium transition-colors flex items-center gap-1",
+                showPreview
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-foreground hover:bg-primary/20"
+              )}
+              title={showPreview ? "切回代码视图" : "实时渲染并预览此交互组件"}
+            >
+              <span>{showPreview ? "查看源码" : "运行预览"}</span>
+            </button>
+          )}
+        </div>
+        <button
+          onClick={copy}
+          className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
+          title="复制代码"
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied ? "已复制" : "复制"}
+        </button>
+      </div>
+
+      {showPreview && isPreviewable && (
+        <Suspense
+          fallback={
+            <div className="p-3 text-xs text-muted-foreground animate-pulse border border-border bg-background/60">
+              沙箱加载中…
+            </div>
+          }
+        >
+          <ReactArtifactCard
+            code={code}
+            template={cleanLang === "html" ? "html" : "react"}
+            title={`${language} 原型预览`}
+            className="rounded-t-none mt-0 border-t-0"
+          />
+        </Suspense>
+      )}
     </div>
   );
 };
@@ -167,8 +216,37 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => (
   </div>
 );
 
-const mermaidByLanguage = {
+const ReactPreviewBlock: React.FC<{ code: string }> = ({ code }) => (
+  <Suspense
+    fallback={
+      <div className="my-2 p-3 text-xs text-muted-foreground animate-pulse border border-border rounded-lg bg-background/60">
+        正在挂载沙箱组件…
+      </div>
+    }
+  >
+    <ReactArtifactCard code={code} template="react" />
+  </Suspense>
+);
+
+const HtmlPreviewBlock: React.FC<{ code: string }> = ({ code }) => (
+  <Suspense
+    fallback={
+      <div className="my-2 p-3 text-xs text-muted-foreground animate-pulse border border-border rounded-lg bg-background/60">
+        正在挂载 HTML 沙箱…
+      </div>
+    }
+  >
+    <ReactArtifactCard code={code} template="html" />
+  </Suspense>
+);
+
+const customByLanguage = {
   mermaid: { SyntaxHighlighter: MermaidBlock },
+  "react-preview": { SyntaxHighlighter: ReactPreviewBlock },
+  "tsx-preview": { SyntaxHighlighter: ReactPreviewBlock },
+  "jsx-preview": { SyntaxHighlighter: ReactPreviewBlock },
+  "html-preview": { SyntaxHighlighter: HtmlPreviewBlock },
+  "ui-preview": { SyntaxHighlighter: ReactPreviewBlock },
 };
 
 const BASE_REMARK = [remarkGfm];
@@ -176,7 +254,7 @@ const fencesOnly = (t: string) => closeOpenFences(t);
 
 export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   const components = useMemo(() => acpComponents, []);
-  const byLanguage = useMemo(() => mermaidByLanguage, []);
+  const byLanguage = useMemo(() => customByLanguage, []);
   const { text } = useMessagePartText();
   const math = useSyncExternalStore(subscribeMath, getMathPlugins);
   const needsMath = useMemo(() => hasMath(text), [text]);

@@ -835,6 +835,16 @@ export async function sessionNew(agentId: string, args: Record<string, unknown> 
   return data.result;
 }
 
+export async function getMcpInfo(): Promise<{ port: number; url: string; name: string } | null> {
+  try {
+    const res = await apiFetch("/api/universal/mcp-info");
+    const data = await res.json();
+    return data.ok ? data.info : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function sessionRpc(agentId: string, action: string, body: Record<string, unknown> = {}) {
   const res = await apiFetch(`/api/universal/agents/${encodeURIComponent(agentId)}/session/${action}`, {
     method: "POST",

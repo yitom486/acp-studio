@@ -6,9 +6,15 @@ import { serve } from "@hono/node-server";
 import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "./gateway";
 import { gatewayBootstrapUrl, gatewayTokenPreview } from "./universal/security";
 import { attachPtyUpgrade } from "./universal/pty";
+import { startMcpUiServer } from "./universal/mcp-ui-server";
 
 setupEnv();
 await freePortIfOccupied(PORT);
+
+// Start dedicated 5-digit MCP Server (auto-cascade starting from 13920)
+await startMcpUiServer().catch((err) => {
+  console.warn(`[Server] 启动 MCP UI 端口服务失败: ${(err as Error)?.message || err}`);
+});
 
 const app = buildApp();
 

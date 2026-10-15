@@ -23,6 +23,7 @@ import {
 import { InteractionManager } from "./interaction";
 import { FsGuard } from "./fs-guard";
 import { probeLiveAgyQuota } from "./runtimes/agy-quota";
+import { getMcpUiServerInfo } from "./mcp-ui-server";
 
 // Re-export platform helpers for external consumers & test compatibility
 export {
@@ -468,9 +469,25 @@ export class UniversalAgentConnection {
     const conn = this.ensureConn();
     const cwd = args.cwd || this.profile.defaultCwd || process.cwd();
     const roots = this.fsGuard.sessionRootsFor(cwd, args.additionalDirectories);
+    const mcpServers = [...(args.mcpServers || [])];
+    const mcpInfo = getMcpUiServerInfo();
+    const agentCaps = (this.initResult as any)?.mcpCapabilities;
+    if (mcpInfo && (agentCaps?.sse || agentCaps?.http || !agentCaps)) {
+      const alreadyHas = mcpServers.some(
+        (s: any) => s && (s.name === mcpInfo.name || s.url === mcpInfo.url)
+      );
+      if (!alreadyHas) {
+        mcpServers.push({
+          type: "sse",
+          name: mcpInfo.name,
+          url: mcpInfo.url,
+          headers: [],
+        });
+      }
+    }
     const result = await conn.agent.request(acp.methods.agent.session.new, {
       cwd,
-      mcpServers: (args.mcpServers || []) as never[],
+      mcpServers: mcpServers as never[],
       ...(args.additionalDirectories ? { additionalDirectories: args.additionalDirectories } : {}),
     } as unknown as never);
     this.fsGuard.rememberSessionRoots((result as { sessionId?: unknown } | null)?.sessionId, roots);
@@ -481,7 +498,22 @@ export class UniversalAgentConnection {
     const conn = this.ensureConn();
     const sessionId = String((args as { sessionId?: string }).sessionId || "");
     const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
-    const mcpServers = Array.isArray(args.mcpServers) ? args.mcpServers : [];
+    const mcpServers = Array.isArray(args.mcpServers) ? [...args.mcpServers] : [];
+    const mcpInfo = getMcpUiServerInfo();
+    const agentCaps = (this.initResult as any)?.mcpCapabilities;
+    if (mcpInfo && (agentCaps?.sse || agentCaps?.http || !agentCaps)) {
+      const alreadyHas = mcpServers.some(
+        (s: any) => s && (s.name === mcpInfo.name || s.url === mcpInfo.url)
+      );
+      if (!alreadyHas) {
+        mcpServers.push({
+          type: "sse",
+          name: mcpInfo.name,
+          url: mcpInfo.url,
+          headers: [],
+        });
+      }
+    }
     const payload = { ...args, sessionId, cwd, mcpServers };
     const roots = this.fsGuard.sessionRootsFor(cwd, args.additionalDirectories);
     // session/load replays history via session/update notifications before
