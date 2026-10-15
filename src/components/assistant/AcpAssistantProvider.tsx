@@ -14,6 +14,9 @@ export interface AcpAssistantProviderProps {
   children: React.ReactNode;
   onSend: (text?: string) => void | Promise<void>;
   onStop: () => void;
+  onNewSession?: (targetCwd?: string) => void | Promise<void>;
+  onOpenSession?: (sessionId: string) => void | Promise<void>;
+  onDeleteSession?: (sessionId: string) => void | Promise<void>;
 }
 
 /** Thread-view page size: only the latest N messages enter the runtime. */
@@ -32,17 +35,46 @@ export const ACP_THREAD_PAGE_SIZE = 30;
  * - onEdit: truncate the ACP transcript at the edited message, then resend
  * - queue: sends during a run buffer and drain in order (排队); cancel
  *   pauses draining instead of dropping; edit/reload clear stale items
+ * - threadList: binds multi-session tracking, switching, and new session creation
  */
 export const AcpAssistantProvider: React.FC<AcpAssistantProviderProps> = ({
   children,
   onSend,
   onStop,
+  onNewSession,
+  onOpenSession,
+  onDeleteSession,
 }) => {
   const rawMessages = useStudioStore((s) => s.messages);
   const isStreaming = useStudioStore((s) => s.isStreaming);
+  const activeSessionId = useStudioStore((s) => s.sessionId);
+  const activeThreadId = useStudioStore((s) => s.activeThreadId);
+  const studioThreads = useStudioStore((s) => s.threads);
+  const activeAgentId = useStudioStore((s) => s.activeAgentId);
 
   // Auto-heal: Ensure all consecutive assistant bubbles within the same turn are unified
   const messages = useMemo(() => mergeAssistantTurns(rawMessages), [rawMessages]);
+
+  const currentThreadId = activeSessionId || activeThreadId || "default";
+
+  // Build the community component's thread list representation
+  const threadListData = useMemo(() => {
+    const list = Object.values(studioThreads)
+      .filter((t) => !t.agentId || t.agentId === activeAgentId)
+      .map((t) => ({
+        status: "regular" as const,
+        id: t.sessionId || t.id,
+        title: t.title || (t.sessionId ? `会话 (${t.sessionId.slice(0, 8)})` : "新会话"),
+      }));
+    if (currentThreadId && !list.some((item) => item.id === currentThreadId)) {
+      list.unshift({
+        status: "regular" as const,
+        id: currentThreadId,
+        title: activeSessionId ? `当前会话 (${activeSessionId.slice(0, 8)})` : "当前会话",
+      });
+    }
+    return list;
+  }, [studioThreads, activeAgentId, currentThreadId, activeSessionId]);
 
   // Pagination: long ACP histories (session replay can be hundreds of
   // messages) only expose the latest page to the runtime. Older pages load
@@ -135,6 +167,32 @@ export const AcpAssistantProvider: React.FC<AcpAssistantProviderProps> = ({
           : truncated;
       st.setMessages(clean);
       onSend(text);
+    },
+    adapters: {
+      threadList: {
+        threadId: currentThreadId,
+        threads: threadListData,
+        onSwitchToNewThread: async () => {
+          if (onNewSession) {
+            await onNewSession();
+          } else {
+            useStudioStore.getState().newThread(useStudioStore.getState().activeAgentId);
+          }
+        },
+        onSwitchToThread: async (targetId) => {
+          if (onOpenSession) {
+            await onOpenSession(targetId);
+          } else {
+            const st = useStudioStore.getState();
+            st.optimisticOpenSession(st.activeAgentId, targetId, "");
+          }
+        },
+        onDelete: onDeleteSession
+          ? async (id) => {
+              await onDeleteSession(id);
+            }
+          : undefined,
+      },
     },
   });
 

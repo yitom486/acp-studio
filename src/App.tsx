@@ -182,6 +182,7 @@ export default function App() {
     handleSelectAgent,
     handleConnect,
     handleCreateSession,
+    handleDirectNewSession,
     handleOpenSession,
     handleForkSession,
     handleDeleteSession,
@@ -223,11 +224,8 @@ export default function App() {
   }, [qc, s.activeAgentId]);
 
   const handleNewSession = useCallback((targetCwd?: string) => {
-    if (targetCwd) {
-      useStudioStore.getState().setWorkspace(targetCwd);
-    }
-    useStudioStore.getState().setSettingsOpen(true);
-  }, []);
+    handleDirectNewSession(targetCwd);
+  }, [handleDirectNewSession]);
 
   const handleForkSessionItem = useCallback(
     (item: SessionItem) => {
@@ -247,7 +245,7 @@ export default function App() {
   const sidebarOpen = useWorkbenchStore((w) => w.sidebarOpen);
   const fileTreeOpen = useWorkbenchStore((w) => w.fileTreeOpen);
   const hasTabs = useWorkbenchStore((w) => w.tabs.length > 0);
-  const openNewSessionDialog = useCallback(() => useStudioStore.getState().setSettingsOpen(true), []);
+  const openNewSessionDialog = useCallback(() => handleNewSession(), [handleNewSession]);
   useWorkbenchCommands({ onNewSession: openNewSessionDialog });
 
   // 可拖拽面板：尺寸按面板组合存 localStorage；侧栏 / 文件树拖到最小即收起，与 Ctrl+B / Ctrl+Shift+E 同步
@@ -365,7 +363,7 @@ export default function App() {
             supportsProviders={supportsProviders}
             busy={s.busy || s.isStreaming}
             isStreaming={s.isStreaming}
-            onNewSession={() => s.setSettingsOpen(true)}
+            onNewSession={handleNewSession}
             onForkSession={() => handleForkSession()}
             onOpenProviders={() => s.setProvidersOpen(true)}
             onOpenChanges={() => s.setGitChangesOpen(true)}
@@ -389,7 +387,22 @@ export default function App() {
             compact={hasTabs}
           />
 
-          <AcpAssistantProvider onSend={(t) => { if (!runLocal(t ?? "")) void handleSend(t); }} onStop={handleStop}>
+          <AcpAssistantProvider
+            onSend={(t) => { if (!runLocal(t ?? "")) void handleSend(t); }}
+            onStop={handleStop}
+            onNewSession={handleNewSession}
+            onOpenSession={(sid) => {
+              const item = sessions.find((item) => item.sessionId === sid);
+              if (item) void handleOpenSession(item);
+              else {
+                useStudioStore.getState().optimisticOpenSession(s.activeAgentId, sid, "");
+              }
+            }}
+            onDeleteSession={(sid) => {
+              const item = sessions.find((item) => item.sessionId === sid);
+              if (item) void handleDeleteSession(item);
+            }}
+          >
             <AssistantChatView
               onSelectSuggestion={(p) => { if (!runLocal(p)) void handleSend(p); }}
               agentName={activeAgent?.title || activeAgent?.name || "Agent"}
@@ -399,6 +412,7 @@ export default function App() {
               sessionError={s.sessionError}
               sessionLoading={s.sessionLoading}
               onEnsureSession={() => ensureSession()}
+              onNewSession={handleNewSession}
               cwd={effectiveCwd}
             />
 

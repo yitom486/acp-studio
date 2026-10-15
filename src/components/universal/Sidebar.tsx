@@ -565,6 +565,20 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       if (!a.isCurrent && b.isCurrent) return 1;
       return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     });
+
+    // 容底保护：若所有工程过滤后为空，自动展示当前工作区，防止侧边栏出现空洞
+    if (list.length === 0) {
+      const curPath = p.currentWorkspace || "";
+      const curName = curPath ? (shortCwd(curPath) || curPath) : "工作区";
+      list.push({
+        id: curPath || "default",
+        name: curName,
+        path: curPath || undefined,
+        items: [],
+        isCurrent: true,
+      });
+    }
+
     return list;
   }, [p.sessions, searchQuery, p.recentWorkspaces, p.currentWorkspace]);
 

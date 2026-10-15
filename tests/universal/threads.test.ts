@@ -62,9 +62,10 @@ describe("threads (per-agent persisted records)", () => {
     const f = freezeMessage(m);
     expect(f.isStreaming).toBe(false);
     expect(f.content.length).toBeLessThanOrEqual(20000 + 100);
-    // Persist policy: history keeps the final answer (+thought), never
-    // tool calls/results — those are live-view only.
-    expect(f.toolCalls).toBeUndefined();
+    // Persist policy: history keeps the final answer (+thought), and compact
+    // tool calls/results for generative cards rendering.
+    expect(f.toolCalls).toBeDefined();
+    expect(f.toolCalls?.[0].id).toBe("t");
     expect(f.thought).toBe("reasoning here");
   });
 

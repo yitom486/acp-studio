@@ -362,11 +362,41 @@ export function useSessionLifecycle({
     [qc, agentsRef, applyDefaultConfigOptions]
   );
 
+  /** 1-click instant new session (0ms optimistic switch without modal block) */
+  const handleDirectNewSession = useCallback(
+    (targetCwd?: string) => {
+      const st = useStudioStore.getState();
+      const agentId = st.activeAgentId;
+
+      // Auto-cleanup abandoned empty draft if current session has no user messages
+      const prevSid = st.sessionId;
+      const prevHasUserMsg = st.messages.some((m) => m.role === "user");
+      if (prevSid && !prevHasUserMsg) {
+        void sessionRpc(agentId, "delete", { sessionId: prevSid }).catch(() => {});
+      }
+
+      if (targetCwd) {
+        st.setWorkspace(targetCwd);
+      }
+      st.snapshotThread();
+      st.newThread(agentId, targetCwd || st.currentWorkspace);
+      st.setStreaming(false);
+      st.setBusy(false);
+      st.setSessionError(null);
+      st.setSessionLoading(false);
+    },
+    []
+  );
+
   /** Open a session from the sidebar: optimistic 0ms switch + background server sync. */
   const handleOpenSession = useCallback(
     async (item: SessionItem) => {
       const st = useStudioStore.getState();
-      if (st.isStreaming) return;
+      // If currently marked streaming or busy, clear it so user isn't stuck
+      if (st.isStreaming) {
+        st.setStreaming(false);
+        st.setBusy(false);
+      }
       const agentId = st.activeAgentId;
 
       // Auto-cleanup abandoned empty draft when switching to another session
@@ -659,6 +689,7 @@ export function useSessionLifecycle({
     handleSelectAgent,
     handleConnect,
     handleCreateSession,
+    handleDirectNewSession,
     handleOpenSession,
     handleForkSession,
     handleDeleteSession,

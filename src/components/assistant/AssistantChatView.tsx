@@ -29,6 +29,7 @@ import {
   FileText,
   PencilLine,
   Search,
+  Plus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,7 @@ export interface AssistantChatViewProps {
   sessionError?: string | null;
   sessionLoading?: boolean;
   onEnsureSession?: () => void;
+  onNewSession?: () => void;
   /** 当前工作区（本轮改动面板定位文件状态用）。 */
   cwd?: string | null;
 }
@@ -984,7 +986,11 @@ const BranchPickerView: React.FC<{ className?: string }> = ({ className }) => {
   );
 };
 
-const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }> = ({ agentName, cwd }) => {
+const AssistantMessageView: React.FC<{
+  agentName: string;
+  cwd?: string | null;
+  onNewSession?: () => void;
+}> = ({ agentName, cwd, onNewSession }) => {
   const messageId = useAuiState((s) => s.message.id);
   const running = useAuiState((s) => s.message.status?.type === "running");
   const isCopied = useAuiState((s) => s.message.isCopied);
@@ -1214,6 +1220,22 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
           )}
           <AssistantMessageBody />
           {citations.length > 0 && <Citations citations={citations} idPrefix={`msg-${messageId}`} />}
+          {acp?.content && /Reasoning Cache Expired|referenced reasoning item .* expired/i.test(acp.content) && (
+            <div className="mt-2.5 p-3 rounded-lg border border-warning/40 bg-warning/10 flex items-center justify-between gap-3 text-xs">
+              <span className="text-foreground">上游服务端思考缓存已超时失效，请开启新会话继续。</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onNewSession) onNewSession();
+                  else useStudioStore.getState().newThread(useStudioStore.getState().activeAgentId);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors cursor-pointer shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>立即开启新会话</span>
+              </button>
+            </div>
+          )}
         </>
 
         {/* 固定 h-7 槽位：bar 的挂载/卸载只换透明度，不挤布局；
@@ -1364,11 +1386,15 @@ const SystemMessageView: React.FC = () => {
   );
 };
 
-const ThreadMessageRouter: React.FC<{ agentName: string; cwd?: string | null }> = ({ agentName, cwd }) => {
+const ThreadMessageRouter: React.FC<{
+  agentName: string;
+  cwd?: string | null;
+  onNewSession?: () => void;
+}> = ({ agentName, cwd, onNewSession }) => {
   const role = useAuiState((s) => s.message.role);
   if (role === "user") return <UserMessageView />;
   if (role === "system") return <SystemMessageView />;
-  return <AssistantMessageView agentName={agentName} cwd={cwd} />;
+  return <AssistantMessageView agentName={agentName} cwd={cwd} onNewSession={onNewSession} />;
 };
 
 const ThreadLoadEarlier: React.FC = () => {
@@ -1401,6 +1427,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
   sessionError,
   sessionLoading,
   onEnsureSession,
+  onNewSession,
   cwd,
 }) => {
   const { viewportRef, contentRef } = useStickToBottom<HTMLDivElement>();
@@ -1433,7 +1460,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
           <div ref={contentRef} className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-6 px-3 sm:px-4">
             <ThreadLoadEarlier />
             <ThreadPrimitive.Messages>
-              {() => <ThreadMessageRouter agentName={agentName} cwd={cwd} />}
+              {() => <ThreadMessageRouter agentName={agentName} cwd={cwd} onNewSession={onNewSession} />}
             </ThreadPrimitive.Messages>
           </div>
           <ThreadPrimitive.ViewportFooter className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto sticky bottom-0 z-10 flex justify-center pointer-events-none h-0 overflow-visible">

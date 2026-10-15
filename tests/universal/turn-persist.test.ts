@@ -138,7 +138,8 @@ describe("turn persist (mock model events -> disk)", () => {
     const asst = saved.messages.find((m: any) => m.role === "assistant");
     expect(asst.content).toBe("最终答案。");
     expect(asst.isStreaming).toBe(false);
-    expect(asst.toolCalls).toBeUndefined();
+    expect(asst.toolCalls).toBeDefined();
+    expect(asst.toolCalls?.[0].id).toBe("t1");
     expect(JSON.stringify(saved)).not.toContain("file-bytes-result");
   });
 
@@ -204,10 +205,12 @@ describe("turn persist (mock model events -> disk)", () => {
     const thread = saved[Object.keys(saved)[0]];
     const asst = thread.messages.find((m: any) => m.role === "assistant");
     expect(asst.content).toBe("最终答案。");
-    expect(asst.toolCalls).toBeUndefined();
+    expect(asst.toolCalls).toBeDefined();
+    expect(asst.toolCalls?.[0].id).toBe("t1");
     expect(JSON.stringify(thread)).not.toContain("file-bytes-result");
   });
-  test("replayed history persists the same way: answers kept, tool calls dropped", () => {
+
+  test("replayed history persists the same way: answers kept, tool calls preserved", () => {
     const t = buildTranscriptFromReplay([
       { sessionUpdate: "user_message_chunk", content: { type: "text", text: "q" }, messageId: "u1" },
       { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "a" }, messageId: "m1" },
@@ -218,7 +221,7 @@ describe("turn persist (mock model events -> disk)", () => {
     // Display keeps the tool call...
     expect(t.messages[1].toolCalls).toHaveLength(1);
 
-    // ...persist drops it.
+    // ...persist preserves compact toolCalls for generative card rehydration.
     const pruned = pruneThreads(
       { th1: { id: "th1", agentId: "codex", sessionId: "s", messages: t.messages as any[], updatedAt: 1 } },
       []
@@ -226,7 +229,7 @@ describe("turn persist (mock model events -> disk)", () => {
     const saved = pruned.th1.messages;
     expect(saved[0]).toMatchObject({ role: "user", content: "q" });
     expect(saved[1]).toMatchObject({ role: "assistant", content: "a" });
-    expect((saved[1] as any).toolCalls).toBeUndefined();
+    expect((saved[1] as any).toolCalls).toBeDefined();
   });
 
   test("restore brings back Q&A after a reload", async () => {

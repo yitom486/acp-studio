@@ -473,13 +473,18 @@ export function useChatSend({
             c2.setAuthOpen(true);
           }
           const prev = stripRetryNotes(c2.messages.find((m) => m.id === assistantId)?.content || "");
-          const msg = e?.message && e.message !== "null" ? e.message : "连接异常或请求超时";
-          c2.patchMessage(assistantId, (m) => ({ ...m, content: prev + `\n\n> ❌ [连接异常] ${msg}` }));
+          const rawMsg = e?.message && e.message !== "null" ? e.message : "连接异常或请求超时";
+          let errorText = rawMsg;
+          if (/referenced reasoning item .* expired|not found or has expired/i.test(rawMsg)) {
+            errorText = `上游模型推理上下文已过期 (Reasoning Cache Expired)。\n\n> 💡 **原理说明**：上游推理模型（o1/o3/Thinking）在服务端的推理上下文缓存已超时（通常 > 15-30 分钟）被自动回收，当前旧会话无法在原推理节点继续追加。\n> 🚀 **解决方案**：请点击侧边栏或主界面的 **「+ 新会话」** 开启干净上下文即可恢复正常。`;
+          }
+          c2.patchMessage(assistantId, (m) => ({ ...m, content: prev ? `${prev}\n\n> ❌ [连接异常] ${errorText}` : `> ❌ [连接异常] ${errorText}` }));
           stampTurnEnd(assistantId);
         }
       } finally {
         const c2 = useStudioStore.getState();
         c2.setStreaming(false);
+        c2.setBusy(false);
         stampTurnEnd(assistantId);
         // Turn-end marker (done / error / abort): splice this turn's final
         // text and persist ASYNC — fire-and-forget microtask so storage I/O
