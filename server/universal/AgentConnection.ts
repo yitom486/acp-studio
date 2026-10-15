@@ -36,6 +36,20 @@ export {
 export type SseSend = (evt: Record<string, unknown>) => void;
 
 /**
+ * Encouraging client capability guidance injected into the first turn of each agent session.
+ * Gently reminds the agent that Generative UI & Editorial Diagram tools are available on `studio-ui`.
+ */
+export const CLIENT_GENERATIVE_UI_HINT = [
+  "【客户端交互能力与体验建议 / Client Interactive Capabilities】",
+  "当前客户端已连接并支持专用的富交互式 UI 与出版级矢量图表服务（MCP 服务：studio-ui）。在本次会话中，鼓励（非强制）在契合场景下优先调用以下工具，为用户提供清晰生动的视觉与交互体验：",
+  "- 出版级矢量图表（render_editorial_diagram）：当呈现系统架构分层拓扑、服务调用时序、流程业务状态机、技术选型四象限决策矩阵或项目演进里程碑时，鼓励优先调用生成出版级矢量图表，代替原始简陋的 Mermaid 文本；",
+  "- 结构化富交互卡片（show_interactive_card）：当向用户提供方案对比决策(decision)、任务排查或门禁清单(checklist)、核心性能与指标看板(metrics)时，鼓励直接渲染富交互卡片；",
+  "- 人机协同交互表单（prompt_form）：当需要用户配置多个参数或填写凭据时，推荐下发交互表单；",
+  "- 动态组件沙箱原型（render_react_sandbox）：当设计或演示前端 UI 原型与组件时，可挂载实时隔离预览沙箱。",
+  "（注：以上工具均为可选的体验增强手段，请在符合对话场景时自然适度地运用。）",
+].join("\n");
+
+/**
  * One long-lived stdio connection to a generic ACP agent.
  * Uses @agentclientprotocol/sdk `client().connect(stream)` (persistent),
  * coordinates interaction (permissions/elicitations), filesystem guards,
@@ -65,6 +79,7 @@ export class UniversalAgentConnection {
    * frontend can serialize/queue instead of interleaving turns.
    */
   private promptLocks = new Set<string>();
+  private sessionTurnCounts = new Map<string, number>();
   private quotaCache = new QuotaCache();
   private lastQuota: AcpAgentQuota | null = null;
 
@@ -490,7 +505,11 @@ export class UniversalAgentConnection {
       mcpServers: mcpServers as never[],
       ...(args.additionalDirectories ? { additionalDirectories: args.additionalDirectories } : {}),
     } as unknown as never);
-    this.fsGuard.rememberSessionRoots((result as { sessionId?: unknown } | null)?.sessionId, roots);
+    const newSid = (result as { sessionId?: unknown } | null)?.sessionId;
+    if (typeof newSid === "string") {
+      this.sessionTurnCounts.set(newSid, 0);
+    }
+    this.fsGuard.rememberSessionRoots(newSid, roots);
     return result;
   }
 
@@ -585,15 +604,22 @@ export class UniversalAgentConnection {
 
   async deleteSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
+    const sid = String((args as { sessionId?: string }).sessionId || "");
+    if (sid) {
+      this.sessionTurnCounts.delete(sid);
+    }
     return conn.agent.request(acp.methods.agent.session.delete, args as unknown as never);
   }
 
   async closeSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
+    const sid = String((args as { sessionId?: string }).sessionId || "");
+    if (sid) {
+      this.sessionTurnCounts.delete(sid);
+    }
     const caps = (this.initResult as unknown as { agentCapabilities?: { sessionCapabilities?: { close?: unknown } } })?.agentCapabilities;
     if (!caps?.sessionCapabilities?.close) {
       // Best-effort: drop local sinks even if agent has no close
-      const sid = String((args as { sessionId?: string }).sessionId || "");
       if (sid) this.sessionSinks.delete(sid);
       return {};
     }
@@ -675,9 +701,27 @@ export class UniversalAgentConnection {
         if (opts.signal.aborted) onAbort();
         else opts.signal.addEventListener("abort", onAbort, { once: true });
       }
+
+      // First-turn capability reminder (encouraging, non-mandatory):
+      // On session onboarding (turn 0), gently remind the connected agent of available studio-ui tools.
+      const turnCount = this.sessionTurnCounts.get(sessionId) ?? 0;
+      this.sessionTurnCounts.set(sessionId, turnCount + 1);
+
+      let effectivePrompt = prompt;
+      const disableHint =
+        process.env.ACP_DISABLE_UI_PROMPT_HINT === "1" ||
+        process.env.ACP_DISABLE_UI_PROMPT_HINT === "true";
+
+      if (turnCount === 0 && !disableHint && Array.isArray(prompt)) {
+        effectivePrompt = [
+          { type: "text", text: CLIENT_GENERATIVE_UI_HINT },
+          ...prompt,
+        ];
+      }
+
       const res = await conn.agent.request(acp.methods.agent.session.prompt, {
         sessionId,
-        prompt,
+        prompt: effectivePrompt,
       } as unknown as never);
       return res;
     } finally {

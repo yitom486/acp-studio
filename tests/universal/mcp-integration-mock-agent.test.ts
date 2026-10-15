@@ -137,4 +137,47 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
     expect(textChunk).toBeDefined();
     expect(textChunk.content.text).toContain("已为您生成全套生成式 UI 交互卡片");
   });
+
+  it("injects encouraging Generative UI & Editorial Diagram guidance on turn 0 of a session and avoids duplicate injection on turn 1+", async () => {
+    const sessionRes: any = await conn.newSession({ cwd: process.cwd() });
+    const sid = sessionRes.sessionId;
+
+    // Turn 0: Send first prompt
+    const turn0Updates: any[] = [];
+    await conn.prompt(
+      sid,
+      [{ type: "text", text: "trigger_inspect_prompt" }],
+      (evt: any) => {
+        if (evt.type === "update") turn0Updates.push(evt.update);
+      }
+    );
+
+    const chunk0 = turn0Updates.find((u) => u.sessionUpdate === "agent_message_chunk");
+    expect(chunk0).toBeDefined();
+    const data0 = JSON.parse(chunk0.content.text);
+    // Should have 2 blocks: [0] client hint, [1] user trigger
+    expect(data0.promptBlocks.length).toBe(2);
+    expect(data0.promptBlocks[0].text).toContain("【客户端交互能力与体验建议 / Client Interactive Capabilities】");
+    expect(data0.promptBlocks[0].text).toContain("render_editorial_diagram");
+    expect(data0.promptBlocks[0].text).toContain("show_interactive_card");
+    expect(data0.promptBlocks[1].text).toContain("trigger_inspect_prompt");
+
+    // Turn 1: Send second prompt in the same session
+    const turn1Updates: any[] = [];
+    await conn.prompt(
+      sid,
+      [{ type: "text", text: "trigger_inspect_prompt" }],
+      (evt: any) => {
+        if (evt.type === "update") turn1Updates.push(evt.update);
+      }
+    );
+
+    const chunk1 = turn1Updates.find((u) => u.sessionUpdate === "agent_message_chunk");
+    expect(chunk1).toBeDefined();
+    const data1 = JSON.parse(chunk1.content.text);
+    // Should have only 1 block on subsequent turns (no duplicate hint)
+    expect(data1.promptBlocks.length).toBe(1);
+    expect(data1.promptBlocks[0].text).toContain("trigger_inspect_prompt");
+    expect(data1.promptBlocks[0].text).not.toContain("【客户端交互能力与体验建议");
+  });
 });

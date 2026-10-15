@@ -117,6 +117,21 @@ const app = acp
       return { stopReason: "end_turn" };
     }
 
+    // Scenario: Inspect raw prompt blocks received by agent
+    if (promptText.includes("trigger_inspect_prompt")) {
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: JSON.stringify({ promptBlocks: prompt }),
+          },
+        },
+      });
+      return { stopReason: "end_turn" };
+    }
+
     // Scenario: client-side guards. `trigger_fs_write <abs path>` asks the client
     // to write a file; `trigger_terminal_create <cwd>` asks it to spawn a
     // terminal there. The outcome is reported back as one text chunk:

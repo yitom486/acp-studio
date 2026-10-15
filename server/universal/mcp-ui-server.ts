@@ -40,18 +40,21 @@ export function createMcpUiServer(): McpServer {
   });
 
   // 1. 结构化富交互卡片（决策、指标、核对清单、表单）
-  mcp.tool(
+  mcp.registerTool(
     "show_interactive_card",
-    "【富交互卡片 - 推荐调用】当向用户提供方案对比与决策(decision)、任务排查或门禁核对清单(checklist)、系统核心性能或监控指标看板(metrics)或信息汇总时，务必调用本工具直接渲染富交互卡片，避免冗长枯燥的纯文本。",
     {
-      title: z.string().describe("卡片展示标题"),
-      cardType: z
-        .enum(["decision", "metrics", "checklist", "form"])
-        .describe("卡片种类：decision(方案决策)、metrics(关键指标与对比)、checklist(步骤勾选清单)、form(通用表单)"),
-      description: z.string().optional().describe("卡片简要说明或辅助文案"),
-      data: z
-        .record(z.string(), z.unknown())
-        .describe("卡片对应数据结构（例如 options 选项列表、items 清单数组、metrics 统计指标对象）"),
+      description:
+        "【富交互卡片 - 推荐】当向用户提供方案对比与决策(decision)、任务排查或门禁核对清单(checklist)、系统核心性能或监控指标看板(metrics)或信息汇总时，鼓励优先调用本工具直接渲染富交互卡片，呈现清晰直观的结构化视觉交互。",
+      inputSchema: {
+        title: z.string().describe("卡片展示标题"),
+        cardType: z
+          .enum(["decision", "metrics", "checklist", "form"])
+          .describe("卡片种类：decision(方案决策)、metrics(关键指标与对比)、checklist(步骤勾选清单)、form(通用表单)"),
+        description: z.string().optional().describe("卡片简要说明或辅助文案"),
+        data: z
+          .record(z.string(), z.unknown())
+          .describe("卡片对应数据结构（例如 options 选项列表、items 清单数组、metrics 统计指标对象）"),
+      },
     },
     async ({ title, cardType, description, data }) => {
       return {
@@ -67,17 +70,20 @@ export function createMcpUiServer(): McpServer {
   );
 
   // 2. 自由 React / HTML 沙箱预览
-  mcp.tool(
+  mcp.registerTool(
     "render_react_sandbox",
-    "【动态组件沙箱原型】当设计或展示前端交互式 UI 组件、动态原型、仪表盘或交互小工具时，调用本工具渲染包含实时状态与响应式的隔离预览沙箱。",
     {
-      title: z.string().describe("沙箱组件原型标题"),
-      code: z.string().describe("完整的 React TSX/JSX 代码或 HTML+JS 原型代码"),
-      template: z
-        .enum(["react", "html"])
-        .default("react")
-        .describe("组件模板类型：'react'（自动注入 React/Tailwind 运行时）或 'html'"),
-      description: z.string().optional().describe("组件功能与交互亮点说明"),
+      description:
+        "【动态组件沙箱原型】当设计或展示前端交互式 UI 组件、动态原型、仪表盘或交互小工具时，鼓励调用本工具渲染包含实时状态与响应式的隔离预览沙箱。",
+      inputSchema: {
+        title: z.string().describe("沙箱组件原型标题"),
+        code: z.string().describe("完整的 React TSX/JSX 代码或 HTML+JS 原型代码"),
+        template: z
+          .enum(["react", "html"])
+          .default("react")
+          .describe("组件模板类型：'react'（自动注入 React/Tailwind 运行时）或 'html'"),
+        description: z.string().optional().describe("组件功能与交互亮点说明"),
+      },
     },
     async ({ title, template, description }) => {
       return {
@@ -93,29 +99,32 @@ export function createMcpUiServer(): McpServer {
   );
 
   // 3. 人机协同表单输入
-  mcp.tool(
+  mcp.registerTool(
     "prompt_form",
-    "【人机协同交互表单】当需要用户提供多个参数配置、数据库凭据、多项筛选条件或填写表单时，优先调用本工具在聊天流下发表单控件收集用户输入并等待用户填写提交。",
     {
-      title: z.string().describe("表单标题"),
-      description: z.string().optional().describe("表单目的说明与操作指引"),
-      submitLabel: z.string().default("提交并继续").describe("提交按钮文字"),
-      fields: z
-        .array(
-          z.object({
-            id: z.string().describe("字段 key"),
-            label: z.string().describe("字段标签"),
-            type: z
-              .enum(["text", "number", "select", "checkbox", "textarea"])
-              .default("text")
-              .describe("字段输入控件类型"),
-            placeholder: z.string().optional().describe("占位提示文本"),
-            options: z.array(z.string()).optional().describe("select 类型的候选项列表"),
-            defaultValue: z.unknown().optional().describe("默认填充值"),
-            required: z.boolean().default(false).describe("是否必填"),
-          })
-        )
-        .describe("待填写的表单字段集合"),
+      description:
+        "【人机协同交互表单】当需要用户提供多个参数配置、数据库凭据、多项筛选条件或填写表单时，推荐调用本工具在聊天流下发表单控件收集用户输入并等待用户填写提交。",
+      inputSchema: {
+        title: z.string().describe("表单标题"),
+        description: z.string().optional().describe("表单目的说明与操作指引"),
+        submitLabel: z.string().default("提交并继续").describe("提交按钮文字"),
+        fields: z
+          .array(
+            z.object({
+              id: z.string().describe("字段 key"),
+              label: z.string().describe("字段标签"),
+              type: z
+                .enum(["text", "number", "select", "checkbox", "textarea"])
+                .default("text")
+                .describe("字段输入控件类型"),
+              placeholder: z.string().optional().describe("占位提示文本"),
+              options: z.array(z.string()).optional().describe("select 类型的候选项列表"),
+              defaultValue: z.unknown().optional().describe("默认填充值"),
+              required: z.boolean().default(false).describe("是否必填"),
+            })
+          )
+          .describe("待填写的表单字段集合"),
+      },
     },
     async ({ title, fields }) => {
       return {
@@ -131,30 +140,33 @@ export function createMcpUiServer(): McpServer {
   );
 
   // 4. 出版级精美图表（Editorial Diagram - Architecture, Sequence, Flowchart, Quadrant, Timeline）
-  mcp.tool(
+  mcp.registerTool(
     "render_editorial_diagram",
-    "【出版级高阶图表 - 强制首选】当需要向用户展示系统架构、微服务拓扑、调用时序、业务状态机、技术选型四象限或项目里程碑时，务必优先调用此工具直接生成出版级矢量图表。严禁输出生硬简陋的原始 Mermaid 文本块（如 ```mermaid ...）！",
     {
-      title: z.string().describe("图表主标题"),
-      description: z.string().optional().describe("图表副标题或背景说明"),
-      diagramType: z
-        .enum(["architecture", "sequence", "flowchart", "quadrant", "timeline"])
-        .describe(
-          "图表类型：architecture(系统架构与分层容器)、sequence(交互时序图)、flowchart(流程与状态机)、quadrant(四象限技术选型/决策矩阵)、timeline(演进里程碑)"
-        ),
-      theme: z
-        .enum(["light", "dark", "system"])
-        .default("system")
-        .describe("图表主题：light(浅色纸面风格)、dark(深色黑曜石风格)、system(跟随主界面)"),
-      accent: z
-        .enum(["emerald", "blue", "indigo", "violet", "amber", "rose", "cyan"])
-        .default("emerald")
-        .describe("单一聚焦主强调色（遵循 1-Accent 聚焦原则，仅用于凸显核心路径或高亮节点）"),
-      data: z
-        .record(z.string(), z.unknown())
-        .describe(
-          "结构化图表数据：例如 architecture 包含 layers 和 connections；sequence 包含 participants 和 messages；flowchart 包含 steps 和 connections；quadrant 包含 xAxis、yAxis 和 items；timeline 包含 milestones"
-        ),
+      description:
+        "【出版级高阶图表 - 推荐】当需要向用户展示系统架构拓扑、调用交互时序、流程业务状态机、技术选型四象限或项目演进里程碑时，强烈鼓励优先调用此工具直接生成出版级矢量图表，代替原始简陋的 Mermaid 文本或生硬描述，带来卓越的视觉阅读体验。",
+      inputSchema: {
+        title: z.string().describe("图表主标题"),
+        description: z.string().optional().describe("图表副标题或背景说明"),
+        diagramType: z
+          .enum(["architecture", "sequence", "flowchart", "quadrant", "timeline"])
+          .describe(
+            "图表类型：architecture(系统架构与分层容器)、sequence(交互时序图)、flowchart(流程与状态机)、quadrant(四象限技术选型/决策矩阵)、timeline(演进里程碑)"
+          ),
+        theme: z
+          .enum(["light", "dark", "system"])
+          .default("system")
+          .describe("图表主题：light(浅色纸面风格)、dark(深色黑曜石风格)、system(跟随主界面)"),
+        accent: z
+          .enum(["emerald", "blue", "indigo", "violet", "amber", "rose", "cyan"])
+          .default("emerald")
+          .describe("单一聚焦主强调色（遵循 1-Accent 聚焦原则，仅用于凸显核心路径或高亮节点）"),
+        data: z
+          .record(z.string(), z.unknown())
+          .describe(
+            "结构化图表数据：例如 architecture 包含 layers 和 connections；sequence 包含 participants 和 messages；flowchart 包含 steps 和 connections；quadrant 包含 xAxis、yAxis 和 items；timeline 包含 milestones"
+          ),
+      },
     },
     async ({ title, diagramType, description, theme, accent, data }) => {
       return {
