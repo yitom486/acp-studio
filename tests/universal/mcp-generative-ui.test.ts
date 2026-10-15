@@ -14,7 +14,7 @@ describe("Universal ACP Studio - 5-Digit MCP Server & Generative UI", () => {
   it("boots the 5-digit MCP server with auto-increment fallback on a dedicated port >= 10000", async () => {
     const info = await startMcpUiServer(13920);
     expect(info.port).toBeGreaterThanOrEqual(10000);
-    expect(info.url).toContain(`:${info.port}/sse`);
+    expect(info.url).toContain(`:${info.port}/mcp`);
     expect(getMcpUiServerInfo()?.port).toBe(info.port);
 
     // Verify /health endpoint returns server details
@@ -24,8 +24,7 @@ describe("Universal ACP Studio - 5-Digit MCP Server & Generative UI", () => {
     expect(data.ok).toBe(true);
     expect(data.name).toBe("studio-ui");
     expect(data.port).toBe(info.port);
-    expect(data.sseEndpoint).toContain("/sse");
-    expect(data.httpEndpoint).toContain("/mcp");
+    expect(data.endpoint).toContain("/mcp");
 
     // Verify /mcp endpoint accepts Streamable HTTP requests
     const mcpRes = await fetch(`http://127.0.0.1:${info.port}/mcp`, {

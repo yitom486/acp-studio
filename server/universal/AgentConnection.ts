@@ -472,21 +472,15 @@ export class UniversalAgentConnection {
     const mcpServers = [...(args.mcpServers || [])];
     const mcpInfo = getMcpUiServerInfo();
     const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
-    if (mcpInfo && (agentCaps?.sse || agentCaps?.http)) {
+    if (mcpInfo && (agentCaps?.http || !agentCaps || agentCaps?.sse)) {
       const alreadyHas = mcpServers.some(
-        (s: any) =>
-          s &&
-          (s.name === mcpInfo.name ||
-            s.url === mcpInfo.httpUrl ||
-            s.url === mcpInfo.sseUrl ||
-            s.url === mcpInfo.url)
+        (s: any) => s && (s.name === mcpInfo.name || s.url === mcpInfo.url)
       );
       if (!alreadyHas) {
-        const preferHttp = Boolean(agentCaps?.http);
         mcpServers.push({
-          type: preferHttp ? "http" : "sse",
+          type: "http",
           name: mcpInfo.name,
-          url: preferHttp ? mcpInfo.httpUrl : mcpInfo.sseUrl,
+          url: mcpInfo.url,
           headers: [],
         });
       }
@@ -507,21 +501,15 @@ export class UniversalAgentConnection {
     const mcpServers = Array.isArray(args.mcpServers) ? [...args.mcpServers] : [];
     const mcpInfo = getMcpUiServerInfo();
     const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
-    if (mcpInfo && (agentCaps?.sse || agentCaps?.http)) {
+    if (mcpInfo && (agentCaps?.http || !agentCaps || agentCaps?.sse)) {
       const alreadyHas = mcpServers.some(
-        (s: any) =>
-          s &&
-          (s.name === mcpInfo.name ||
-            s.url === mcpInfo.httpUrl ||
-            s.url === mcpInfo.sseUrl ||
-            s.url === mcpInfo.url)
+        (s: any) => s && (s.name === mcpInfo.name || s.url === mcpInfo.url)
       );
       if (!alreadyHas) {
-        const preferHttp = Boolean(agentCaps?.http);
         mcpServers.push({
-          type: preferHttp ? "http" : "sse",
+          type: "http",
           name: mcpInfo.name,
-          url: preferHttp ? mcpInfo.httpUrl : mcpInfo.sseUrl,
+          url: mcpInfo.url,
           headers: [],
         });
       }

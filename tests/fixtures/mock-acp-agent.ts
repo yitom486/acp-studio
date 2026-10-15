@@ -26,7 +26,7 @@ const app = acp
       agentCapabilities: {
         promptCapabilities: { image: true, audio: false },
         sessionCapabilities: { list: {}, close: {}, fork: {}, additionalDirectories: {} },
-        mcpCapabilities: { sse: true, http: true },
+        mcpCapabilities: { http: true },
         providers: true,
       },
       agentInfo: {

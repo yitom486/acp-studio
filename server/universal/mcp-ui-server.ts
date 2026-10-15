@@ -11,24 +11,20 @@
  */
 import http from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
 export interface McpServerInfo {
   port: number;
   url: string;
-  sseUrl: string;
-  httpUrl: string;
   name: string;
   version: string;
 }
 
 let activeServer: http.Server | null = null;
 let activeInfo: McpServerInfo | null = null;
-let activeStreamableTransport: StreamableHTTPServerTransport | null = null;
-let activeStreamableMcp: McpServer | null = null;
-const transports = new Map<string, SSEServerTransport>();
+let activeTransport: StreamableHTTPServerTransport | null = null;
+let activeMcp: McpServer | null = null;
 
 export function getMcpUiServerInfo(): McpServerInfo | null {
   return activeInfo;
@@ -182,19 +178,18 @@ export async function startMcpUiServer(
   }
 
   const mcp = createMcpUiServer();
-  const streamableMcp = createMcpUiServer();
-  const streamableTransport = new StreamableHTTPServerTransport({
+  const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });
-  await streamableMcp.connect(streamableTransport);
-  activeStreamableTransport = streamableTransport;
-  activeStreamableMcp = streamableMcp;
+  await mcp.connect(transport);
+  activeTransport = transport;
+  activeMcp = mcp;
 
   const httpServer = http.createServer(async (req, res) => {
     // 允许本地跨域
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, Mcp-Session-Id, Mcp-Protocol-Version");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204).end();
@@ -213,14 +208,13 @@ export async function startMcpUiServer(
           name: "studio-ui",
           version: "1.0.0",
           port: activeInfo?.port,
-          sseEndpoint: `http://127.0.0.1:${activeInfo?.port}/sse`,
-          httpEndpoint: `http://127.0.0.1:${activeInfo?.port}/mcp`,
+          endpoint: activeInfo?.url,
         })
       );
       return;
     }
 
-    // Streamable HTTP 单端点（MCP 2025 最新规范，支持直接 JSON-RPC 与双向流式推流）
+    // Streamable HTTP 单端点（MCP 2025 官方最新主流规范，统一支持直连 JSON-RPC 与双向流式推流）
     if (url.pathname === "/mcp") {
       try {
         let parsedBody: unknown = undefined;
@@ -234,55 +228,15 @@ export async function startMcpUiServer(
             try {
               parsedBody = JSON.parse(raw);
             } catch {
-              // Let transport handle invalid json syntax
+              // 由 transport 处理解析异常
             }
           }
         }
-        await streamableTransport.handleRequest(req, res, parsedBody);
+        await transport.handleRequest(req, res, parsedBody);
       } catch (err: any) {
         console.error("[MCP Server] Streamable HTTP request error:", err);
         if (!res.headersSent) {
           res.writeHead(500).end("Streamable HTTP error");
-        }
-      }
-      return;
-    }
-
-    // SSE 建立长连接（经典 MCP SSE 规范）
-    if (url.pathname === "/sse" && req.method === "GET") {
-      try {
-        const transport = new SSEServerTransport("/messages", res);
-        transports.set(transport.sessionId, transport);
-
-        transport.onclose = () => {
-          transports.delete(transport.sessionId);
-        };
-
-        await mcp.connect(transport);
-      } catch (err: any) {
-        console.error("[MCP Server] SSE connection error:", err);
-        if (!res.headersSent) {
-          res.writeHead(500).end("Internal Server Error");
-        }
-      }
-      return;
-    }
-
-    // 接收 MCP 消息交互
-    if (url.pathname === "/messages" && req.method === "POST") {
-      const sessionId = url.searchParams.get("sessionId");
-      if (!sessionId || !transports.has(sessionId)) {
-        res.writeHead(404, { "Content-Type": "text/plain" });
-        res.end("Session not found or expired");
-        return;
-      }
-      const transport = transports.get(sessionId)!;
-      try {
-        await transport.handlePostMessage(req, res);
-      } catch (err: any) {
-        console.error("[MCP Server] Error handling post message:", err);
-        if (!res.headersSent) {
-          res.writeHead(500).end("Error handling message");
         }
       }
       return;
@@ -299,14 +253,12 @@ export async function startMcpUiServer(
   activeServer = httpServer;
   activeInfo = {
     port: boundPort,
-    url: `http://127.0.0.1:${boundPort}/sse`,
-    sseUrl: `http://127.0.0.1:${boundPort}/sse`,
-    httpUrl: `http://127.0.0.1:${boundPort}/mcp`,
+    url: `http://127.0.0.1:${boundPort}/mcp`,
     name: "studio-ui",
     version: "1.0.0",
   };
 
-  console.log(`[MCP Server] Studio UI MCP Server running at ${activeInfo.url} (Streamable HTTP: ${activeInfo.httpUrl})`);
+  console.log(`[MCP Server] Studio UI MCP Server running at ${activeInfo.url} (Streamable HTTP)`);
   return activeInfo;
 }
 
@@ -315,24 +267,18 @@ export async function startMcpUiServer(
  */
 export async function stopMcpUiServer(): Promise<void> {
   if (!activeServer) return;
-  for (const transport of transports.values()) {
-    try {
-      await transport.close();
-    } catch {}
-  }
-  transports.clear();
 
-  if (activeStreamableTransport) {
+  if (activeTransport) {
     try {
-      await activeStreamableTransport.close();
+      await activeTransport.close();
     } catch {}
-    activeStreamableTransport = null;
+    activeTransport = null;
   }
-  if (activeStreamableMcp) {
+  if (activeMcp) {
     try {
-      await activeStreamableMcp.close();
+      await activeMcp.close();
     } catch {}
-    activeStreamableMcp = null;
+    activeMcp = null;
   }
 
   await new Promise<void>((resolve) => {
