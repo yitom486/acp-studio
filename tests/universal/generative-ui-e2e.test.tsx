@@ -14,6 +14,7 @@ import {
   AcpGenerativeToolCard,
   isGenerativeTool,
   normalizeGenerativeToolName,
+  inferDiagramType,
 } from "../../src/components/assistant/toolkit";
 
 // Helper to reliably trigger React 19 synthetic onChange events on uncontrolled/controlled inputs in happy-dom
@@ -444,9 +445,31 @@ describe("Generative UI - Front-End Component Integration Tests", () => {
     expect(normalizeGenerativeToolName("studio-ui_show_interactive_card")).toBe("show_interactive_card");
     expect(normalizeGenerativeToolName("studio-ui.render_editorial_diagram")).toBe("render_editorial_diagram");
     expect(normalizeGenerativeToolName("studio-ui/prompt_form")).toBe("prompt_form");
+    // 真 agent 的 MCP 双下划线命名空间（\b 跨不过 __，曾导致流程图掉进普通工具行）
+    expect(normalizeGenerativeToolName("studio-ui__render_editorial_diagram")).toBe("render_editorial_diagram");
+    expect(normalizeGenerativeToolName("mcp__studio-ui__render_editorial_diagram")).toBe(
+      "render_editorial_diagram"
+    );
+    expect(normalizeGenerativeToolName("mcp__studio-ui__prompt_form")).toBe("prompt_form");
     expect(isGenerativeTool({ name: "studio-ui_show_interactive_card" })).toBe(true);
     expect(isGenerativeTool({ title: "studio-ui_render_editorial_diagram" })).toBe(true);
+    expect(isGenerativeTool({ name: "studio-ui__render_editorial_diagram", title: "Redis 缓存加速流程" })).toBe(
+      true
+    );
     expect(isGenerativeTool({ name: "bash" })).toBe(false);
+
+    // 1b. diagramType 缺失时按 data 形状推断，不再一律 architecture
+    expect(inferDiagramType({ diagramType: "flowchart", data: {} })).toBe("flowchart");
+    expect(inferDiagramType({ title: "t", data: { steps: [{ id: "a", label: "请求接入" }] } })).toBe(
+      "flowchart"
+    );
+    expect(
+      inferDiagramType({ title: "t", data: { participants: [{ id: "c" }], messages: [] } })
+    ).toBe("sequence");
+    expect(inferDiagramType({ title: "t", data: { layers: [] } })).toBe("architecture");
+    expect(inferDiagramType({ title: "t", data: { milestones: [] } })).toBe("timeline");
+    expect(inferDiagramType({ title: "t", data: { xAxis: {}, items: [] } })).toBe("quadrant");
+    expect(inferDiagramType({ title: "t" })).toBe("architecture");
 
     // 2. Render decision card with stringified JSON rawInput and namespaced tool name
     const onAction = vi.fn();

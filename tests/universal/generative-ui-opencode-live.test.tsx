@@ -199,4 +199,42 @@ describe("Generative UI - Live OpenCode End-to-End Simulation", () => {
     expect(regularTools).toHaveLength(2);
     expect(regularTools.map((t) => t.id)).toEqual(["call_skill", "call_cmd"]);
   });
+
+  it("OpenCode Live 5: namespaced tool name + missing diagramType still renders a flowchart card", async () => {
+    // 还原真实故障：真 agent 发 studio-ui__ 双下划线命名，且经常不带 diagramType。
+    // 修之前：isGenerativeTool=false（掉进普通工具行）；即使认出也默认画成 architecture。
+    const namespacedFlowchartTool = {
+      id: "call_01redis",
+      name: "studio-ui__render_editorial_diagram",
+      title: "Redis 缓存加速流程",
+      status: "completed" as const,
+      rawInput: {
+        title: "Redis 缓存加速流程",
+        data: {
+          steps: [
+            { id: "req", label: "请求接入" },
+            { id: "redis", label: "查 Redis" },
+            { id: "db", label: "未命中查 DB" },
+            { id: "backfill", label: "回写并设过期" },
+          ],
+        },
+      },
+    };
+
+    expect(isGenerativeTool(namespacedFlowchartTool)).toBe(true);
+
+    await act(async () => {
+      root.render(<AcpGenerativeToolCard tool={namespacedFlowchartTool} />);
+    });
+
+    expect(container.textContent).toContain("Redis 缓存加速流程");
+    // 推断出 flowchart 而非默认 architecture
+    expect(container.textContent).toContain("流程与状态机");
+    expect(container.textContent).toContain("请求接入");
+    expect(container.textContent).toContain("查 Redis");
+    expect(container.textContent).not.toContain("系统架构分层");
+
+    const svg = container.querySelector("svg");
+    expect(svg).not.toBeNull();
+  });
 });

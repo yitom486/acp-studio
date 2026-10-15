@@ -211,6 +211,19 @@ export function normalizeGenerativeToolName(name?: string): string {
   clean = clean.replace(/^.*tools\s*\[\s*["']?studio[-_]ui["']?\s*\]\.?/i, "");
   clean = clean.replace(/^studio[-_]ui[:_./]/i, "");
   clean = clean.split(/[({\s]/)[0];
+
+  // 3. 兼容 MCP 命名空间分隔（真 agent 常发 studio-ui__xxx / mcp__studio-ui__xxx）：
+  //    __ 是命名空间分隔符（单词字符，\b 跨不过去），取最后一段再比对。
+  //    注意：单下划线前缀写法（studio-ui_render_...）已在第 2 步处理，这里只管 __。
+  let namespaced = clean.replace(/^mcp__/i, "");
+  if (namespaced.includes("__")) {
+    const segs = namespaced.split("__").filter(Boolean);
+    namespaced = segs.length > 0 ? segs[segs.length - 1] : namespaced;
+  }
+  namespaced = namespaced.replace(/^_+|_+$/g, "");
+  if (namespaced !== clean && isGenerativeToolName(namespaced)) {
+    return namespaced;
+  }
   return clean;
 }
 
@@ -241,6 +254,34 @@ function isGenerativeToolName(clean: string): boolean {
     clean === "render_react_sandbox" ||
     clean === "prompt_form"
   );
+}
+
+/**
+ * 图表类型推断（纯函数，可测）：显式 diagramType 优先；缺失时按 data 形状推断，
+ * 避免“一律 architecture”把流程图画错。兜底仍是 architecture（保持旧行为）。
+ * 优先级：milestones → timeline；xAxis/yAxis → quadrant；participants/messages →
+ * sequence；layers → architecture；steps/nodes → flowchart。
+ */
+export function inferDiagramType(args: Record<string, any> | null | undefined): DiagramType {
+  const t = String(args?.diagramType || "").toLowerCase().trim();
+  if (
+    t === "architecture" ||
+    t === "sequence" ||
+    t === "flowchart" ||
+    t === "quadrant" ||
+    t === "timeline"
+  ) {
+    return t as DiagramType;
+  }
+  const raw = args as Record<string, any> | null | undefined;
+  const d =
+    raw && raw.data && typeof raw.data === "object" && !Array.isArray(raw.data) ? raw.data : raw || {};
+  if (Array.isArray(d.milestones)) return "timeline";
+  if (d.xAxis || d.yAxis) return "quadrant";
+  if (Array.isArray(d.participants) || Array.isArray(d.messages)) return "sequence";
+  if (Array.isArray(d.layers)) return "architecture";
+  if (Array.isArray(d.steps) || Array.isArray(d.nodes)) return "flowchart";
+  return "architecture";
 }
 
 /**
@@ -495,7 +536,7 @@ export const AcpGenerativeToolCard: React.FC<{
 
   if (normName === "render_editorial_diagram") {
     const title = args.title || "系统流程架构";
-    const diagramType = args.diagramType || "architecture";
+    const diagramType = inferDiagramType(args);
     const data =
       args.data && typeof args.data === "object" && Object.keys(args.data).length > 0
         ? args.data
