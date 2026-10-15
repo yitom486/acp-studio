@@ -269,4 +269,71 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
 
     await conn.closeSession({ sessionId: sessB.sessionId });
   });
+
+  it("verifies session/resume and session/load automatically inject studio-ui MCP and skills directory with turn-0 onboarding", async () => {
+    const mcpInfo = getMcpUiServerInfo();
+    expect(mcpInfo).not.toBeNull();
+
+    // 1. Test resumeSession
+    const resumeRes: any = await conn.resumeSession({
+      sessionId: "test-resumed-session-1",
+      cwd: process.cwd(),
+      mcpServers: [{ name: "caller-mcp", command: "cmd", args: [], env: [] }],
+    });
+    expect(resumeRes.sessionId).toBe("test-resumed-session-1");
+
+    // Inspect resumed session parameters
+    const resumeInspectUpdates: any[] = [];
+    await conn.prompt(
+      "test-resumed-session-1",
+      [{ type: "text", text: "trigger_inspect_session" }],
+      (evt: any) => {
+        if (evt.type === "update") resumeInspectUpdates.push(evt.update);
+      }
+    );
+    const resumeChunk = resumeInspectUpdates.find((u) => u.sessionUpdate === "agent_message_chunk");
+    expect(resumeChunk).toBeDefined();
+    const resumeData = JSON.parse(resumeChunk.content.text);
+
+    // Assert studio-ui MCP was auto-injected on resume!
+    const resumeStudioMcp = resumeData.mcpServers.find((s: any) => s.name === "studio-ui");
+    expect(resumeStudioMcp).toBeDefined();
+    expect(resumeStudioMcp.type).toBe("http");
+    expect(resumeStudioMcp.url).toContain(`:${mcpInfo!.port}/mcp`);
+
+    // Assert caller mcp was preserved
+    expect(resumeData.mcpServers.some((s: any) => s.name === "caller-mcp")).toBe(true);
+
+    // Assert skillsDir was auto-injected in additionalDirectories on resume!
+    expect(resumeData.additionalDirectories.length).toBeGreaterThan(0);
+    const hasSkillsDir = resumeData.additionalDirectories.some((d: string) => d.toLowerCase().includes("skills"));
+    expect(hasSkillsDir).toBe(true);
+
+    // 2. Test loadSession
+    const { result: loadRes } = await conn.loadSession({
+      sessionId: "test-loaded-session-2",
+      cwd: process.cwd(),
+    });
+    expect((loadRes as any).sessionId).toBe("test-loaded-session-2");
+
+    const loadInspectUpdates: any[] = [];
+    await conn.prompt(
+      "test-loaded-session-2",
+      [{ type: "text", text: "trigger_inspect_session" }],
+      (evt: any) => {
+        if (evt.type === "update") loadInspectUpdates.push(evt.update);
+      }
+    );
+    const loadChunk = loadInspectUpdates.find((u) => u.sessionUpdate === "agent_message_chunk");
+    expect(loadChunk).toBeDefined();
+    const loadData = JSON.parse(loadChunk.content.text);
+
+    const loadStudioMcp = loadData.mcpServers.find((s: any) => s.name === "studio-ui");
+    expect(loadStudioMcp).toBeDefined();
+    expect(loadStudioMcp.type).toBe("http");
+    expect(loadData.additionalDirectories.some((d: string) => d.toLowerCase().includes("skills"))).toBe(true);
+
+    await conn.closeSession({ sessionId: "test-resumed-session-1" });
+    await conn.closeSession({ sessionId: "test-loaded-session-2" });
+  });
 });

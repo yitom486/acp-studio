@@ -87,25 +87,44 @@ flowchart TD
 
 ---
 
-## 四、 核心代码清单与模块映射
+## 四、 会话生命周期对称注入与多端共存隔离机制
+
+### 1. 全生命周期对称注入（Symmetric Session Lifecycle Enrichment）
+在 [AgentConnection.ts](file:///d:/project/js/Electron/antigravity-acp/server/universal/AgentConnection.ts) 中，通过 `enrichSessionPayload` 统一管线，对以下所有会话切入点保持 100% 幂等对称注入：
+* **`session/new`**：新建会话时注入 `studio-ui` MCP 服务与 Studio Skills 目录；
+* **`session/resume`**：断点恢复会话时同样补齐专属 MCP 与技能路径，并重置首轮引导计数器；
+* **`session/load`**：历史会话重新加载时无缝挂载 Studio 环境；
+* **`session/fork`**：派生子会话继承完整的生成式交互与技能环境。
+
+### 2. 与原生 CLI（Codex、OpenCode）共存的零污染隔离机制
+* **内存/传输层临时注入（Zero Disk Pollution）**：
+  Studio **绝不写入** 任何全局或宿主磁盘配置（不修改 `~/.codex/config.json`、`~/.config/opencode/` 或代码仓库 `.git`）。所有的 `mcpServers` 与 `additionalDirectories` 仅作为当前 ACP 子进程通道的内存 JSON-RPC 参数下发。
+* **原生 CLI 访问该会话时的行为**：
+  用户若在系统终端中运行原生 `codex resume <session-id>`，原生客户端只读取磁盘标准配置，由于没有 Studio 的 HTTP MCP 端口注册，原生客户端不会连接 Studio 服务，历史卡片数据仅作为文本展示，原生工具（`bash`、`edit` 等）完全正常执行，**不会报任何找不到 MCP 服务的错误**。
+* **返回 Studio 时的无缝恢复**：
+  当用户在 Studio 中重新 `load` 或 `resume` 该会话时，Studio 重新注入活跃的 `studio-ui` 端口与技能，富交互与出图能力立刻恢复。
+
+---
+
+## 五、 核心代码清单与模块映射
 
 | 模块文件 | 核心职责 |
 | :--- | :--- |
 | [studio-skills.ts](file:///d:/project/js/Electron/antigravity-acp/server/universal/studio-skills.ts) | 负责技能目录动态解析、Frontmatter 元数据提取与按需文档读取。 |
 | [mcp-ui-server.ts](file:///d:/project/js/Electron/antigravity-acp/server/universal/mcp-ui-server.ts) | 5 位数专用端口 MCP 服务，注册 `list_studio_skills` 与 `get_studio_skill` 等标准工具。 |
-| [AgentConnection.ts](file:///d:/project/js/Electron/antigravity-acp/server/universal/AgentConnection.ts) | ACP 会话控制器，在 `newSession` 注入 `additionalDirectories`，并在首轮下发鼓励性引导。 |
+| [AgentConnection.ts](file:///d:/project/js/Electron/antigravity-acp/server/universal/AgentConnection.ts) | ACP 会话控制器，在 `new/resume/load/fork` 统一注入环境，并在首轮下发鼓励性引导。 |
 | [EditorialDiagramCard.tsx](file:///d:/project/js/Electron/antigravity-acp/src/components/assistant/EditorialDiagramCard.tsx) | 前端出版级矢量图表渲染引擎，自适应系统暗黑/明亮主题与 SVG 无损缩放。 |
 
 ---
 
-## 五、 测试与质量门禁保障
+## 六、 测试与质量门禁保障
 
 全链路经由三重自动化测试矩阵验证：
 1. **单元测试与工具调用**（[mcp-generative-ui.test.ts](file:///d:/project/js/Electron/antigravity-acp/tests/universal/mcp-generative-ui.test.ts)）：
    - 验证 5 位数端口自增绑定与 Streamable HTTP 协议握手；
    - 验证 `list_studio_skills` 与 `get_studio_skill` 工具在 MCP 协议下的调用与文档回传。
 2. **端到端黑盒智能体集成测试**（[mcp-integration-mock-agent.test.ts](file:///d:/project/js/Electron/antigravity-acp/tests/universal/mcp-integration-mock-agent.test.ts)）：
-   - 模拟离线标准 ACP Agent，验证 `session/new` 中 `additionalDirectories` 技能目录的自动注入；
+   - 模拟离线标准 ACP Agent，验证 `session/new`、`session/resume`、`session/load` 中 `additionalDirectories` 与 `mcpServers` 的自动对称注入；
    - 验证首轮 Turn 0 的提示下发与后续 Turn 1 的免重复保障。
 3. **前端交互与渲染 E2E 测试**（[generative-ui-e2e.test.tsx](file:///d:/project/js/Electron/antigravity-acp/tests/universal/generative-ui-e2e.test.tsx)）：
    - 验证矢量图表缩放、复制 SVG、以及沙箱组件的 DOM 渲染安全。

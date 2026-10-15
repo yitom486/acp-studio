@@ -481,16 +481,26 @@ export class UniversalAgentConnection {
     return conn.agent.request(acp.methods.agent.logout, {} as unknown as never);
   }
 
-  async newSession(args: { cwd?: string; mcpServers?: unknown[]; additionalDirectories?: string[] }): Promise<unknown> {
-    const conn = this.ensureConn();
-    const cwd = args.cwd || this.profile.defaultCwd || process.cwd();
-    const additionalDirectories = [...(args.additionalDirectories || [])];
+  /**
+   * Enrich session payload with Studio UI MCP server and studio skills directory.
+   * Applied symmetrically to session/new, session/resume, session/load, session/fork.
+   */
+  private enrichSessionPayload<T extends { cwd?: unknown; mcpServers?: unknown; additionalDirectories?: unknown }>(args: T): {
+    cwd: string;
+    mcpServers: unknown[];
+    additionalDirectories: string[];
+    roots: string[];
+  } {
+    const cwd = typeof args.cwd === "string" && args.cwd ? args.cwd : (this.profile.defaultCwd || process.cwd());
+    const additionalDirectories: string[] = Array.isArray(args.additionalDirectories)
+      ? [...(args.additionalDirectories as string[])]
+      : [];
     const skillsDir = getStudioSkillsDir();
     if (fs.existsSync(skillsDir) && !additionalDirectories.includes(skillsDir)) {
       additionalDirectories.push(skillsDir);
     }
     const roots = this.fsGuard.sessionRootsFor(cwd, additionalDirectories);
-    const mcpServers = [...(args.mcpServers || [])];
+    const mcpServers = Array.isArray(args.mcpServers) ? [...(args.mcpServers as unknown[])] : [];
     const mcpInfo = getMcpUiServerInfo();
     const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
     if (mcpInfo && (agentCaps?.http || !agentCaps || agentCaps?.sse)) {
@@ -506,6 +516,12 @@ export class UniversalAgentConnection {
         });
       }
     }
+    return { cwd, mcpServers, additionalDirectories, roots };
+  }
+
+  async newSession(args: { cwd?: string; mcpServers?: unknown[]; additionalDirectories?: string[] }): Promise<unknown> {
+    const conn = this.ensureConn();
+    const { cwd, mcpServers, additionalDirectories, roots } = this.enrichSessionPayload(args);
     const result = await conn.agent.request(acp.methods.agent.session.new, {
       cwd,
       mcpServers: mcpServers as never[],
@@ -522,25 +538,14 @@ export class UniversalAgentConnection {
   async loadSession(args: Record<string, unknown>): Promise<{ result: unknown; replayed: unknown[] }> {
     const conn = this.ensureConn();
     const sessionId = String((args as { sessionId?: string }).sessionId || "");
-    const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
-    const mcpServers = Array.isArray(args.mcpServers) ? [...args.mcpServers] : [];
-    const mcpInfo = getMcpUiServerInfo();
-    const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
-    if (mcpInfo && (agentCaps?.http || !agentCaps || agentCaps?.sse)) {
-      const alreadyHas = mcpServers.some(
-        (s: any) => s && (s.name === mcpInfo.name || s.url === mcpInfo.url)
-      );
-      if (!alreadyHas) {
-        mcpServers.push({
-          type: "http",
-          name: mcpInfo.name,
-          url: mcpInfo.url,
-          headers: [],
-        });
-      }
-    }
-    const payload = { ...args, sessionId, cwd, mcpServers };
-    const roots = this.fsGuard.sessionRootsFor(cwd, args.additionalDirectories);
+    const { cwd, mcpServers, additionalDirectories, roots } = this.enrichSessionPayload(args);
+    const payload = {
+      ...args,
+      sessionId,
+      cwd,
+      mcpServers,
+      ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
+    };
     // session/load replays history via session/update notifications before
     // responding. Collect them so HTTP clients can rebuild the transcript.
     const replayed: unknown[] = [];
@@ -549,6 +554,9 @@ export class UniversalAgentConnection {
     }) : () => undefined;
     try {
       const result = await conn.agent.request(acp.methods.agent.session.load, payload as unknown as never);
+      if (sessionId) {
+        this.sessionTurnCounts.set(sessionId, 0);
+      }
       this.fsGuard.rememberSessionRoots(sessionId, roots);
       // Grace window: session/update notifications are dispatched
       // asynchronously and can lag behind the load response. Unsubscribing
@@ -568,9 +576,19 @@ export class UniversalAgentConnection {
   /** UNSTABLE session/fork (advertised via sessionCapabilities.fork, e.g. codex). */
   async forkSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
-    const roots = this.fsGuard.sessionRootsFor(String(args.cwd || this.profile.defaultCwd || process.cwd()), args.additionalDirectories);
-    const result = await conn.agent.request(acp.methods.agent.session.fork, args as unknown as never);
-    this.fsGuard.rememberSessionRoots((result as { sessionId?: unknown } | null)?.sessionId, roots);
+    const { cwd, mcpServers, additionalDirectories, roots } = this.enrichSessionPayload(args);
+    const payload = {
+      ...args,
+      cwd,
+      mcpServers,
+      ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
+    };
+    const result = await conn.agent.request(acp.methods.agent.session.fork, payload as unknown as never);
+    const newSid = (result as { sessionId?: unknown } | null)?.sessionId;
+    if (typeof newSid === "string") {
+      this.sessionTurnCounts.set(newSid, 0);
+    }
+    this.fsGuard.rememberSessionRoots(newSid, roots);
     return result;
   }
 
@@ -595,11 +613,19 @@ export class UniversalAgentConnection {
 
   async resumeSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
-    const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
-    const mcpServers = Array.isArray(args.mcpServers) ? args.mcpServers : [];
-    const roots = this.fsGuard.sessionRootsFor(cwd, args.additionalDirectories);
-    const result = await conn.agent.request(acp.methods.agent.session.resume, { ...args, cwd, mcpServers } as unknown as never);
-    this.fsGuard.rememberSessionRoots(args.sessionId, roots);
+    const { cwd, mcpServers, additionalDirectories, roots } = this.enrichSessionPayload(args);
+    const payload = {
+      ...args,
+      cwd,
+      mcpServers,
+      ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
+    };
+    const result = await conn.agent.request(acp.methods.agent.session.resume, payload as unknown as never);
+    const sid = String(args.sessionId || (result as { sessionId?: unknown } | null)?.sessionId || "");
+    if (sid) {
+      this.sessionTurnCounts.set(sid, 0);
+    }
+    this.fsGuard.rememberSessionRoots(sid, roots);
     return result;
   }
 

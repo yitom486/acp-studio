@@ -87,6 +87,40 @@ const app = acp
       ],
     };
   })
+  .onRequest(acp.methods.agent.session.resume, async (ctx: any) => {
+    const sessionId = ctx.params.sessionId || `mock-resumed-session-${++sessSeq}`;
+    if (ctx.params.cwd) sessionCwds.set(sessionId, ctx.params.cwd);
+    if (ctx.params.mcpServers) sessionMcpServers.set(sessionId, ctx.params.mcpServers || []);
+    if (ctx.params.additionalDirectories) sessionAdditionalDirs.set(sessionId, ctx.params.additionalDirectories || []);
+    return {
+      sessionId,
+      models: {
+        currentModelId: "mock-default",
+        availableModels: [{ id: "mock-default", name: "Mock Default Model", description: "Offline simulation model" }],
+      },
+      modes: {
+        currentModeId: "agent",
+        availableModes: [{ id: "agent", name: "Agent Mode" }],
+      },
+    };
+  })
+  .onRequest(acp.methods.agent.session.load, async (ctx: any) => {
+    const sessionId = ctx.params.sessionId || `mock-loaded-session-${++sessSeq}`;
+    if (ctx.params.cwd) sessionCwds.set(sessionId, ctx.params.cwd);
+    if (ctx.params.mcpServers) sessionMcpServers.set(sessionId, ctx.params.mcpServers || []);
+    if (ctx.params.additionalDirectories) sessionAdditionalDirs.set(sessionId, ctx.params.additionalDirectories || []);
+    return {
+      sessionId,
+      models: {
+        currentModelId: "mock-default",
+        availableModels: [{ id: "mock-default", name: "Mock Default Model", description: "Offline simulation model" }],
+      },
+      modes: {
+        currentModeId: "agent",
+        availableModes: [{ id: "agent", name: "Agent Mode" }],
+      },
+    };
+  })
   .onRequest(acp.methods.agent.session.close, async () => {
     return {};
   })
