@@ -148,6 +148,7 @@ export function useChatSend({
   retry,
 }: UseChatSendOptions) {
   const abortRef = useRef<AbortController | null>(null);
+  const sendingRef = useRef(false);
   const retryMax = retry?.max ?? DEFAULT_RETRY.max;
   const retryDelayMs = retry?.delayMs ?? DEFAULT_RETRY.delayMs;
 
@@ -155,7 +156,8 @@ export function useChatSend({
     async (textToSend?: string) => {
       const st = useStudioStore.getState();
       const prompt = (textToSend ?? st.input).trim();
-      if ((!prompt && st.attachments.length === 0) || st.isStreaming) return;
+      if ((!prompt && st.attachments.length === 0) || st.isStreaming || sendingRef.current) return;
+      sendingRef.current = true;
       const agentId = st.activeAgentId;
       const blocks: Record<string, unknown>[] = [
         ...st.attachments.map((a) => a.block),
@@ -181,18 +183,24 @@ export function useChatSend({
         .filter((a) => (a.block as any).type === "image" && typeof (a.block as any).data === "string")
         .map((a) => ({ src: `data:${(a.block as any).mimeType || a.mimeType};base64,${(a.block as any).data}`, mimeType: String((a.block as any).mimeType || a.mimeType) }))
         .slice(-8);
-      st.appendMessage({ id: "user-" + Date.now(), role: "user", content: display, timestamp: now(), ...(sentImages.length ? { images: sentImages } : {}) });
-      st.appendMessage({
-        id: assistantId,
-        role: "assistant",
-        content: "",
-        thought: "",
-        plan: [],
-        toolCalls: [],
-        timestamp: now(),
-        isStreaming: true,
-        startedAt: Date.now(),
-      });
+      let turnStarted = false;
+      const beginTurn = () => {
+        if (turnStarted) return;
+        turnStarted = true;
+        const current = useStudioStore.getState();
+        current.appendMessage({ id: "user-" + Date.now(), role: "user", content: display, timestamp: now(), ...(sentImages.length ? { images: sentImages } : {}) });
+        current.appendMessage({
+          id: assistantId,
+          role: "assistant",
+          content: "",
+          thought: "",
+          plan: [],
+          toolCalls: [],
+          timestamp: now(),
+          isStreaming: true,
+          startedAt: Date.now(),
+        });
+      };
       abortRef.current = new AbortController();
 
       // Real wall-clock timing (client-observed): tool start = first sighting,
@@ -223,6 +231,9 @@ export function useChatSend({
           sid = await resolveSession(agentId);
           if (!sid) throw new Error("无法创建会话");
         }
+        // Session resolution may replace the draft thread. Insert this turn only
+        // after that transition so streamed updates retain their message target.
+        beginTurn();
         st.setStreaming(true);
         const cur = useStudioStore.getState();
         // Transient transport failures (dropped SSE, gateway hiccup) resend
@@ -467,6 +478,7 @@ export function useChatSend({
         }
       } catch (e: any) {
         if (e?.name !== "AbortError") {
+          beginTurn();
           const c2 = useStudioStore.getState();
           if (isAuthRequiredError(e)) {
             c2.setAuthOk(agentId, false);
@@ -482,6 +494,7 @@ export function useChatSend({
           stampTurnEnd(assistantId);
         }
       } finally {
+        sendingRef.current = false;
         const c2 = useStudioStore.getState();
         c2.setStreaming(false);
         c2.setBusy(false);

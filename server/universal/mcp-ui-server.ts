@@ -15,6 +15,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { listStudioSkills, getStudioSkill } from "./studio-skills";
+import {
+  presentResultId,
+  PRESENT_SCHEMA_VERSION,
+  type PresentResultKind,
+} from "../../src/lib/present-result";
 
 export interface McpServerInfo {
   port: number;
@@ -59,14 +64,25 @@ export function createMcpUiServer(): McpServer {
       },
     },
     async ({ title, cardType, description, data }) => {
+      const canonical = JSON.stringify({ title, cardType, data });
+      const id = presentResultId(cardType as PresentResultKind, canonical);
+      const presentPayload = {
+        schemaVersion: PRESENT_SCHEMA_VERSION,
+        id,
+        kind: cardType,
+        title,
+        description,
+        data,
+      };
       return {
         content: [
           {
             type: "text",
-            text: `[InteractiveCard: ${cardType}] "${title}" 已成功在前端聊天窗口中呈现。`,
+            text: `[Present: ${cardType}] 呈现数据已生成（id=${id}，标题="${title}"），等待客户端渲染与用户交互。`,
           },
         ],
-        data: { title, cardType, description, data },
+        structuredContent: presentPayload,
+        data: presentPayload,
       };
     }
   );
@@ -87,15 +103,27 @@ export function createMcpUiServer(): McpServer {
         description: z.string().optional().describe("组件功能与交互亮点说明"),
       },
     },
-    async ({ title, template, description }) => {
+    async ({ title, code, template, description }) => {
+      const canonical = JSON.stringify({ title, code, template });
+      const id = presentResultId("react-artifact", canonical);
+      const presentPayload = {
+        schemaVersion: PRESENT_SCHEMA_VERSION,
+        id,
+        kind: "react-artifact",
+        title,
+        description,
+        code,
+        template,
+      };
       return {
         content: [
           {
             type: "text",
-            text: `[ReactSandbox: ${template}] "${title}" 已成功在安全隔离沙箱中加载并挂载到聊天流中。`,
+            text: `[Present: react-artifact] 沙箱组件数据已生成（id=${id}，标题="${title}"），等待客户端隔离加载。`,
           },
         ],
-        data: { title, template, description },
+        structuredContent: presentPayload,
+        data: presentPayload,
       };
     }
   );
@@ -128,15 +156,27 @@ export function createMcpUiServer(): McpServer {
           .describe("待填写的表单字段集合"),
       },
     },
-    async ({ title, fields }) => {
+    async ({ title, description, submitLabel, fields }) => {
+      const canonical = JSON.stringify({ title, fields });
+      const id = presentResultId("form", canonical);
+      const presentPayload = {
+        schemaVersion: PRESENT_SCHEMA_VERSION,
+        id,
+        kind: "form",
+        title,
+        description,
+        submitLabel,
+        fields,
+      };
       return {
         content: [
           {
             type: "text",
-            text: `[PromptForm] "${title}" 已向用户下发表单（共 ${fields.length} 个字段），等待用户操作。`,
+            text: `[Present: form] 表单数据已生成（id=${id}，共 ${fields.length} 个字段），等待客户端渲染与用户填写。`,
           },
         ],
-        data: { title, fields },
+        structuredContent: presentPayload,
+        data: presentPayload,
       };
     }
   );
@@ -171,14 +211,28 @@ export function createMcpUiServer(): McpServer {
       },
     },
     async ({ title, diagramType, description, theme, accent, data }) => {
+      const canonical = JSON.stringify({ title, diagramType, data });
+      const id = presentResultId("diagram", canonical);
+      const presentPayload = {
+        schemaVersion: PRESENT_SCHEMA_VERSION,
+        id,
+        kind: "diagram",
+        title,
+        description,
+        diagramType,
+        theme,
+        accent,
+        data,
+      };
       return {
         content: [
           {
             type: "text",
-            text: `[EditorialDiagram: ${diagramType}] "${title}" 已成功渲染出版级矢量图表。`,
+            text: `[Present: diagram-${diagramType}] 矢量图表数据已生成（id=${id}，标题="${title}"），等待客户端渲染呈现。`,
           },
         ],
-        data: { title, diagramType, description, theme, accent, data },
+        structuredContent: presentPayload,
+        data: presentPayload,
       };
     }
   );

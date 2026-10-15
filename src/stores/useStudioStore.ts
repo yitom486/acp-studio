@@ -374,10 +374,15 @@ const ACTIVE_AGENT_KEY = "acp_active_agent_id_v1";
 
 function loadInitialActiveAgentId(): string {
   try {
-    if (typeof localStorage === "undefined") return "codex";
-    const saved = localStorage.getItem(ACTIVE_AGENT_KEY);
-    if (saved && typeof saved === "string" && saved.trim()) {
-      return saved.trim();
+    if (typeof window !== "undefined" && window.location?.search) {
+      const p = new URLSearchParams(window.location.search).get("agent");
+      if (p && p.trim()) return p.trim();
+    }
+    if (typeof localStorage !== "undefined") {
+      const saved = localStorage.getItem(ACTIVE_AGENT_KEY);
+      if (saved && typeof saved === "string" && saved.trim()) {
+        return saved.trim();
+      }
     }
     return "codex";
   } catch {
@@ -887,4 +892,8 @@ export function useStudioShallow(): StudioShallow {
  */
 export function useStudioMessages(): Message[] {
   return useStudioStore((s) => s.messages);
+}
+
+if (typeof window !== "undefined") {
+  (window as any).__studioStore = useStudioStore;
 }

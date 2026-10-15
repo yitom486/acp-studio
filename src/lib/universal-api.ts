@@ -158,16 +158,31 @@ function capToolText(v: unknown): unknown {
 /** Pick rich tool payloads off a tool_call(_update) (unknown fields never pass). */
 function pickToolExtras(u: any): Partial<ToolCallItem> {
   const out: Partial<ToolCallItem> = {};
-  if (typeof u?.name === "string" && u.name) out.name = u.name;
-  if (u?.rawInput !== undefined) out.rawInput = u.rawInput;
+  const nameCandidate =
+    (typeof u?.name === "string" && u.name) ||
+    (typeof u?.toolName === "string" && u.toolName) ||
+    (typeof u?.tool === "string" && u.tool) ||
+    (typeof u?.function?.name === "string" && u.function.name) ||
+    undefined;
+  if (nameCandidate) out.name = nameCandidate;
+
+  const inputCandidate =
+    u?.rawInput ?? u?.input ?? u?.args ?? u?.arguments ?? u?.parameters ?? u?.params;
+  if (inputCandidate !== undefined) out.rawInput = inputCandidate;
+
   if (Array.isArray(u?.locations)) {
     out.locations = u.locations
       .filter((l: any) => l && typeof l.path === "string")
       .slice(0, 10)
       .map((l: any) => ({ path: l.path, ...(typeof l.line === "number" ? { line: l.line } : {}) }));
   }
-  if (u?.rawOutput !== undefined) out.rawOutput = capToolText(u?.rawOutput);
-  if (u?.rawError !== undefined) out.rawError = capToolText(u?.rawError);
+
+  const outputCandidate = u?.rawOutput ?? u?.output ?? u?.result ?? u?.data;
+  if (outputCandidate !== undefined) out.rawOutput = capToolText(outputCandidate);
+
+  const errorCandidate = u?.rawError ?? u?.error;
+  if (errorCandidate !== undefined) out.rawError = capToolText(errorCandidate);
+
   return out;
 }
 

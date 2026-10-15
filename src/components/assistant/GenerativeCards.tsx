@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  AlertCircle,
   Check,
   CheckCircle2,
   CheckSquare,
@@ -7,6 +8,7 @@ import {
   Circle,
   HelpCircle,
   ListTodo,
+  Loader2,
   Send,
   Sliders,
   TrendingUp,
@@ -34,26 +36,51 @@ export const DecisionCard: React.FC<{
     badge?: string;
     recommended?: boolean;
   }>;
-  onSelect?: (id: string) => void;
+  onSelect?: (id: string, opt: any) => void | Promise<void>;
 }> = ({ title, description, options = [], onSelect }) => {
   const [selected, setSelected] = useState<string | null>(() => {
     const rec = options.find((o) => o.recommended);
     return rec ? rec.id : null;
   });
+  const [status, setStatus] = useState<"idle" | "submitting" | "selected">("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handlePick = (id: string) => {
-    setSelected(id);
-    onSelect?.(id);
+  const handlePick = async (opt: any) => {
+    if (status === "submitting") return;
+    setSelected(opt.id);
+    setStatus("submitting");
+    setErrorMsg(null);
+    try {
+      await onSelect?.(opt.id, opt);
+      setStatus("selected");
+    } catch (err: any) {
+      setStatus("idle");
+      setErrorMsg(err?.message || "选项回传失败，请点击重试");
+    }
   };
 
   return (
     <div className="rounded-xl border border-border bg-card/90 p-4 shadow-sm my-2.5 max-w-xl text-card-foreground">
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className="w-5 h-5 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
-          <HelpCircle className="w-3.5 h-3.5" />
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <HelpCircle className="w-3.5 h-3.5" />
+          </div>
+          <h4 className="font-semibold text-sm text-foreground">{title}</h4>
         </div>
-        <h4 className="font-semibold text-sm text-foreground">{title}</h4>
+        {status === "submitting" && (
+          <span className="flex items-center gap-1.5 text-[11px] font-mono text-primary animate-pulse">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            <span>发送决策中…</span>
+          </span>
+        )}
       </div>
+      {errorMsg && (
+        <div className="mb-2 p-2 rounded-md bg-destructive/10 border border-destructive/30 flex items-center gap-1.5 text-xs text-destructive">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
       {description && (
         <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
           {description}
@@ -66,7 +93,7 @@ export const DecisionCard: React.FC<{
           return (
             <div
               key={opt.id}
-              onClick={() => handlePick(opt.id)}
+              onClick={() => handlePick(opt)}
               className={cn(
                 "group relative flex items-start justify-between p-3 rounded-lg border transition-all cursor-pointer select-none",
                 isSelected
@@ -287,7 +314,7 @@ export const PromptFormCard: React.FC<{
     defaultValue?: any;
     required?: boolean;
   }>;
-  onSubmit?: (values: Record<string, any>) => void;
+  onSubmit?: (values: Record<string, any>) => void | Promise<void>;
 }> = ({
   title,
   description,
@@ -302,17 +329,42 @@ export const PromptFormCard: React.FC<{
     }
     return init;
   });
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<"idle" | "submitting" | "submitted" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
-    onSubmit?.(formData);
+    if (status === "submitting" || status === "submitted") return;
+
+    // Validate required fields
+    for (const f of fields) {
+      if (f.required) {
+        const val = formData[f.id];
+        if (val === undefined || val === null || (typeof val === "string" && !val.trim())) {
+          setStatus("error");
+          setErrorMsg(`请填写必填项："${f.label}"`);
+          return;
+        }
+      }
+    }
+
+    setStatus("submitting");
+    setErrorMsg(null);
+    try {
+      await onSubmit?.(formData);
+      setStatus("submitted");
+    } catch (err: any) {
+      setStatus("error");
+      setErrorMsg(err?.message || "表单提交失败，请重试");
+    }
   };
 
   const update = (id: string, val: any) => {
     setFormData((prev) => ({ ...prev, [id]: val }));
+    if (status === "error") setErrorMsg(null);
   };
+
+  const isLocked = status === "submitting" || status === "submitted";
 
   return (
     <div className="rounded-xl border border-border bg-card/95 p-4 shadow-sm my-2.5 max-w-xl text-card-foreground">
@@ -323,13 +375,20 @@ export const PromptFormCard: React.FC<{
           </div>
           <h4 className="font-semibold text-sm text-foreground">{title}</h4>
         </div>
-        {submitted && (
+        {status === "submitted" && (
           <span className="flex items-center gap-1 text-[11px] font-medium text-success bg-success/10 px-2 py-0.5 rounded-full">
             <Check className="w-3 h-3" />
             <span>已提交</span>
           </span>
         )}
       </div>
+
+      {errorMsg && (
+        <div className="mb-2 p-2 rounded-md bg-destructive/10 border border-destructive/30 flex items-center gap-1.5 text-xs text-destructive">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
 
       {description && (
         <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
@@ -347,7 +406,7 @@ export const PromptFormCard: React.FC<{
 
             {f.type === "select" ? (
               <select
-                disabled={submitted}
+                disabled={isLocked}
                 value={formData[f.id] || ""}
                 onChange={(e) => update(f.id, e.target.value)}
                 className="w-full text-xs rounded-lg border border-border bg-background px-2.5 py-1.5 text-foreground outline-none focus:border-primary disabled:opacity-60 transition-colors"
@@ -361,7 +420,7 @@ export const PromptFormCard: React.FC<{
               </select>
             ) : f.type === "textarea" ? (
               <textarea
-                disabled={submitted}
+                disabled={isLocked}
                 rows={3}
                 placeholder={f.placeholder}
                 value={formData[f.id] || ""}
@@ -372,7 +431,7 @@ export const PromptFormCard: React.FC<{
               <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground">
                 <input
                   type="checkbox"
-                  disabled={submitted}
+                  disabled={isLocked}
                   checked={Boolean(formData[f.id])}
                   onChange={(e) => update(f.id, e.target.checked)}
                   className="rounded border-border text-primary focus:ring-primary"
@@ -382,7 +441,7 @@ export const PromptFormCard: React.FC<{
             ) : (
               <input
                 type={f.type === "number" ? "number" : "text"}
-                disabled={submitted}
+                disabled={isLocked}
                 placeholder={f.placeholder}
                 value={formData[f.id] || ""}
                 onChange={(e) => update(f.id, e.target.value)}
@@ -392,14 +451,24 @@ export const PromptFormCard: React.FC<{
           </div>
         ))}
 
-        {!submitted && (
+        {status !== "submitted" && (
           <div className="pt-1 flex justify-end">
             <button
               type="submit"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors shadow-xs"
+              disabled={status === "submitting"}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors shadow-xs disabled:opacity-60 cursor-pointer"
             >
-              <Send className="w-3 h-3" />
-              <span>{submitLabel}</span>
+              {status === "submitting" ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>正在提交…</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3 h-3" />
+                  <span>{status === "error" ? "重试提交" : submitLabel}</span>
+                </>
+              )}
             </button>
           </div>
         )}

@@ -27,7 +27,7 @@ function setInputValue(input: HTMLInputElement, value: string | boolean) {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-describe("Generative UI - Front-End Component End-to-End Tests", () => {
+describe("Generative UI - Front-End Component Integration Tests", () => {
   let container: HTMLDivElement;
   let root: Root;
   const originalConsoleError = console.error;
@@ -98,7 +98,7 @@ describe("Generative UI - Front-End Component End-to-End Tests", () => {
     });
 
     // 3. Verify interaction callback & UI active selection state
-    expect(onSelect).toHaveBeenCalledWith("bluegreen");
+    expect(onSelect).toHaveBeenCalledWith("bluegreen", options[1]);
     expect(optionCards[1].className).toContain("border-primary");
   });
 

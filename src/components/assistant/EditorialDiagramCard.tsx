@@ -499,21 +499,51 @@ function SequenceDiagramSvg({
   accent: AccentColor;
 }) {
   const accentStyles = ACCENT_MAP[accent] || ACCENT_MAP.emerald;
-  const participants = Array.isArray(data.participants) ? data.participants : [];
-  const messages = Array.isArray(data.messages) ? data.messages : [];
+  const messages: any[] = Array.isArray(data.messages)
+    ? data.messages
+    : Array.isArray(data.steps)
+      ? data.steps
+      : [];
+
+  const participants: any[] = useMemo(() => {
+    if (Array.isArray(data.participants) && data.participants.length > 0) {
+      return data.participants;
+    }
+    const set = new Set<string>();
+    for (const m of messages) {
+      const src = m.from ?? m.source ?? m.fromParticipant;
+      const tgt = m.to ?? m.target ?? m.toParticipant;
+      if (src) set.add(String(src));
+      if (tgt) set.add(String(tgt));
+    }
+    if (set.size > 0) {
+      return Array.from(set).map((name) => ({ id: name, label: name }));
+    }
+    return [
+      { id: "Client", label: "Client" },
+      { id: "Server", label: "Server" },
+    ];
+  }, [data.participants, messages]);
 
   const width = 640;
   const pCount = Math.max(participants.length, 2);
   const colWidth = (width - 80) / pCount;
   const rowHeight = 44;
   const headerHeight = 46;
-  const totalHeight = headerHeight + messages.length * rowHeight + 40;
+  const totalHeight = headerHeight + Math.max(messages.length, 1) * rowHeight + 40;
 
   const getColX = (idOrIndex: string | number) => {
     let idx = typeof idOrIndex === "number" ? idOrIndex : -1;
     if (idx === -1) {
+      const str = String(idOrIndex || "").trim().toLowerCase();
       idx = participants.findIndex(
-        (p: any) => p.id === idOrIndex || p.name === idOrIndex || p.label === idOrIndex
+        (p: any) =>
+          p.id === idOrIndex ||
+          p.name === idOrIndex ||
+          p.label === idOrIndex ||
+          String(p.id || "").toLowerCase() === str ||
+          String(p.label || "").toLowerCase() === str ||
+          String(p.name || "").toLowerCase() === str
       );
     }
     if (idx === -1) idx = 0;
@@ -597,8 +627,10 @@ function SequenceDiagramSvg({
       {/* 时序交互消息箭头 */}
       {messages.map((m: any, mIdx: number) => {
         const y = headerHeight + (mIdx + 1) * rowHeight - 8;
-        const x1 = getColX(m.from);
-        const x2 = getColX(m.to);
+        const fromId = m.from ?? m.source ?? m.fromParticipant ?? 0;
+        const toId = m.to ?? m.target ?? m.toParticipant ?? Math.min(1, participants.length - 1);
+        const x1 = getColX(fromId);
+        const x2 = getColX(toId);
         const isSelf = Math.abs(x1 - x2) < 4;
         const isReply = m.type === "reply" || m.dashed;
         const isHighlighted = Boolean(m.highlighted);
@@ -644,7 +676,7 @@ function SequenceDiagramSvg({
                   : "fill-foreground"
               }`}
             >
-              {m.label || m.text}
+              {m.label || m.text || m.name || m.title || `Step ${mIdx + 1}`}
             </text>
           </g>
         );
@@ -664,14 +696,33 @@ function FlowchartDiagramSvg({
   accent: AccentColor;
 }) {
   const accentStyles = ACCENT_MAP[accent] || ACCENT_MAP.emerald;
-  const steps = Array.isArray(data.steps) ? data.steps : [];
-  const connections = Array.isArray(data.connections) ? data.connections : [];
+  const steps: any[] = Array.isArray(data.steps)
+    ? data.steps
+    : Array.isArray(data.nodes)
+      ? data.nodes
+      : [];
+  const rawConns: any[] = Array.isArray(data.connections)
+    ? data.connections
+    : Array.isArray(data.edges)
+      ? data.edges
+      : [];
+
+  const connections = useMemo(() => {
+    if (rawConns.length > 0) return rawConns;
+    if (steps.length > 1) {
+      return steps.slice(0, -1).map((s, i) => ({
+        from: s.id ?? i,
+        to: steps[i + 1].id ?? i + 1,
+      }));
+    }
+    return [];
+  }, [rawConns, steps]);
 
   const width = 640;
   const cardWidth = 140;
   const cardHeight = 56;
-  const cols = Math.min(steps.length, 3);
-  const rows = Math.ceil(steps.length / 3);
+  const cols = Math.min(Math.max(steps.length, 1), 3);
+  const rows = Math.max(Math.ceil(steps.length / 3), 1);
   const totalHeight = Math.max(rows * 110 + 40, 240);
 
   const getStepCoord = (idx: number) => {
@@ -705,8 +756,10 @@ function FlowchartDiagramSvg({
 
       {/* 渲染步骤连线 */}
       {connections.map((conn: any, idx: number) => {
-        const fromIdx = steps.findIndex((s: any) => s.id === conn.from);
-        const toIdx = steps.findIndex((s: any) => s.id === conn.to);
+        const fromId = conn.from ?? conn.source;
+        const toId = conn.to ?? conn.target;
+        const fromIdx = steps.findIndex((s: any, i: number) => s.id === fromId || i === fromId);
+        const toIdx = steps.findIndex((s: any, i: number) => s.id === toId || i === toId);
         if (fromIdx >= 0 && toIdx >= 0) {
           const s1 = getStepCoord(fromIdx);
           const s2 = getStepCoord(toIdx);

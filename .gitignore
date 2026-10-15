@@ -2,6 +2,8 @@ node_modules/
 dist/
 .tmp-node/
 electron-dist/
+test-results/
+playwright-report/
 release/
 release-local/
 release-node/

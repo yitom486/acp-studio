@@ -14,6 +14,7 @@ import { initUpdater, checkForUpdatesFromMenu } from "./updater";
 import { buildAppMenu, type MenuActions } from "./menu";
 import { addRecent, loadRecent } from "./recent";
 import { setTrashImpl } from "../server/universal/http/files";
+import { startMcpUiServer, stopMcpUiServer } from "../server/universal/mcp-ui-server";
 
 const isDev = process.env.ELECTRON_DEV === "1";
 const START_URL = process.env.ELECTRON_START_URL || `http://localhost:${PORT}`;
@@ -27,7 +28,9 @@ if (process.platform === "win32") {
 // 共享 %APPDATA%\Electron 导致 Chromium ProcessSingleton 单例锁冲突（0x20 锁文件被占用错误）
 app.name = "acp-studio";
 try {
-  const customUserData = path.join(app.getPath("appData"), isDev ? "acp-studio-dev" : "acp-studio");
+  const customUserData =
+    process.env.ACP_USER_DATA_DIR ||
+    path.join(app.getPath("appData"), isDev ? "acp-studio-dev" : "acp-studio");
   app.setPath("userData", customUserData);
 } catch (err) {
   console.warn("[Electron] 无法设置独立 userData 路径:", err);
@@ -45,11 +48,33 @@ async function startGateway() {
   const token = ensureGatewayToken();
   if (!process.env.ACP_GATEWAY_TOKEN) process.env.ACP_GATEWAY_TOKEN = token;
   await freePortIfOccupied(PORT);
+
+  // 启动专用的 Studio UI MCP Server (自动层叠端口 13920+)
+  await startMcpUiServer().catch((err) => {
+    console.warn(`[Electron] 启动 MCP UI 端口服务失败: ${(err as Error)?.message || err}`);
+  });
+
   // Packaged layout: frontend lives under <app>/dist, not cwd.
   // Runner era: agents spawn via bunx/npx directly (windowsHide, no shim);
   // only an explicit AGY_HEADLESS_LAUNCHER env opts back into shimmed spawn.
   if (!isDev) {
-    process.env.ACP_PUBLIC_DIR = path.join(app.getAppPath(), "dist");
+    if (!process.env.ACP_PUBLIC_DIR) {
+      const candidates = [
+        path.join(app.getAppPath(), "dist"),
+        path.join(app.getAppPath(), "..", "dist"),
+        path.join(__dirname, "..", "dist"),
+        path.join(process.cwd(), "dist"),
+      ];
+      for (const cand of candidates) {
+        if (fs.existsSync(path.join(cand, "index.html"))) {
+          process.env.ACP_PUBLIC_DIR = cand;
+          break;
+        }
+      }
+      if (!process.env.ACP_PUBLIC_DIR) {
+        process.env.ACP_PUBLIC_DIR = path.join(app.getAppPath(), "dist");
+      }
+    }
     try {
       process.chdir(app.getPath("home"));
     } catch {}
@@ -163,9 +188,11 @@ function getPreloadPath(): string {
 }
 
 function windowUrl(cwd?: string): string {
-  if (!cwd) return START_URL;
   const u = new URL(START_URL);
-  u.searchParams.set("cwd", cwd);
+  if (cwd) u.searchParams.set("cwd", cwd);
+  if (process.env.ACP_DEFAULT_AGENT_ID) {
+    u.searchParams.set("agent", process.env.ACP_DEFAULT_AGENT_ID);
+  }
   return u.toString();
 }
 
@@ -411,6 +438,7 @@ if (!app.requestSingleInstanceLock()) {
     await shutdownBridges().catch((err) => {
       console.warn(`[Electron] 关闭 agent 桥接失败：${(err as Error)?.message || err}`);
     });
+    await stopMcpUiServer().catch(() => {});
     if (process.platform !== "darwin") app.quit();
   });
 
@@ -418,6 +446,7 @@ if (!app.requestSingleInstanceLock()) {
     await shutdownBridges().catch((err) => {
       console.warn(`[Electron] 退出前关闭桥接失败：${(err as Error)?.message || err}`);
     });
+    await stopMcpUiServer().catch(() => {});
   });
 
   const handleSignal = () => {

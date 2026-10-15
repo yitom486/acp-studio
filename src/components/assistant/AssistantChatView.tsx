@@ -52,6 +52,7 @@ import {
 import {
   isGenerativeTool,
   AcpGenerativeToolCard,
+  type GenerativeCardAction,
 } from "@/components/assistant/toolkit";
 import {
   extractFileFromTool,
@@ -88,6 +89,8 @@ export interface AssistantChatViewProps {
   onNewSession?: () => void;
   /** 当前工作区（本轮改动面板定位文件状态用）。 */
   cwd?: string | null;
+  /** 生成式卡片交互回传回调 */
+  onGenerativeAction?: (action: GenerativeCardAction) => void | Promise<void>;
 }
 
 // ---------- part renderers (Text 由 AcpMarkdownText 直供 primitive) ----------
@@ -990,7 +993,8 @@ const AssistantMessageView: React.FC<{
   agentName: string;
   cwd?: string | null;
   onNewSession?: () => void;
-}> = ({ agentName, cwd, onNewSession }) => {
+  onGenerativeAction?: (action: GenerativeCardAction) => void | Promise<void>;
+}> = ({ agentName, cwd, onNewSession, onGenerativeAction }) => {
   const messageId = useAuiState((s) => s.message.id);
   const running = useAuiState((s) => s.message.status?.type === "running");
   const isCopied = useAuiState((s) => s.message.isCopied);
@@ -1214,7 +1218,21 @@ const AssistantMessageView: React.FC<{
           {generativeTools.length > 0 && (
             <div className="my-2.5 space-y-3">
               {generativeTools.map((tc) => (
-                <AcpGenerativeToolCard key={tc.id} tool={tc} />
+                <AcpGenerativeToolCard
+                  key={tc.id}
+                  tool={tc}
+                  onAction={
+                    onGenerativeAction
+                      ? async (act) => {
+                          await onGenerativeAction({
+                            ...act,
+                            messageId,
+                            toolCallId: tc.id,
+                          });
+                        }
+                      : undefined
+                  }
+                />
               ))}
             </div>
           )}
@@ -1390,11 +1408,19 @@ const ThreadMessageRouter: React.FC<{
   agentName: string;
   cwd?: string | null;
   onNewSession?: () => void;
-}> = ({ agentName, cwd, onNewSession }) => {
+  onGenerativeAction?: (action: GenerativeCardAction) => void | Promise<void>;
+}> = ({ agentName, cwd, onNewSession, onGenerativeAction }) => {
   const role = useAuiState((s) => s.message.role);
   if (role === "user") return <UserMessageView />;
   if (role === "system") return <SystemMessageView />;
-  return <AssistantMessageView agentName={agentName} cwd={cwd} onNewSession={onNewSession} />;
+  return (
+    <AssistantMessageView
+      agentName={agentName}
+      cwd={cwd}
+      onNewSession={onNewSession}
+      onGenerativeAction={onGenerativeAction}
+    />
+  );
 };
 
 const ThreadLoadEarlier: React.FC = () => {
@@ -1429,6 +1455,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
   onEnsureSession,
   onNewSession,
   cwd,
+  onGenerativeAction,
 }) => {
   const { viewportRef, contentRef } = useStickToBottom<HTMLDivElement>();
   return (
@@ -1460,7 +1487,14 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
           <div ref={contentRef} className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-6 px-3 sm:px-4">
             <ThreadLoadEarlier />
             <ThreadPrimitive.Messages>
-              {() => <ThreadMessageRouter agentName={agentName} cwd={cwd} onNewSession={onNewSession} />}
+              {() => (
+                <ThreadMessageRouter
+                  agentName={agentName}
+                  cwd={cwd}
+                  onNewSession={onNewSession}
+                  onGenerativeAction={onGenerativeAction}
+                />
+              )}
             </ThreadPrimitive.Messages>
           </div>
           <ThreadPrimitive.ViewportFooter className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto sticky bottom-0 z-10 flex justify-center pointer-events-none h-0 overflow-visible">

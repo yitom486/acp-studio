@@ -104,16 +104,8 @@ function buildSandboxSrcDoc(code: string, template: "react" | "html"): string {
       white-space: pre-wrap;
     }
   </style>
-  <!-- Load React 18 & Babel standalone -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-</head>
-<body class="p-4 flex flex-col justify-center items-center">
-  <div id="error-container"></div>
-  <div id="root" class="w-full"></div>
-
   <script>
+    window.__cdnErrors = [];
     window.onerror = function(msg, url, line, col, err) {
       const errBox = document.getElementById("error-container");
       if (errBox) {
@@ -122,8 +114,28 @@ function buildSandboxSrcDoc(code: string, template: "react" | "html"): string {
       }
       return false;
     };
+    function handleCdnError(tag) {
+      window.__cdnErrors.push(tag.src);
+    }
+  </script>
+  <!-- Load React 18 & Babel standalone -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" onerror="handleCdnError(this)"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" onerror="handleCdnError(this)"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js" onerror="handleCdnError(this)"></script>
+</head>
+<body class="p-4 flex flex-col justify-center items-center">
+  <div id="error-container"></div>
+  <div id="root" class="w-full"></div>
 
+  <script>
     try {
+      if (window.__cdnErrors && window.__cdnErrors.length > 0) {
+        throw new Error("无法加载沙箱运行时（" + window.__cdnErrors.join(", ") + "）。若处于离线环境，沙箱预览需要网络连接。");
+      }
+      if (typeof Babel === "undefined" || typeof React === "undefined") {
+        throw new Error("Babel 或 React 运行时未就绪。请检查网络连接。");
+      }
+
       const rawCode = ${escapedCode};
       
       // Transform TypeScript / JSX using Babel
@@ -159,7 +171,7 @@ function buildSandboxSrcDoc(code: string, template: "react" | "html"): string {
         "useReducer",
         "module",
         "exports",
-        transformed + "\\n; return (typeof App !== 'undefined' ? App : (typeof Component !== 'undefined' ? Component : (module.exports.default || module.exports)));"
+        transformed + "\\n; return (typeof App !== 'undefined' ? App : (typeof Component !== 'undefined' ? Component : (exports.default || module.exports.default || exports || module.exports)));"
       );
 
       ComponentToRender = runFn(

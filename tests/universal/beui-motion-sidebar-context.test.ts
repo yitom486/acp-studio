@@ -11,10 +11,9 @@ import {
   ContextMenuLabel,
   ContextMenuShortcut,
 } from "@/components/motion/ContextMenu";
-import { PullToRefresh } from "@/components/motion/PullToRefresh";
-import { SessionRow, type SessionItem } from "@/components/universal/Sidebar";
+import { Sidebar, SessionRow, type SessionItem } from "@/components/universal/Sidebar";
 
-describe("Stage 5: beUI Animated ContextMenu & PullToRefresh for Sidebar", () => {
+describe("Stage 5: beUI Animated ContextMenu & AISidebar for Universal Sidebar", () => {
   beforeAll(() => {
     if (typeof Element !== "undefined") {
       Element.prototype.animate = () =>
@@ -170,31 +169,90 @@ describe("Stage 5: beUI Animated ContextMenu & PullToRefresh for Sidebar", () =>
     });
     expect(onDelete).toHaveBeenCalledWith(session);
 
+    // Left-click session row to switch session directly
+    await act(async () => {
+      (sessionDiv as HTMLElement)?.click();
+    });
+    expect(onOpen).toHaveBeenCalledWith(session);
+
     await act(async () => {
       root.unmount();
     });
     container.remove();
   });
 
-  it("renders PullToRefresh and displays child content", async () => {
+
+  it("renders full Sidebar integrated with BeUI AISidebar and handles switching & new session", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
 
-    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    const onOpenSession = vi.fn();
+    const onNewSession = vi.fn();
+    const onForkSession = vi.fn();
+    const onDeleteSession = vi.fn();
+
+    const sessions: SessionItem[] = [
+      {
+        sessionId: "ses_1",
+        title: "重构 AI 侧边栏为官方 BeUI 组件",
+        cwd: "d:/project/js/Electron/antigravity-acp",
+        updatedAt: new Date().toISOString(),
+      },
+    ];
 
     await act(async () => {
       root.render(
-        h(
-          PullToRefresh,
-          { onRefresh, refreshing: false },
-          h("div", { id: "child-list" }, "Session List Content")
-        )
+        h(Sidebar, {
+          agents: [],
+          activeAgentId: "claude",
+          onSelectAgent: vi.fn(),
+          onConnectAgent: vi.fn(),
+          connectingId: null,
+          authOk: {},
+          sessions,
+          sessionsLoading: false,
+          activeSessionId: null,
+          onRefreshSessions: vi.fn(),
+          onNewSession,
+          onOpenSession,
+          onForkSession,
+          onDeleteSession,
+          supportsFork: true,
+          supportsList: true,
+          onOpenProviders: vi.fn(),
+          supportsProviders: false,
+          onManageCustom: vi.fn(),
+          currentWorkspace: "d:/project/js/Electron/antigravity-acp",
+        })
       );
     });
 
-    expect(container.textContent).toContain("Session List Content");
-    expect(container.textContent).toContain("下拉刷新会话");
+    // Verify tree is rendered via BeUI AISidebar
+    const tree = container.querySelector('[role="tree"]');
+    expect(tree).not.toBeNull();
+    expect(container.textContent).toContain("重构 AI 侧边栏为官方 BeUI 组件");
+
+    // Click on session row item
+    const sessionNode = Array.from(container.querySelectorAll('[role="treeitem"]')).find((el) =>
+      el.textContent?.includes("重构 AI 侧边栏为官方 BeUI 组件")
+    );
+    expect(sessionNode).toBeDefined();
+
+    await act(async () => {
+      (sessionNode as HTMLElement)?.click();
+    });
+    expect(onOpenSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "ses_1" }));
+
+    // Click on top "+ 新会话" button
+    const newSessionBtn = Array.from(container.querySelectorAll("button")).find((btn) =>
+      btn.textContent?.includes("新会话")
+    );
+    expect(newSessionBtn).toBeDefined();
+    await act(async () => {
+      newSessionBtn?.click();
+    });
+    expect(onNewSession).toHaveBeenCalled();
 
     await act(async () => {
       root.unmount();

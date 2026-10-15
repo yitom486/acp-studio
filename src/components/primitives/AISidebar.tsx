@@ -81,6 +81,7 @@ export interface AISidebarProps {
   activeId?: string | null;
   defaultActiveId?: string | null;
   onActiveChange?: (id: string) => void;
+  onItemClick?: (item: SidebarResource) => void;
   expandedIds?: string[];
   defaultExpandedIds?: string[];
   onExpandedChange?: (ids: string[]) => void;
@@ -365,6 +366,7 @@ interface ResourceRowProps {
   onDelete?: () => void;
   onSelect: () => void;
   onToggle: () => void;
+  onItemClick?: (item: SidebarResource) => void;
   renderIcon?: AISidebarProps["renderIcon"];
   renderMenu?: AISidebarProps["renderMenu"];
   setRef: (node: HTMLDivElement | null) => void;
@@ -393,6 +395,7 @@ function ResourceRow({
   onDelete,
   onSelect,
   onToggle,
+  onItemClick,
   renderIcon,
   renderMenu,
   setRef,
@@ -500,8 +503,14 @@ function ResourceRow({
           row.item.disabled
         )
           return;
+        onItemClick?.(row.item);
         if (acceptsChildren) onToggle();
         else onSelect();
+      }}
+      onContextMenu={(event) => {
+        if (row.item.disabled || renaming) return;
+        event.preventDefault();
+        onMenuOpenChange(true);
       }}
       onDoubleClick={(event) => {
         if (row.item.disabled) return;
@@ -618,6 +627,7 @@ export function AISidebar({
   activeId,
   defaultActiveId = null,
   onActiveChange,
+  onItemClick,
   expandedIds: controlledExpandedIds,
   defaultExpandedIds = [],
   onExpandedChange,
@@ -934,6 +944,7 @@ export function AISidebar({
               onFocus={() => setFocusedId(row.item.id)}
               onSelect={() => select(row.item.id)}
               onToggle={() => toggle(row.item.id)}
+              onItemClick={onItemClick}
               onKeyDown={(event) => handleKeyDown(event, row)}
               onRenameStart={() => setRenamingId(row.item.id)}
               onRenameCancel={() => setRenamingId(null)}

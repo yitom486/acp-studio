@@ -208,6 +208,10 @@ acp-studio/
 
 ## 参与贡献
 
+真实 Electron 端到端测试：运行 `bun run test:e2e`。测试会先完成前端类型检查、构建与 Electron 主进程构建，再启动独立应用实例；需要本机已安装 Bun 和项目依赖。
+
+测试仅脚本化模型输出，真实执行 ACP 通信、studio-ui MCP 工具、聊天渲染和卡片操作回传，验证决策与表单在原会话中继续回答。每例使用临时工作区、独立用户数据和动态网关端口。失败截图与 trace 保存在 `test-results/`，可用 `bunx playwright show-trace <trace.zip路径>` 查看。
+
 1. Fork 并新建分支
 2. 提交前运行 `bunx tsc --noEmit` 和 `bunx vitest run tests/universal`
 3. 在 `CHANGELOG.md` 的 `Unreleased` 小节添加条目

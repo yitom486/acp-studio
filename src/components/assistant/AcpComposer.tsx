@@ -783,20 +783,29 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                     </ComposerPrimitive.Cancel>
                   </>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={handleSendClick}
-                    disabled={!canSendAny || (p.isStreaming && !canSendText)}
-                    title={p.isStreaming ? "发送（将在当前生成结束后排队执行）" : "发送消息"}
-                    className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
-                      canSendText || (!p.isStreaming && canSendAny)
-                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                        : "bg-muted text-muted-foreground/60 cursor-not-allowed"
-                    }`}
-                  >
-                    <ArrowUp className="w-4 h-4" />
-                    <span className="sr-only">发送</span>
-                  </button>
+                  <ComposerPrimitive.Send asChild>
+                    <button
+                      type="button"
+                      data-testid="composer-send"
+                      aria-label="发送消息"
+                      onClick={(e) => {
+                        if (!canSendText && p.attachments.length > 0) {
+                          e.preventDefault();
+                          p.onSendAttachmentOnly();
+                        }
+                      }}
+                      disabled={!canSendAny || (p.isStreaming && !canSendText)}
+                      title={p.isStreaming ? "发送（将在当前生成结束后排队执行）" : "发送消息"}
+                      className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                        canSendText || (!p.isStreaming && canSendAny)
+                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                          : "bg-muted text-muted-foreground/60 cursor-not-allowed"
+                      }`}
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                      <span className="sr-only">发送</span>
+                    </button>
+                  </ComposerPrimitive.Send>
                 )}
               </div>
             </div>

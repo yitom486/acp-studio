@@ -126,6 +126,54 @@ describe("send retry policy", () => {
     el.remove();
   });
 
+  it("keeps the first turn when resolving a session replaces the draft thread", async () => {
+    const resolveSession = vi.fn(async () => {
+      const store = useStudioStore.getState();
+      store.newThread(store.activeAgentId);
+      store.setSessionId("first-session");
+      return "first-session";
+    });
+    const { root, el, send } = await renderHarness({ calls: [], resolveSession });
+    try {
+      await send("first prompt");
+      const messages = useStudioStore.getState().messages;
+      expect(messages.filter((m) => m.role === "user").map((m) => m.content)).toEqual(["first prompt"]);
+      expect(messages.find((m) => m.role === "assistant")?.content).toContain("你好");
+      expect(resolveSession).toHaveBeenCalledTimes(1);
+    } finally { root.unmount(); el.remove(); }
+  });
+
+  it("does not dispatch a second prompt while the initial session is being resolved", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const resolveSession = vi.fn(async () => {
+      entered();
+      await pending;
+      return "first-session";
+    });
+    const { root, el, send } = await renderHarness({ calls: [], resolveSession });
+    try {
+      const first = send("first prompt");
+      await started;
+      await send("duplicate prompt");
+      release();
+      await first;
+      expect(resolveSession).toHaveBeenCalledTimes(1);
+      expect((globalThis as any).__chatAttempts).toBe(1);
+    } finally { release(); root.unmount(); el.remove(); }
+  });
+
+  it("keeps a visible error when initial session creation fails", async () => {
+    const { root, el, send } = await renderHarness({ calls: [], resolveSession: async () => { throw new Error("session creation failed"); } });
+    try {
+      await send("first prompt");
+      expect(useStudioStore.getState().messages.find((m) => m.role === "assistant")?.content).toContain("session creation failed");
+      expect((globalThis as any).__chatAttempts).toBe(0);
+    } finally { root.unmount(); el.remove(); }
+  });
+
   it("classifies transient vs terminal errors", () => {
     expect(isTransientSendError(new TypeError("fetch failed"))).toBe(true);
     expect(isTransientSendError(new Error("Server 503: unavailable"))).toBe(true);

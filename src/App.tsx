@@ -33,6 +33,11 @@ import {
   useSessionLifecycle,
   useChatSend,
 } from "@/hooks";
+import {
+  formatGenerativeActionPrompt,
+  type GenerativeCardAction,
+} from "@/lib/present-result";
+
 
 /**
  * Heavy modals/drawers are code-split so the first paint only ships the
@@ -211,6 +216,22 @@ export default function App() {
     resolveSession,
   });
   abortRefProxy.current = abortRef.current;
+
+  // 5. Generative UI Interactive feedback loop
+  const handleGenerativeAction = useCallback(
+    async (action: GenerativeCardAction) => {
+      const prompt = formatGenerativeActionPrompt(action);
+      if (!prompt) return;
+      const cur = useStudioStore.getState();
+      if (cur.isStreaming) {
+        throw new Error("智能体正在生成回答中，请稍候再提交。");
+      }
+      if (!runLocal(prompt)) {
+        void handleSend(prompt);
+      }
+    },
+    [runLocal, handleSend]
+  );
 
   // Stable Sidebar callbacks & silent background loading decoupling
   const [manualRefreshing, setManualRefreshing] = useState(false);
@@ -414,6 +435,7 @@ export default function App() {
               onEnsureSession={() => ensureSession()}
               onNewSession={handleNewSession}
               cwd={effectiveCwd}
+              onGenerativeAction={handleGenerativeAction}
             />
 
             {/* Human-in-the-Loop Interaction Dock (ApprovalCard for questions & permissions) */}

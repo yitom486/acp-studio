@@ -60,10 +60,14 @@ chatRouter.post("/", jsonBody(chatBody), async (c) => {
       })) as { sessionId?: string };
       sessionId = fresh.sessionId || "";
     } catch (err) {
+      console.error("[chat.ts session/new failed]", err);
       return gatewayError(err, "session/new failed");
     }
   }
-  if (!sessionId) return json({ ok: false, error: "sessionId missing and session/new returned none" }, 500);
+  if (!sessionId) {
+    console.error("[chat.ts sessionId missing]", body);
+    return json({ ok: false, error: "sessionId missing and session/new returned none" }, 500);
+  }
 
   const promptBlocks = normalizePrompt(body.prompt);
 
