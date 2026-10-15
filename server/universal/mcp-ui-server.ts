@@ -42,6 +42,7 @@ export function createMcpUiServer(): McpServer {
   // 1. 结构化富交互卡片（决策、指标、核对清单、表单）
   mcp.tool(
     "show_interactive_card",
+    "【富交互卡片 - 推荐调用】当向用户提供方案对比与决策(decision)、任务排查或门禁核对清单(checklist)、系统核心性能或监控指标看板(metrics)或信息汇总时，务必调用本工具直接渲染富交互卡片，避免冗长枯燥的纯文本。",
     {
       title: z.string().describe("卡片展示标题"),
       cardType: z
@@ -68,6 +69,7 @@ export function createMcpUiServer(): McpServer {
   // 2. 自由 React / HTML 沙箱预览
   mcp.tool(
     "render_react_sandbox",
+    "【动态组件沙箱原型】当设计或展示前端交互式 UI 组件、动态原型、仪表盘或交互小工具时，调用本工具渲染包含实时状态与响应式的隔离预览沙箱。",
     {
       title: z.string().describe("沙箱组件原型标题"),
       code: z.string().describe("完整的 React TSX/JSX 代码或 HTML+JS 原型代码"),
@@ -93,6 +95,7 @@ export function createMcpUiServer(): McpServer {
   // 3. 人机协同表单输入
   mcp.tool(
     "prompt_form",
+    "【人机协同交互表单】当需要用户提供多个参数配置、数据库凭据、多项筛选条件或填写表单时，优先调用本工具在聊天流下发表单控件收集用户输入并等待用户填写提交。",
     {
       title: z.string().describe("表单标题"),
       description: z.string().optional().describe("表单目的说明与操作指引"),
@@ -130,6 +133,7 @@ export function createMcpUiServer(): McpServer {
   // 4. 出版级精美图表（Editorial Diagram - Architecture, Sequence, Flowchart, Quadrant, Timeline）
   mcp.tool(
     "render_editorial_diagram",
+    "【出版级高阶图表 - 强制首选】当需要向用户展示系统架构、微服务拓扑、调用时序、业务状态机、技术选型四象限或项目里程碑时，务必优先调用此工具直接生成出版级矢量图表。严禁输出生硬简陋的原始 Mermaid 文本块（如 ```mermaid ...）！",
     {
       title: z.string().describe("图表主标题"),
       description: z.string().optional().describe("图表副标题或背景说明"),
