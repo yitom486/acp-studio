@@ -185,4 +185,88 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
     expect(data1.promptBlocks[0].text).toContain("trigger_inspect_prompt");
     expect(data1.promptBlocks[0].text).not.toContain("【客户端交互能力与体验建议");
   });
+
+  it("verifies agent end-to-end skill discovery via both MCP tools and ACP additionalDirectories", async () => {
+    const sessionRes: any = await conn.newSession({ cwd: process.cwd() });
+    const sid = sessionRes.sessionId;
+
+    const collectedUpdates: any[] = [];
+    await conn.prompt(
+      sid,
+      [{ type: "text", text: "trigger_discover_skills" }],
+      (evt: any) => {
+        if (evt.type === "update") collectedUpdates.push(evt.update);
+      }
+    );
+
+    const chunk = collectedUpdates.find((u) => u.sessionUpdate === "agent_message_chunk");
+    expect(chunk).toBeDefined();
+    const data = JSON.parse(chunk.content.text);
+
+    // 1. Filesystem discovery via additionalDirectories
+    expect(data.fsDiscovery.skillsDir).not.toBeNull();
+    expect(data.fsDiscovery.diagramSkillFound).toBe(true);
+    expect(data.fsDiscovery.generativeUiSkillFound).toBe(true);
+    expect(data.fsDiscovery.diagramSkillText).toContain("Editorial Diagram Design");
+
+    // 2. MCP protocol discovery via injected studio-ui server
+    expect(data.mcpDiscovery.status).toBe("ok");
+    expect(data.mcpDiscovery.listContent).toContain("diagram-design");
+    expect(data.mcpDiscovery.listContent).toContain("generative-ui");
+    expect(data.mcpDiscovery.skillContent).toContain("出版级矢量图表设计指南");
+    expect(data.mcpDiscovery.skillContent).toContain("1-Accent Principle");
+  });
+
+  it("ensures multiple concurrent sessions discover skills independently with strict isolation", async () => {
+    // Open Session A and Session B concurrently
+    const sessA: any = await conn.newSession({ cwd: process.cwd() });
+    const sessB: any = await conn.newSession({ cwd: process.cwd() });
+    expect(sessA.sessionId).not.toBe(sessB.sessionId);
+
+    // Verify Session A gets Turn 0 prompt hint
+    const updatesA: any[] = [];
+    await conn.prompt(
+      sessA.sessionId,
+      [{ type: "text", text: "trigger_inspect_prompt" }],
+      (evt: any) => {
+        if (evt.type === "update") updatesA.push(evt.update);
+      }
+    );
+    const chunkA = updatesA.find((u) => u.sessionUpdate === "agent_message_chunk");
+    const dataA = JSON.parse(chunkA.content.text);
+    expect(dataA.promptBlocks.length).toBe(2);
+    expect(dataA.promptBlocks[0].text).toContain("【客户端交互能力与体验建议");
+
+    // Verify Session B independently gets Turn 0 prompt hint
+    const updatesB: any[] = [];
+    await conn.prompt(
+      sessB.sessionId,
+      [{ type: "text", text: "trigger_inspect_prompt" }],
+      (evt: any) => {
+        if (evt.type === "update") updatesB.push(evt.update);
+      }
+    );
+    const chunkB = updatesB.find((u) => u.sessionUpdate === "agent_message_chunk");
+    const dataB = JSON.parse(chunkB.content.text);
+    expect(dataB.promptBlocks.length).toBe(2);
+    expect(dataB.promptBlocks[0].text).toContain("【客户端交互能力与体验建议");
+
+    // Close Session A and verify Session B remains completely operational
+    await conn.closeSession({ sessionId: sessA.sessionId });
+
+    const updatesB2: any[] = [];
+    await conn.prompt(
+      sessB.sessionId,
+      [{ type: "text", text: "trigger_inspect_prompt" }],
+      (evt: any) => {
+        if (evt.type === "update") updatesB2.push(evt.update);
+      }
+    );
+    const chunkB2 = updatesB2.find((u) => u.sessionUpdate === "agent_message_chunk");
+    const dataB2 = JSON.parse(chunkB2.content.text);
+    // Turn 1 on Session B: exactly 1 block, no hint
+    expect(dataB2.promptBlocks.length).toBe(1);
+
+    await conn.closeSession({ sessionId: sessB.sessionId });
+  });
 });

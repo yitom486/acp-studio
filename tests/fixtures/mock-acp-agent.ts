@@ -1,4 +1,6 @@
 import { Readable, Writable } from "node:stream";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 
 /**
@@ -129,6 +131,93 @@ const app = acp
           content: {
             type: "text",
             text: JSON.stringify({ promptBlocks: prompt }),
+          },
+        },
+      });
+      return { stopReason: "end_turn" };
+    }
+
+    // Scenario: Test skill discovery via filesystem (additionalDirectories) and MCP tools
+    if (promptText.includes("trigger_discover_skills")) {
+      const extraDirs = sessionAdditionalDirs.get(sessionId) || [];
+      const skillsDir = extraDirs.find((d) => fs.existsSync(d) && fs.existsSync(path.join(d, "diagram-design", "SKILL.md")));
+      const diagramFile = skillsDir ? path.join(skillsDir, "diagram-design", "SKILL.md") : "";
+      const genUiFile = skillsDir ? path.join(skillsDir, "generative-ui", "SKILL.md") : "";
+
+      const fsDiscovery = {
+        skillsDir: skillsDir || null,
+        diagramSkillFound: fs.existsSync(diagramFile),
+        diagramSkillText: fs.existsSync(diagramFile) ? fs.readFileSync(diagramFile, "utf-8").slice(0, 100) : "",
+        generativeUiSkillFound: fs.existsSync(genUiFile),
+      };
+
+      // MCP Discovery
+      const mcpServers = (sessionMcpServers.get(sessionId) || []) as any[];
+      const studioMcp = mcpServers.find((s) => s.name === "studio-ui");
+      let mcpDiscovery: any = { error: "studio-ui not found" };
+
+      if (studioMcp?.url) {
+        try {
+          const initRes = await fetch(studioMcp.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: "mock-init",
+              method: "initialize",
+              params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "mock-agent", version: "1.0.0" } },
+            }),
+          });
+          const mcpSessionId = initRes.headers.get("mcp-session-id") || "";
+          const mcpHeaders: Record<string, string> = {
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+            ...(mcpSessionId ? { "mcp-session-id": mcpSessionId } : {}),
+          };
+
+          const listRes = await fetch(studioMcp.url, {
+            method: "POST",
+            headers: mcpHeaders,
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: "mock-list-skills",
+              method: "tools/call",
+              params: { name: "list_studio_skills", arguments: {} },
+            }),
+          });
+          const listData = await listRes.json();
+
+          const getRes = await fetch(studioMcp.url, {
+            method: "POST",
+            headers: mcpHeaders,
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: "mock-get-skill",
+              method: "tools/call",
+              params: { name: "get_studio_skill", arguments: { name: "diagram-design" } },
+            }),
+          });
+          const getData = await getRes.json();
+
+          mcpDiscovery = {
+            status: "ok",
+            endpoint: studioMcp.url,
+            listContent: listData.result?.content?.[0]?.text || "",
+            skillContent: getData.result?.content?.[0]?.text || "",
+            skillTitle: getData.result?.data?.title || "",
+          };
+        } catch (err: any) {
+          mcpDiscovery = { error: err.message };
+        }
+      }
+
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: JSON.stringify({ fsDiscovery, mcpDiscovery }),
           },
         },
       });
