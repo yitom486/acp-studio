@@ -9,6 +9,7 @@ import {
 } from "../../src/components/assistant/GenerativeCards";
 import { ReactArtifactCard } from "../../src/components/assistant/ReactArtifactCard";
 import { AcpCodeHeader } from "../../src/components/assistant/AcpMarkdown";
+import { EditorialDiagramCard } from "../../src/components/assistant/EditorialDiagramCard";
 
 // Helper to reliably trigger React 19 synthetic onChange events on uncontrolled/controlled inputs in happy-dom
 function setInputValue(input: HTMLInputElement, value: string | boolean) {
@@ -354,5 +355,82 @@ describe("Generative UI - Front-End Component End-to-End Tests", () => {
     );
     expect(previewBtnAgain).toBeDefined();
     expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("E2E: EditorialDiagramCard renders interactive controls, SVG elements, and responds to zoom and copy", async () => {
+    // Mock clipboard writeText
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    try {
+      vi.spyOn(navigator.clipboard, "writeText").mockImplementation(writeTextMock);
+    } catch {
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: writeTextMock },
+        configurable: true,
+      });
+    }
+
+    await act(async () => {
+      root.render(
+        React.createElement(EditorialDiagramCard, {
+          title: "分布式事务架构",
+          diagramType: "architecture",
+          description: "基于两阶段提交与 Saga 的容灾架构",
+          accent: "emerald",
+          data: {
+            layers: [
+              {
+                id: "client-layer",
+                title: "客户端层",
+                nodes: [{ id: "spa", label: "React Client", subtext: "v18", highlighted: true }],
+              },
+              {
+                id: "gateway-layer",
+                title: "API 网关层",
+                nodes: [{ id: "gw", label: "Envoy Gateway", subtext: ":8080" }],
+              },
+            ],
+            connections: [{ from: "client-layer", to: "gateway-layer", label: "HTTPS" }],
+          },
+        })
+      );
+    });
+
+    // 1. Verify Header and Labels
+    expect(container.textContent).toContain("分布式事务架构");
+    expect(container.textContent).toContain("基于两阶段提交与 Saga 的容灾架构");
+    expect(container.textContent).toContain("系统架构分层");
+    expect(container.textContent).toContain("editorial");
+
+    // 2. Verify SVG rendered
+    const svg = container.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(container.textContent).toContain("React Client");
+    expect(container.textContent).toContain("Envoy Gateway");
+
+    // 3. Test Zoom buttons
+    const zoomInBtn = container.querySelector('button[title="放大"]') as HTMLButtonElement;
+    expect(zoomInBtn).not.toBeNull();
+
+    await act(async () => {
+      zoomInBtn.click();
+    });
+
+    const resetZoomBtn = container.querySelector('button[title="重置缩放"]') as HTMLButtonElement;
+    expect(resetZoomBtn).not.toBeNull();
+
+    await act(async () => {
+      resetZoomBtn.click();
+    });
+
+    // 4. Test Copy SVG
+    const copySvgBtn = container.querySelector('button[title="复制 SVG 源码"]') as HTMLButtonElement;
+    expect(copySvgBtn).not.toBeNull();
+
+    await act(async () => {
+      copySvgBtn.click();
+    });
+
+    expect(writeTextMock).toHaveBeenCalledTimes(1);
+    expect(writeTextMock.mock.calls[0][0]).toContain("<svg");
   });
 });

@@ -7,6 +7,11 @@ import {
   PromptFormCard,
 } from "./GenerativeCards";
 import { ReactArtifactCard } from "./ReactArtifactCard";
+import {
+  EditorialDiagramCard,
+  DiagramType,
+  AccentColor,
+} from "./EditorialDiagramCard";
 
 /**
  * 1. 结构化交互卡片工具 UI
@@ -134,6 +139,36 @@ export const PromptFormToolUI = makeAssistantToolUI<
 });
 
 /**
+ * 4. 出版级精美图表 (Editorial Diagram) 工具 UI
+ */
+export const RenderEditorialDiagramToolUI = makeAssistantToolUI<
+  {
+    title: string;
+    diagramType: DiagramType;
+    description?: string;
+    theme?: "light" | "dark" | "system";
+    accent?: AccentColor;
+    data: Record<string, any>;
+  },
+  any
+>({
+  toolName: "render_editorial_diagram",
+  render: ({ args }) => {
+    if (!args || !args.title) return null;
+    return (
+      <EditorialDiagramCard
+        title={args.title}
+        diagramType={args.diagramType || "architecture"}
+        description={args.description}
+        theme={args.theme || "system"}
+        accent={args.accent || "emerald"}
+        data={args.data || {}}
+      />
+    );
+  },
+});
+
+/**
  * 组合注册组件：挂载到 AssistantRuntimeProvider 内部即可自动拦截对应 tool calls
  */
 export const StudioGenerativeToolUIs: React.FC = () => {
@@ -142,6 +177,8 @@ export const StudioGenerativeToolUIs: React.FC = () => {
       <ShowInteractiveCardToolUI />
       <RenderReactSandboxToolUI />
       <PromptFormToolUI />
+      <RenderEditorialDiagramToolUI />
     </>
   );
 };
+

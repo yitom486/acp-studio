@@ -369,6 +369,44 @@ const app = acp
         },
       });
 
+      // 6. Editorial Diagram
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "tc-gen-diagram",
+          title: "render_editorial_diagram",
+          name: "render_editorial_diagram",
+          status: "completed",
+          rawInput: {
+            title: "微服务容器架构拓扑",
+            diagramType: "architecture",
+            description: "端到端系统架构设计",
+            accent: "emerald",
+            data: {
+              layers: [
+                {
+                  id: "gateway",
+                  title: "接入网关层",
+                  nodes: [
+                    { id: "traefik", label: "Traefik Proxy", subtext: ":443", highlighted: true },
+                  ],
+                },
+                {
+                  id: "services",
+                  title: "核心业务层",
+                  nodes: [
+                    { id: "auth", label: "Auth Service", subtext: "JWT" },
+                    { id: "core", label: "Studio API", subtext: "Bun" },
+                  ],
+                },
+              ],
+              connections: [{ from: "gateway", to: "services", label: "gRPC" }],
+            },
+          },
+        },
+      });
+
       // Final Conclusion Text Chunk
       await ctx.client.notify(acp.methods.client.session.update, {
         sessionId,

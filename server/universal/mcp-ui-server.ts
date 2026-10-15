@@ -127,6 +127,44 @@ export function createMcpUiServer(): McpServer {
     }
   );
 
+  // 4. 出版级精美图表（Editorial Diagram - Architecture, Sequence, Flowchart, Quadrant, Timeline）
+  mcp.tool(
+    "render_editorial_diagram",
+    {
+      title: z.string().describe("图表主标题"),
+      description: z.string().optional().describe("图表副标题或背景说明"),
+      diagramType: z
+        .enum(["architecture", "sequence", "flowchart", "quadrant", "timeline"])
+        .describe(
+          "图表类型：architecture(系统架构与分层容器)、sequence(交互时序图)、flowchart(流程与状态机)、quadrant(四象限技术选型/决策矩阵)、timeline(演进里程碑)"
+        ),
+      theme: z
+        .enum(["light", "dark", "system"])
+        .default("system")
+        .describe("图表主题：light(浅色纸面风格)、dark(深色黑曜石风格)、system(跟随主界面)"),
+      accent: z
+        .enum(["emerald", "blue", "indigo", "violet", "amber", "rose", "cyan"])
+        .default("emerald")
+        .describe("单一聚焦主强调色（遵循 1-Accent 聚焦原则，仅用于凸显核心路径或高亮节点）"),
+      data: z
+        .record(z.string(), z.unknown())
+        .describe(
+          "结构化图表数据：例如 architecture 包含 layers 和 connections；sequence 包含 participants 和 messages；flowchart 包含 steps 和 connections；quadrant 包含 xAxis、yAxis 和 items；timeline 包含 milestones"
+        ),
+    },
+    async ({ title, diagramType, description, theme, accent, data }) => {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `[EditorialDiagram: ${diagramType}] "${title}" 已成功渲染出版级矢量图表。`,
+          },
+        ],
+        data: { title, diagramType, description, theme, accent, data },
+      };
+    }
+  );
+
   return mcp;
 }
 

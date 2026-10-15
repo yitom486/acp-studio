@@ -82,7 +82,7 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
 
     // Extract all tool_call updates
     const toolCalls = collectedUpdates.filter((u) => u.sessionUpdate === "tool_call");
-    expect(toolCalls.length).toBe(5);
+    expect(toolCalls.length).toBe(6);
 
     // 1. Verify Decision Card tool call
     const decisionTc = toolCalls.find((t) => t.toolCallId === "tc-gen-decision");
@@ -122,6 +122,15 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
     expect(sandboxTc.rawInput.title).toBe("动态计数器原型");
     expect(sandboxTc.rawInput.template).toBe("react");
     expect(sandboxTc.rawInput.code).toContain("计数器原型");
+
+    // 6. Verify Editorial Diagram tool call
+    const diagramTc = toolCalls.find((t) => t.toolCallId === "tc-gen-diagram");
+    expect(diagramTc).toBeDefined();
+    expect(diagramTc.name).toBe("render_editorial_diagram");
+    expect(diagramTc.rawInput.title).toBe("微服务容器架构拓扑");
+    expect(diagramTc.rawInput.diagramType).toBe("architecture");
+    expect(diagramTc.rawInput.accent).toBe("emerald");
+    expect(diagramTc.rawInput.data.layers.length).toBe(2);
 
     // Verify final message chunk
     const textChunk = collectedUpdates.find((u) => u.sessionUpdate === "agent_message_chunk");

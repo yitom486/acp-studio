@@ -1015,7 +1015,8 @@ const AssistantMessageView: React.FC<{ agentName: string; cwd?: string | null }>
       return (
         name !== "show_interactive_card" &&
         name !== "render_react_sandbox" &&
-        name !== "prompt_form"
+        name !== "prompt_form" &&
+        name !== "render_editorial_diagram"
       );
     });
   }, [acp?.toolCalls]);

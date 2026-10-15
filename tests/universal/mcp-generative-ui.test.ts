@@ -5,6 +5,7 @@ import { startMcpUiServer, stopMcpUiServer, getMcpUiServerInfo } from "../../ser
 import { convertAcpMessages } from "../../src/lib/acp-assistant";
 import { DecisionCard, ChecklistCard, MetricsCard, PromptFormCard } from "../../src/components/assistant/GenerativeCards";
 import { ReactArtifactCard } from "../../src/components/assistant/ReactArtifactCard";
+import { EditorialDiagramCard } from "../../src/components/assistant/EditorialDiagramCard";
 
 describe("Universal ACP Studio - 5-Digit MCP Server & Generative UI", () => {
   afterAll(async () => {
@@ -182,6 +183,76 @@ describe("Universal ACP Studio - 5-Digit MCP Server & Generative UI", () => {
     // Invariant: sandbox must be allow-scripts and strictly NEVER allow-same-origin
     expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
     expect(iframe?.getAttribute("sandbox")).not.toContain("allow-same-origin");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("renders EditorialDiagramCard with SVG architecture, sequence, and quadrant layouts", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        React.createElement("div", null, [
+          React.createElement(EditorialDiagramCard, {
+            key: "arch",
+            title: "微服务容器架构",
+            diagramType: "architecture",
+            accent: "emerald",
+            data: {
+              layers: [
+                {
+                  id: "l1",
+                  title: "接入网关层",
+                  nodes: [
+                    { id: "n1", label: "Traefik Gateway", subtext: "Port 443", highlighted: true },
+                    { id: "n2", label: "Auth Proxy", subtext: "OIDC" },
+                  ],
+                },
+                {
+                  id: "l2",
+                  title: "核心服务层",
+                  nodes: [
+                    { id: "n3", label: "User Service", subtext: "Node.js" },
+                    { id: "n4", label: "Payment Service", subtext: "Go" },
+                  ],
+                },
+              ],
+              connections: [{ from: "l1", to: "l2", label: "gRPC" }],
+            },
+          }),
+          React.createElement(EditorialDiagramCard, {
+            key: "seq",
+            title: "OAuth 授权时序",
+            diagramType: "sequence",
+            accent: "blue",
+            data: {
+              participants: [
+                { id: "client", label: "Web Client" },
+                { id: "server", label: "API Gateway" },
+                { id: "db", label: "Postgres" },
+              ],
+              messages: [
+                { from: "client", to: "server", label: "POST /login", highlighted: true },
+                { from: "server", to: "db", label: "SELECT * FROM users" },
+                { from: "server", to: "client", label: "200 OK + JWT", dashed: true },
+              ],
+            },
+          }),
+        ])
+      );
+    });
+
+    expect(container.textContent).toContain("微服务容器架构");
+    expect(container.textContent).toContain("Traefik Gateway");
+    expect(container.textContent).toContain("OAuth 授权时序");
+    expect(container.textContent).toContain("Web Client");
+    expect(container.textContent).toContain("POST /login");
+
+    const svgs = container.querySelectorAll("svg");
+    expect(svgs.length).toBeGreaterThanOrEqual(2);
 
     act(() => root.unmount());
     container.remove();
