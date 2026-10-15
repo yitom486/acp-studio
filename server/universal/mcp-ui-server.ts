@@ -12,17 +12,22 @@
 import http from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
 export interface McpServerInfo {
   port: number;
   url: string;
+  sseUrl: string;
+  httpUrl: string;
   name: string;
   version: string;
 }
 
 let activeServer: http.Server | null = null;
 let activeInfo: McpServerInfo | null = null;
+let activeStreamableTransport: StreamableHTTPServerTransport | null = null;
+let activeStreamableMcp: McpServer | null = null;
 const transports = new Map<string, SSEServerTransport>();
 
 export function getMcpUiServerInfo(): McpServerInfo | null {
@@ -177,12 +182,19 @@ export async function startMcpUiServer(
   }
 
   const mcp = createMcpUiServer();
+  const streamableMcp = createMcpUiServer();
+  const streamableTransport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+  await streamableMcp.connect(streamableTransport);
+  activeStreamableTransport = streamableTransport;
+  activeStreamableMcp = streamableMcp;
 
   const httpServer = http.createServer(async (req, res) => {
     // 允许本地跨域
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204).end();
@@ -202,12 +214,41 @@ export async function startMcpUiServer(
           version: "1.0.0",
           port: activeInfo?.port,
           sseEndpoint: `http://127.0.0.1:${activeInfo?.port}/sse`,
+          httpEndpoint: `http://127.0.0.1:${activeInfo?.port}/mcp`,
         })
       );
       return;
     }
 
-    // SSE 建立长连接
+    // Streamable HTTP 单端点（MCP 2025 最新规范，支持直接 JSON-RPC 与双向流式推流）
+    if (url.pathname === "/mcp") {
+      try {
+        let parsedBody: unknown = undefined;
+        if (req.method === "POST") {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+          }
+          const raw = Buffer.concat(chunks).toString("utf-8");
+          if (raw.trim()) {
+            try {
+              parsedBody = JSON.parse(raw);
+            } catch {
+              // Let transport handle invalid json syntax
+            }
+          }
+        }
+        await streamableTransport.handleRequest(req, res, parsedBody);
+      } catch (err: any) {
+        console.error("[MCP Server] Streamable HTTP request error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500).end("Streamable HTTP error");
+        }
+      }
+      return;
+    }
+
+    // SSE 建立长连接（经典 MCP SSE 规范）
     if (url.pathname === "/sse" && req.method === "GET") {
       try {
         const transport = new SSEServerTransport("/messages", res);
@@ -259,11 +300,13 @@ export async function startMcpUiServer(
   activeInfo = {
     port: boundPort,
     url: `http://127.0.0.1:${boundPort}/sse`,
+    sseUrl: `http://127.0.0.1:${boundPort}/sse`,
+    httpUrl: `http://127.0.0.1:${boundPort}/mcp`,
     name: "studio-ui",
     version: "1.0.0",
   };
 
-  console.log(`[MCP Server] Studio UI MCP Server running at ${activeInfo.url}`);
+  console.log(`[MCP Server] Studio UI MCP Server running at ${activeInfo.url} (Streamable HTTP: ${activeInfo.httpUrl})`);
   return activeInfo;
 }
 
@@ -278,6 +321,19 @@ export async function stopMcpUiServer(): Promise<void> {
     } catch {}
   }
   transports.clear();
+
+  if (activeStreamableTransport) {
+    try {
+      await activeStreamableTransport.close();
+    } catch {}
+    activeStreamableTransport = null;
+  }
+  if (activeStreamableMcp) {
+    try {
+      await activeStreamableMcp.close();
+    } catch {}
+    activeStreamableMcp = null;
+  }
 
   await new Promise<void>((resolve) => {
     activeServer?.close(() => resolve());

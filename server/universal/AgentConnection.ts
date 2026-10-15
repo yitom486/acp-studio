@@ -474,13 +474,19 @@ export class UniversalAgentConnection {
     const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
     if (mcpInfo && (agentCaps?.sse || agentCaps?.http)) {
       const alreadyHas = mcpServers.some(
-        (s: any) => s && (s.name === mcpInfo.name || s.url === mcpInfo.url)
+        (s: any) =>
+          s &&
+          (s.name === mcpInfo.name ||
+            s.url === mcpInfo.httpUrl ||
+            s.url === mcpInfo.sseUrl ||
+            s.url === mcpInfo.url)
       );
       if (!alreadyHas) {
+        const preferHttp = Boolean(agentCaps?.http);
         mcpServers.push({
-          type: "sse",
+          type: preferHttp ? "http" : "sse",
           name: mcpInfo.name,
-          url: mcpInfo.url,
+          url: preferHttp ? mcpInfo.httpUrl : mcpInfo.sseUrl,
           headers: [],
         });
       }
@@ -503,13 +509,19 @@ export class UniversalAgentConnection {
     const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
     if (mcpInfo && (agentCaps?.sse || agentCaps?.http)) {
       const alreadyHas = mcpServers.some(
-        (s: any) => s && (s.name === mcpInfo.name || s.url === mcpInfo.url)
+        (s: any) =>
+          s &&
+          (s.name === mcpInfo.name ||
+            s.url === mcpInfo.httpUrl ||
+            s.url === mcpInfo.sseUrl ||
+            s.url === mcpInfo.url)
       );
       if (!alreadyHas) {
+        const preferHttp = Boolean(agentCaps?.http);
         mcpServers.push({
-          type: "sse",
+          type: preferHttp ? "http" : "sse",
           name: mcpInfo.name,
-          url: mcpInfo.url,
+          url: preferHttp ? mcpInfo.httpUrl : mcpInfo.sseUrl,
           headers: [],
         });
       }

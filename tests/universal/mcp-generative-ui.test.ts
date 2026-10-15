@@ -25,6 +25,27 @@ describe("Universal ACP Studio - 5-Digit MCP Server & Generative UI", () => {
     expect(data.name).toBe("studio-ui");
     expect(data.port).toBe(info.port);
     expect(data.sseEndpoint).toContain("/sse");
+    expect(data.httpEndpoint).toContain("/mcp");
+
+    // Verify /mcp endpoint accepts Streamable HTTP requests
+    const mcpRes = await fetch(`http://127.0.0.1:${info.port}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "init-1",
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "test-client", version: "1.0.0" },
+        },
+      }),
+    });
+    expect(mcpRes.status).toBe(200);
   });
 
   it("maps ACP generative UI tool calls with full structured args and rawOutput in convertAcpMessages", () => {

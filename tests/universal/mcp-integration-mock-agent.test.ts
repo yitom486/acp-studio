@@ -56,8 +56,8 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
     // Assert that studio-ui was automatically injected alongside user mcp servers!
     const studioMcp = inspected.mcpServers.find((s: any) => s.name === "studio-ui");
     expect(studioMcp).toBeDefined();
-    expect(studioMcp.type).toBe("sse");
-    expect(studioMcp.url).toContain(`:${mcpInfo!.port}/sse`);
+    expect(studioMcp.type).toBe("http");
+    expect(studioMcp.url).toContain(`:${mcpInfo!.port}/mcp`);
 
     const customMcp = inspected.mcpServers.find((s: any) => s.name === "custom-user-mcp");
     expect(customMcp).toBeDefined();
