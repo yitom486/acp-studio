@@ -19,7 +19,7 @@ const ReactArtifactCard = lazy(() =>
   import("./ReactArtifactCard").then((m) => ({ default: m.ReactArtifactCard }))
 );
 
-const AcpCodeHeader: React.FC<CodeHeaderProps> = ({ language, code }) => {
+export const AcpCodeHeader: React.FC<CodeHeaderProps> = ({ language, code }) => {
   const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const cleanLang = (language || "").toLowerCase().trim();

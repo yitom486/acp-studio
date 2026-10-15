@@ -26,6 +26,7 @@ const app = acp
       agentCapabilities: {
         promptCapabilities: { image: true, audio: false },
         sessionCapabilities: { list: {}, close: {}, fork: {}, additionalDirectories: {} },
+        mcpCapabilities: { sse: true, http: true },
         providers: true,
       },
       agentInfo: {
@@ -240,6 +241,143 @@ const app = acp
         }
         await new Promise((r) => setTimeout(r, 100));
       }
+      return { stopReason: "end_turn" };
+    }
+
+    // Scenario: Generative UI Tool Calls Pipeline
+    if (promptText.includes("trigger_generative_ui")) {
+      // 1. Decision Card
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "tc-gen-decision",
+          title: "show_interactive_card",
+          name: "show_interactive_card",
+          status: "completed",
+          rawInput: {
+            title: "微服务部署架构决策",
+            cardType: "decision",
+            description: "请为当前生产集群挑选最佳发布策略",
+            data: {
+              options: [
+                { id: "canary", label: "灰度金丝雀发布 (Canary)", recommended: true, description: "先向 5% 用户放量，监控指标平稳后全量" },
+                { id: "bluegreen", label: "蓝绿双集群热切 (Blue-Green)", description: "独立备用集群全量验证后瞬间切流" },
+              ],
+            },
+          },
+          rawOutput: { status: "ready" },
+        },
+      });
+
+      // 2. Checklist Card
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "tc-gen-checklist",
+          title: "show_interactive_card",
+          name: "show_interactive_card",
+          status: "completed",
+          rawInput: {
+            title: "发布前门禁校验",
+            cardType: "checklist",
+            description: "必须全部通过后方可开放生产公网流量",
+            data: {
+              items: [
+                { id: "unit_tests", label: "单元测试与覆盖率门禁", checked: true },
+                { id: "e2e_tests", label: "核心业务路径端到端测试", checked: false },
+                { id: "security_scan", label: "静态代码与安全漏洞扫描", checked: true },
+              ],
+            },
+          },
+        },
+      });
+
+      // 3. Metrics Card
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "tc-gen-metrics",
+          title: "show_interactive_card",
+          name: "show_interactive_card",
+          status: "completed",
+          rawInput: {
+            title: "压测性能指标看板",
+            cardType: "metrics",
+            description: "峰值模拟 10,000 QPS 压测表现",
+            data: {
+              metrics: [
+                { label: "平均延迟 (P95)", value: "8.4", unit: "ms", change: "-12%" },
+                { label: "吞吐量峰值", value: "10,240", unit: "req/s", change: "+15%" },
+                { label: "CPU 负载", value: "48", unit: "%", progress: 48 },
+              ],
+            },
+          },
+        },
+      });
+
+      // 4. Prompt Form
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "tc-gen-form",
+          title: "prompt_form",
+          name: "prompt_form",
+          status: "completed",
+          rawInput: {
+            title: "数据库配置向导",
+            description: "请录入目标环境数据库连接凭证",
+            submitLabel: "验证连接并保存",
+            fields: [
+              { id: "db_host", label: "数据库主机", defaultValue: "10.0.0.8", required: true },
+              { id: "db_port", label: "连接端口", type: "number", defaultValue: 5432 },
+              { id: "db_ssl", label: "启用 SSL 加密", type: "checkbox", defaultValue: true },
+            ],
+          },
+        },
+      });
+
+      // 5. React Sandbox Prototype
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "tc-gen-sandbox",
+          title: "render_react_sandbox",
+          name: "render_react_sandbox",
+          status: "completed",
+          rawInput: {
+            title: "动态计数器原型",
+            template: "react",
+            description: "包含内部 useState 状态交互的沙箱原型",
+            code: `function App() {
+  const [count, setCount] = React.useState(0);
+  return (
+    <div className="p-4 bg-slate-900 text-white rounded-lg border border-slate-700 flex flex-col items-center gap-3">
+      <h2 className="text-base font-bold text-sky-400">计数器原型: {count}</h2>
+      <div className="flex gap-2">
+        <button onClick={() => setCount(c => c - 1)} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded text-sm">-1</button>
+        <button onClick={() => setCount(c => c + 1)} className="px-3 py-1 bg-sky-600 hover:bg-sky-500 rounded text-sm">+1</button>
+      </div>
+    </div>
+  );
+}`,
+          },
+        },
+      });
+
+      // Final Conclusion Text Chunk
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "已为您生成全套生成式 UI 交互卡片与 React 沙箱原型，请在上方直接交互测试。" },
+        },
+      });
+
       return { stopReason: "end_turn" };
     }
 

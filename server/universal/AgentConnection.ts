@@ -471,8 +471,8 @@ export class UniversalAgentConnection {
     const roots = this.fsGuard.sessionRootsFor(cwd, args.additionalDirectories);
     const mcpServers = [...(args.mcpServers || [])];
     const mcpInfo = getMcpUiServerInfo();
-    const agentCaps = (this.initResult as any)?.mcpCapabilities;
-    if (mcpInfo && (agentCaps?.sse || agentCaps?.http || !agentCaps)) {
+    const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
+    if (mcpInfo && (agentCaps?.sse || agentCaps?.http)) {
       const alreadyHas = mcpServers.some(
         (s: any) => s && (s.name === mcpInfo.name || s.url === mcpInfo.url)
       );
@@ -500,8 +500,8 @@ export class UniversalAgentConnection {
     const cwd = String(args.cwd || this.profile.defaultCwd || process.cwd());
     const mcpServers = Array.isArray(args.mcpServers) ? [...args.mcpServers] : [];
     const mcpInfo = getMcpUiServerInfo();
-    const agentCaps = (this.initResult as any)?.mcpCapabilities;
-    if (mcpInfo && (agentCaps?.sse || agentCaps?.http || !agentCaps)) {
+    const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
+    if (mcpInfo && (agentCaps?.sse || agentCaps?.http)) {
       const alreadyHas = mcpServers.some(
         (s: any) => s && (s.name === mcpInfo.name || s.url === mcpInfo.url)
       );
