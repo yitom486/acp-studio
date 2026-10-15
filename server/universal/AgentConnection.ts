@@ -24,6 +24,7 @@ import { InteractionManager } from "./interaction";
 import { FsGuard } from "./fs-guard";
 import { probeLiveAgyQuota } from "./runtimes/agy-quota";
 import { getMcpUiServerInfo } from "./mcp-ui-server";
+import { getStudioSkillsDir } from "./studio-skills";
 
 // Re-export platform helpers for external consumers & test compatibility
 export {
@@ -44,8 +45,8 @@ export const CLIENT_GENERATIVE_UI_HINT = [
   "当前客户端已连接并支持专用的富交互式 UI 与出版级矢量图表服务（MCP 服务：studio-ui）。在本次会话中，鼓励（非强制）在契合场景下优先调用以下工具，为用户提供清晰生动的视觉与交互体验：",
   "- 出版级矢量图表（render_editorial_diagram）：当呈现系统架构分层拓扑、服务调用时序、流程业务状态机、技术选型四象限决策矩阵或项目演进里程碑时，鼓励优先调用生成出版级矢量图表，代替原始简陋的 Mermaid 文本；",
   "- 结构化富交互卡片（show_interactive_card）：当向用户提供方案对比决策(decision)、任务排查或门禁清单(checklist)、核心性能与指标看板(metrics)时，鼓励直接渲染富交互卡片；",
-  "- 人机协同交互表单（prompt_form）：当需要用户配置多个参数或填写凭据时，推荐下发交互表单；",
-  "- 动态组件沙箱原型（render_react_sandbox）：当设计或演示前端 UI 原型与组件时，可挂载实时隔离预览沙箱。",
+  "- 人机协同交互表单（prompt_form）与动态组件沙箱原型（render_react_sandbox）；",
+  "- 专业技能按需调取（get_studio_skill / list_studio_skills）：如需查阅出版级图表 5 大原型的详细 JSON Schema 或交互卡片规范，可随时按需调取技能文档（零多余 Token 消耗）。",
   "（注：以上工具均为可选的体验增强手段，请在符合对话场景时自然适度地运用。）",
 ].join("\n");
 
@@ -483,7 +484,12 @@ export class UniversalAgentConnection {
   async newSession(args: { cwd?: string; mcpServers?: unknown[]; additionalDirectories?: string[] }): Promise<unknown> {
     const conn = this.ensureConn();
     const cwd = args.cwd || this.profile.defaultCwd || process.cwd();
-    const roots = this.fsGuard.sessionRootsFor(cwd, args.additionalDirectories);
+    const additionalDirectories = [...(args.additionalDirectories || [])];
+    const skillsDir = getStudioSkillsDir();
+    if (fs.existsSync(skillsDir) && !additionalDirectories.includes(skillsDir)) {
+      additionalDirectories.push(skillsDir);
+    }
+    const roots = this.fsGuard.sessionRootsFor(cwd, additionalDirectories);
     const mcpServers = [...(args.mcpServers || [])];
     const mcpInfo = getMcpUiServerInfo();
     const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
@@ -503,7 +509,7 @@ export class UniversalAgentConnection {
     const result = await conn.agent.request(acp.methods.agent.session.new, {
       cwd,
       mcpServers: mcpServers as never[],
-      ...(args.additionalDirectories ? { additionalDirectories: args.additionalDirectories } : {}),
+      ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
     } as unknown as never);
     const newSid = (result as { sessionId?: unknown } | null)?.sessionId;
     if (typeof newSid === "string") {

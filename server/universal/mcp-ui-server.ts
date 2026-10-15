@@ -10,9 +10,11 @@
  * - `prompt_form`: Human-in-the-loop interactive form inputs.
  */
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { listStudioSkills, getStudioSkill } from "./studio-skills";
 
 export interface McpServerInfo {
   port: number;
@@ -181,6 +183,65 @@ export function createMcpUiServer(): McpServer {
     }
   );
 
+  // 5. 按需检索 Studio 内置技能目录
+  mcp.registerTool(
+    "list_studio_skills",
+    {
+      description:
+        "【Studio 技能清单】列出当前 ACP Studio 客户端内置提供的专业能力与设计规范清单（例如 diagram-design 出版级矢量图表设计、generative-ui 生成式交互卡片规范）。",
+      inputSchema: {},
+    },
+    async () => {
+      const skills = listStudioSkills();
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `当前 ACP Studio 已加载 ${skills.length} 个内置专业技能：\n` +
+              skills.map((s) => `- **${s.name}**: ${s.title} — ${s.description}`).join("\n"),
+          },
+        ],
+        data: { skills },
+      };
+    }
+  );
+
+  // 6. 按需读取 Studio 技能指导与 Schema 规范
+  mcp.registerTool(
+    "get_studio_skill",
+    {
+      description:
+        "【Studio 技能按需调取】按需获取特定 Studio 技能的完整指导文档、设计原则与结构化调用示例（如 diagram-design 或 generative-ui）。零 Token 浪费，仅在需要时按需查阅。",
+      inputSchema: {
+        name: z.string().describe("技能标识，例如 'diagram-design' 或 'generative-ui'"),
+      },
+    },
+    async ({ name }) => {
+      const skill = getStudioSkill(name);
+      if (!skill) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `未找到名称为 "${name}" 的 Studio 技能。可用技能可通过 list_studio_skills 工具查看。`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: skill.content,
+          },
+        ],
+        data: { name: skill.name, title: skill.title, path: skill.path },
+      };
+    }
+  );
+
   return mcp;
 }
 
@@ -233,7 +294,8 @@ export async function startMcpUiServer(
 
   const mcp = createMcpUiServer();
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
+    sessionIdGenerator: () => randomUUID(),
+    enableJsonResponse: true,
   });
   await mcp.connect(transport);
   activeTransport = transport;

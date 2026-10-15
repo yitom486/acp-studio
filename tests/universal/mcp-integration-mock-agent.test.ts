@@ -61,6 +61,11 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
 
     const customMcp = inspected.mcpServers.find((s: any) => s.name === "custom-user-mcp");
     expect(customMcp).toBeDefined();
+
+    // Assert that studio skills directory was auto-injected into additionalDirectories!
+    expect(inspected.additionalDirectories.length).toBeGreaterThan(0);
+    const hasSkillsDir = inspected.additionalDirectories.some((d: string) => d.toLowerCase().includes("skills"));
+    expect(hasSkillsDir).toBe(true);
   });
 
   it("simulates mock LLM output stream delivering full set of Generative UI tool calls", async () => {

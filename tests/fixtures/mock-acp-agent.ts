@@ -16,6 +16,7 @@ let sessSeq = 0;
 const cancelledSessions = new Set<string>();
 const sessionCwds = new Map<string, string>();
 const sessionMcpServers = new Map<string, unknown[]>();
+const sessionAdditionalDirs = new Map<string, string[]>();
 
 
 const app = acp
@@ -41,6 +42,7 @@ const app = acp
     const sessionId = `mock-session-${++sessSeq}`;
     sessionCwds.set(sessionId, ctx.params.cwd);
     sessionMcpServers.set(sessionId, ctx.params.mcpServers || []);
+    sessionAdditionalDirs.set(sessionId, ctx.params.additionalDirectories || []);
     return {
       sessionId,
       models: {
@@ -110,6 +112,7 @@ const app = acp
             text: JSON.stringify({
               cwd: sessionCwds.get(sessionId),
               mcpServers: sessionMcpServers.get(sessionId),
+              additionalDirectories: sessionAdditionalDirs.get(sessionId) || [],
             }),
           },
         },

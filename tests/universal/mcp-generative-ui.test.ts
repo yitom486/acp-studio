@@ -2,12 +2,15 @@ import { describe, it, expect, afterAll } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { startMcpUiServer, stopMcpUiServer, getMcpUiServerInfo } from "../../server/universal/mcp-ui-server";
+import { listStudioSkills, getStudioSkill, getStudioSkillsDir } from "../../server/universal/studio-skills";
 import { convertAcpMessages } from "../../src/lib/acp-assistant";
 import { DecisionCard, ChecklistCard, MetricsCard, PromptFormCard } from "../../src/components/assistant/GenerativeCards";
 import { ReactArtifactCard } from "../../src/components/assistant/ReactArtifactCard";
 import { EditorialDiagramCard } from "../../src/components/assistant/EditorialDiagramCard";
 
 describe("Universal ACP Studio - 5-Digit MCP Server & Generative UI", () => {
+  let mcpSessionId = "";
+
   afterAll(async () => {
     await stopMcpUiServer();
   });
@@ -46,6 +49,7 @@ describe("Universal ACP Studio - 5-Digit MCP Server & Generative UI", () => {
       }),
     });
     expect(mcpRes.status).toBe(200);
+    mcpSessionId = mcpRes.headers.get("mcp-session-id") || "";
   });
 
   it("maps ACP generative UI tool calls with full structured args and rawOutput in convertAcpMessages", () => {
@@ -256,5 +260,71 @@ describe("Universal ACP Studio - 5-Digit MCP Server & Generative UI", () => {
 
     act(() => root.unmount());
     container.remove();
+  });
+
+  it("discovers built-in Studio skills (diagram-design, generative-ui) with frontmatter metadata", () => {
+    const skills = listStudioSkills();
+    expect(skills.length).toBeGreaterThanOrEqual(2);
+
+    const diagram = skills.find((s) => s.name === "diagram-design");
+    expect(diagram).toBeDefined();
+    expect(diagram!.title).toContain("出版级矢量图表设计");
+
+    const genUi = skills.find((s) => s.name === "generative-ui");
+    expect(genUi).toBeDefined();
+    expect(genUi!.title).toContain("生成式富交互卡片");
+
+    const fullSkill = getStudioSkill("diagram-design");
+    expect(fullSkill).not.toBeNull();
+    expect(fullSkill!.content).toContain("1-Accent Principle");
+    expect(fullSkill!.content).toContain("architecture");
+  });
+
+  it("calls list_studio_skills and get_studio_skill via MCP JSON-RPC tools/call", async () => {
+    const info = getMcpUiServerInfo();
+    expect(info).not.toBeNull();
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...(mcpSessionId ? { "mcp-session-id": mcpSessionId } : {}),
+    };
+
+    // 1. Call list_studio_skills
+    const listRes = await fetch(`http://127.0.0.1:${info!.port}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "call-skills-list",
+        method: "tools/call",
+        params: {
+          name: "list_studio_skills",
+          arguments: {},
+        },
+      }),
+    });
+    expect(listRes.status).toBe(200);
+    const listData = await listRes.json();
+    expect(listData.result.content[0].text).toContain("diagram-design");
+
+    // 2. Call get_studio_skill for diagram-design
+    const getRes = await fetch(`http://127.0.0.1:${info!.port}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "call-get-skill",
+        method: "tools/call",
+        params: {
+          name: "get_studio_skill",
+          arguments: { name: "diagram-design" },
+        },
+      }),
+    });
+    expect(getRes.status).toBe(200);
+    const getData = await getRes.json();
+    expect(getData.result.content[0].text).toContain("出版级矢量图表设计指南");
+    expect(getData.result.content[0].text).toContain("architecture");
   });
 });

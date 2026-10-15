@@ -1,0 +1,111 @@
+# 04 - ACP Studio 技能系统与生成式 UI 架构技术白皮书
+
+> 本文系统阐述 ACP Studio 如何在**完全不污染各智能体私有环境、不污染用户工作区 Git 仓库、且不浪费每一轮会话 Token** 的前提下，实现跨模型生态（Claude、Gemini/Antigravity、Codex、Cursor 等）的出版级矢量图表与生成式 UI 交互规范的统一分发与按需加载。
+
+---
+
+## 一、 背景痛点与架构挑战
+
+在将多种生态的智能体接入 ACP Studio 时，传统做法通常面临三个两难工程困境：
+
+1. **每轮 Turn 硬塞大段提示词（Prompt Bloat）**：
+   - 传统做法是在每个会话或每一轮提问的前后拼接长篇大论的“格式说明书”和“Schema 规范”；
+   - 这不仅极大浪费宝贵的输入 Token 与计费成本，而且会稀释模型的有限注意力窗口（Attention Span），导致智能体在处理核心业务逻辑时产生记忆断层。
+2. **各智能体寻找配置的机制各自割裂（Fragmentation）**：
+   - Gemini / Antigravity 默认查找 `~/.gemini/config/skills`、内置目录或工作区的 `.agents/skills/`；
+   - Claude Code 查找 `~/.claude/rules`、`CLAUDE.md` 或自身 MCP；
+   - Cursor 查找 `.cursorrules` / `.cursor/rules`；
+   - 各生态私有目录互不兼容，无法统一维护。
+3. **环境污染的致命隐患（Pollution Hazard）**：
+   - **全局配置污染**：若将 Studio 专属组件规则直接写入用户本机的 `~/.gemini/` 或 `~/.claude/`，当用户离开 Studio 在纯终端环境使用这些命令行工具时，智能体依然会尝试调用 `studio-ui` 工具，导致脱机报错；
+   - **工作区代码污染**：若写入被打开项目的根目录，会给用户的 Git 仓库强加非项目本身的私有配置文件。
+
+---
+
+## 二、 复合零污染分发架构设计（Hybrid Architecture）
+
+ACP Studio 创造性地采用 **“以 MCP 原生按需检索为骨干，以 ACP 会话级附加目录为底层辅助”** 的无污染复合架构：
+
+```mermaid
+flowchart TD
+    subgraph ACP Studio 本地专属数据层
+        SkillStorage["server/universal/skills/\n├── diagram-design/SKILL.md\n└── generative-ui/SKILL.md"]
+    end
+
+    subgraph studio-ui MCP 服务（端口 >= 10000）
+        McpServer["McpServer (Streamable HTTP)\n• list_studio_skills\n• get_studio_skill(name)\n• render_editorial_diagram\n• show_interactive_card\n• render_react_sandbox\n• prompt_form"]
+    end
+
+    SkillStorage -->|本地发现与解析| McpServer
+
+    subgraph 多生态智能体会话（Universal Agent Sessions）
+        Claude["Claude Code / Codex\n(MCP Tool 按需拉取文档)"]
+        Antigravity["Antigravity / Gemini\n(MCP 调取 + 目录自动发现)"]
+    end
+
+    McpServer ==>|JSON-RPC Tools Call| Claude
+    McpServer ==>|JSON-RPC Tools Call| Antigravity
+    SkillStorage -.->|additionalDirectories 授权注入| Antigravity
+```
+
+### 1. 核心骨干：MCP 原生按需调取（On-Demand Retrieval）
+* **免环境限制与网络穿透**：通过本地 5 位数端口（默认 13920+）运行的 `studio-ui` MCP 服务进行标准通信。无论 Agent 运行在宿主机、WSL2、Docker 容器还是远程环境，只要网络 RPC 连通，即可通过统一协议调用；
+* **极低基准开销**：上下文仅暴露极简的工具元数据（约 40 个 Token）；
+* **自驱按需激活**：平时对话不发送任何冗余说明；当用户发起“绘制微服务架构拓扑”或“方案对比”时，智能体自主调用 `get_studio_skill({ name: "diagram-design" })` 或 `list_studio_skills()`，即时拉取规范与示例，用完即走。
+
+### 2. 底层辅助：ACP 原生 `additionalDirectories` 授权注入
+* 在 `UniversalAgentConnection.newSession` 创建会话时，系统自动将 Studio 内部 skills 路径追加至 ACP 协议规定的 `additionalDirectories` 列表中；
+* **双重增益**：
+  * 对于原生支持工作区技能扫描的智能体（如 Antigravity / Gemini 体系），可无缝识别该目录下的技能清单；
+  * 对于其它智能体，自动将其加入客户端文件系统沙箱的信任白名单，杜绝文件访问越权拦截。
+
+### 3. 会话生命周期轻量首轮引导（Encouraging Hint）
+* 在会话第 1 轮（Turn 0），通过轻量级温和提示告知智能体当前客户端具备富交互与出版级图表工具，并提示其可随时通过 `get_studio_skill` 调取详细指南；
+* **随后的第 2 轮及之后（Turn 1+）完全静默**，绝不进行重复注入。
+
+---
+
+## 三、 内置 Studio 技能规范定义
+
+当前 Studio 内置两大核心技能，位于 `server/universal/skills/`：
+
+### 1. `diagram-design`（出版级矢量图表设计指南）
+基于出版级高品质设计理念，重点倡导：
+* **单一聚焦主色原则（1-Accent Principle）**：图表底色采用极简黑曜石深色或纯净纸面浅色，严禁高饱和度彩虹配色；仅允许使用 1 个强调色（如 `emerald`、`blue`、`indigo` 等）高亮核心执行链路或焦点节点；
+* **5 大核心图表原型**：
+  1. `architecture`：分层容器、跨层网络与组件边界；
+  2. `sequence`：时序参与者、递增编号消息、虚线异步返回；
+  3. `flowchart`：流水线步骤、状态机流转与决策分支；
+  4. `quadrant`：双轴 2x2 评估矩阵（如收益 vs 成本、重要性 vs 紧迫性）；
+  5. `timeline`：项目演进里程碑阶段与进度状态。
+* **淘汰原始 Mermaid**：引导智能体调用 `render_editorial_diagram` 直接生成带有缩放、居中重置与 SVG 导出功能的现代矢量交互组件。
+
+### 2. `generative-ui`（生成式富交互卡片与沙箱规范）
+* **`show_interactive_card`**：支持决策卡片（`decision`）、检查清单（`checklist`）、指标看板（`metrics`）与轻量表单（`form`）；
+* **`prompt_form`**：人机协同多参数填报控件，在聊天流中收集结构化输入并直接回调；
+* **`render_react_sandbox`**：为前端原型提供隔离的 React / HTML 实时交互沙箱。
+
+---
+
+## 四、 核心代码清单与模块映射
+
+| 模块文件 | 核心职责 |
+| :--- | :--- |
+| [studio-skills.ts](file:///d:/project/js/Electron/antigravity-acp/server/universal/studio-skills.ts) | 负责技能目录动态解析、Frontmatter 元数据提取与按需文档读取。 |
+| [mcp-ui-server.ts](file:///d:/project/js/Electron/antigravity-acp/server/universal/mcp-ui-server.ts) | 5 位数专用端口 MCP 服务，注册 `list_studio_skills` 与 `get_studio_skill` 等标准工具。 |
+| [AgentConnection.ts](file:///d:/project/js/Electron/antigravity-acp/server/universal/AgentConnection.ts) | ACP 会话控制器，在 `newSession` 注入 `additionalDirectories`，并在首轮下发鼓励性引导。 |
+| [EditorialDiagramCard.tsx](file:///d:/project/js/Electron/antigravity-acp/src/components/assistant/EditorialDiagramCard.tsx) | 前端出版级矢量图表渲染引擎，自适应系统暗黑/明亮主题与 SVG 无损缩放。 |
+
+---
+
+## 五、 测试与质量门禁保障
+
+全链路经由三重自动化测试矩阵验证：
+1. **单元测试与工具调用**（[mcp-generative-ui.test.ts](file:///d:/project/js/Electron/antigravity-acp/tests/universal/mcp-generative-ui.test.ts)）：
+   - 验证 5 位数端口自增绑定与 Streamable HTTP 协议握手；
+   - 验证 `list_studio_skills` 与 `get_studio_skill` 工具在 MCP 协议下的调用与文档回传。
+2. **端到端黑盒智能体集成测试**（[mcp-integration-mock-agent.test.ts](file:///d:/project/js/Electron/antigravity-acp/tests/universal/mcp-integration-mock-agent.test.ts)）：
+   - 模拟离线标准 ACP Agent，验证 `session/new` 中 `additionalDirectories` 技能目录的自动注入；
+   - 验证首轮 Turn 0 的提示下发与后续 Turn 1 的免重复保障。
+3. **前端交互与渲染 E2E 测试**（[generative-ui-e2e.test.tsx](file:///d:/project/js/Electron/antigravity-acp/tests/universal/generative-ui-e2e.test.tsx)）：
+   - 验证矢量图表缩放、复制 SVG、以及沙箱组件的 DOM 渲染安全。
