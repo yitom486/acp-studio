@@ -478,6 +478,7 @@ async function closeRuntime(runtime: McpUiRuntime): Promise<void> {
   await Promise.allSettled([...runtime.connections].map(session => closeSession(runtime, session)));
   runtime.sessions.clear();
   runtime.connections.clear();
+  runtime.server.closeIdleConnections?.();
   runtime.server.closeAllConnections();
   await stopped;
 }

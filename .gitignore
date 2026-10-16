@@ -23,4 +23,8 @@ run-zed-acp-silent.exe
 scratch/bui*
 scratch/*.ts
 scratch/*.js
+scratch/*.mjs
+scratch/*.cjs
 scratch/*.css
+scratch/*diagnostic*
+scratch/studio-resources-live*

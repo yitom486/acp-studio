@@ -30,7 +30,7 @@ async function initialize(url: string, name: string) {
 }
 
 async function count(url: string) {
-  return (await (await fetch(new URL("/health", url))).json()).activeSessions;
+  return (await (await fetch(new URL("/health", url), { headers: { Connection: "close" } })).json()).activeSessions;
 }
 
 afterEach(async () => { await stopMcpUiServer(); });
