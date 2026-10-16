@@ -115,4 +115,255 @@ test.describe("Real Electron App - Generative UI Closed-Loop E2E", () => {
     expect(chatRequests[1].prompt[0].text).toContain("e2e-cluster");
     expect(chatRequests[1].prompt[0].text).toContain('"replicas": "5"');
   });
+
+  test("Flow 3: Agent calls studio-ui render_editorial_diagram -> renders EditorialDiagramCard -> displays sequence diagram SVG", async () => {
+    const { page } = launched!;
+
+    await page.waitForLoadState("domcontentloaded");
+    const composerInput = page.locator("textarea").first();
+    await expect(composerInput).toBeVisible({ timeout: 15000 });
+
+    await composerInput.click();
+    await composerInput.fill("请绘制微服务调用链路时序流程图");
+    await composerInput.press("Enter");
+
+    // 1. Verify EditorialDiagramCard title is rendered
+    const diagramTitle = page.getByText("微服务调用链路时序图");
+    await expect(diagramTitle).toBeVisible({ timeout: 20000 });
+
+    // 2. Verify sequence diagram badge & participants / labels
+    const sequenceTag = page.getByText("交互时序图");
+    await expect(sequenceTag).toBeVisible();
+
+    const stepLabel = page.getByText("POST /login");
+    await expect(stepLabel).toBeVisible();
+
+    // 3. Verify real MCP tool execution completion confirmation in chat stream
+    const agentReply = page.getByText("真实 MCP render_editorial_diagram 已返回。");
+    await expect(agentReply).toBeVisible({ timeout: 20000 });
+  });
+
+  test("Flow 4: Agent calls studio-ui render_react_sandbox -> renders ReactArtifactCard -> displays live sandbox preview and tab switching", async () => {
+    const { page } = launched!;
+
+    await page.waitForLoadState("domcontentloaded");
+    const composerInput = page.locator("textarea").first();
+    await expect(composerInput).toBeVisible({ timeout: 15000 });
+
+    await composerInput.click();
+    await composerInput.fill("请生成一个实时计数器自由组件沙箱");
+    await composerInput.press("Enter");
+
+    // 1. Verify ReactArtifactCard title is rendered
+    const artifactTitle = page.getByText("实时计数器原型");
+    await expect(artifactTitle).toBeVisible({ timeout: 20000 });
+
+    const reactBadge = page.getByText("react", { exact: true });
+    await expect(reactBadge).toBeVisible();
+
+    // 2. Verify preview tab button & code tab button
+    const codeTab = page.locator('button:has-text("代码")');
+    await expect(codeTab).toBeVisible();
+    await codeTab.click();
+
+    // 3. Verify code view is displayed
+    const codeSnippet = page.getByText("function App()");
+    await expect(codeSnippet).toBeVisible();
+
+    // 4. Verify real MCP tool execution completion confirmation in chat stream
+    const agentReply = page.getByText("真实 MCP render_react_sandbox 已返回。");
+    await expect(agentReply).toBeVisible({ timeout: 20000 });
+  });
+
+  test("Flow 5: Agent calls studio-ui render_editorial_diagram -> renders EditorialDiagramCard -> displays flowchart diagram SVG with nodes, connections and toolbar zoom", async () => {
+    const { page } = launched!;
+
+    await page.waitForLoadState("domcontentloaded");
+    const composerInput = page.locator("textarea").first();
+    await expect(composerInput).toBeVisible({ timeout: 15000 });
+
+    await composerInput.click();
+    await composerInput.fill("请绘制订单履约业务状态流转流程图");
+    await composerInput.press("Enter");
+
+    // 1. Verify EditorialDiagramCard title & flowchart badge
+    const diagramTitle = page.getByText("订单履约业务状态流转图", { exact: true });
+    await expect(diagramTitle).toBeVisible({ timeout: 20000 });
+
+    const flowchartTag = page.getByText("流程与状态机");
+    await expect(flowchartTag).toBeVisible();
+
+    // 2. Verify flowchart step nodes
+    const step1 = page.getByText("订单已创建");
+    const step2 = page.getByText("在线支付成功");
+    const step3 = page.getByText("仓储打包出库");
+    const step4 = page.getByText("顺丰冷链配送");
+
+    await expect(step1).toBeVisible();
+    await expect(step2).toBeVisible();
+    await expect(step3).toBeVisible();
+    await expect(step4).toBeVisible();
+
+    // 3. Verify step status / descriptions
+    const desc = page.getByText("待买家支付");
+    await expect(desc).toBeVisible();
+
+    // 4. Verify flowchart SVG is rendered
+    const svgEl = page.locator("svg").filter({ hasText: "订单已创建" });
+    await expect(svgEl).toBeVisible();
+
+    // 5. Verify toolbar zoom controls
+    const zoomInBtn = page.getByRole("button", { name: "放大", exact: true });
+    await expect(zoomInBtn).toBeVisible();
+    await zoomInBtn.click();
+
+    const resetZoomBtn = page.locator('button[title="重置缩放"]');
+    await expect(resetZoomBtn).toBeVisible();
+    await resetZoomBtn.click();
+    await expect(resetZoomBtn).not.toBeVisible();
+
+    // 6. Verify real MCP tool execution completion confirmation in chat stream
+    const agentReply = page.getByText("真实 MCP render_editorial_diagram 已返回。");
+    await expect(agentReply).toBeVisible({ timeout: 20000 });
+  });
+
+  test("Flow 6: Agent calls studio-ui show_interactive_card (checklist) -> renders ChecklistCard -> user toggles items -> progress updates dynamically", async () => {
+    const { page } = launched!;
+
+    await page.waitForLoadState("domcontentloaded");
+    const composerInput = page.locator("textarea").first();
+    await expect(composerInput).toBeVisible({ timeout: 15000 });
+
+    await composerInput.click();
+    await composerInput.fill("请展示发布上线前安全门禁检查清单");
+    await composerInput.press("Enter");
+
+    // 1. Verify ChecklistCard title & description
+    const listTitle = page.getByRole("heading", { name: "系统上线前安全门禁清单", exact: true });
+    await expect(listTitle).toBeVisible({ timeout: 20000 });
+
+    const listDesc = page.getByText("生产发布前必须逐项核对确认");
+    await expect(listDesc).toBeVisible();
+
+    // 2. Verify initial progress (1 of 3 items checked -> 33%)
+    const initialProgress = page.getByText("1 / 3 (33%)");
+    await expect(initialProgress).toBeVisible();
+
+    const item1 = page.getByText("数据库快照已完成备份");
+    await expect(item1).toBeVisible();
+
+    const item2 = page.getByText("HTTPS 证书有效性校验");
+    await expect(item2).toBeVisible();
+
+    // 3. User clicks second item to check it
+    await item2.click();
+
+    // 4. Verify progress updates to 2 / 3 (67%)
+    const updatedProgress1 = page.getByText("2 / 3 (67%)");
+    await expect(updatedProgress1).toBeVisible();
+
+    // 5. User clicks third item
+    const item3 = page.getByText("网关 WAF 安全策略启用");
+    await item3.click();
+
+    // 6. Verify progress updates to 3 / 3 (100%)
+    const updatedProgress2 = page.getByText("3 / 3 (100%)");
+    await expect(updatedProgress2).toBeVisible();
+
+    // 7. Verify real MCP tool execution completion confirmation in chat stream
+    const agentReply = page.getByText("真实 MCP show_interactive_card 已返回。");
+    await expect(agentReply).toBeVisible({ timeout: 20000 });
+  });
+
+  test("Flow 7: Agent calls studio-ui show_interactive_card (metrics) -> renders MetricsCard -> displays key operational metrics and trends", async () => {
+    const { page } = launched!;
+
+    await page.waitForLoadState("domcontentloaded");
+    const composerInput = page.locator("textarea").first();
+    await expect(composerInput).toBeVisible({ timeout: 15000 });
+
+    await composerInput.click();
+    await composerInput.fill("请展示微服务核心运行指标监控看板");
+    await composerInput.press("Enter");
+
+    // 1. Verify MetricsCard title & description
+    const metricsTitle = page.getByRole("heading", { name: "微服务核心运行指标看板", exact: true });
+    await expect(metricsTitle).toBeVisible({ timeout: 20000 });
+
+    const metricsDesc = page.getByText("生产集群最近 1 小时关键监控指标汇总");
+    await expect(metricsDesc).toBeVisible();
+
+    // 2. Verify metric tiles: labels and values
+    const latencyLabel = page.getByText("平均响应时延 P99");
+    await expect(latencyLabel).toBeVisible();
+    const latencyValue = page.getByText("12.4");
+    await expect(latencyValue).toBeVisible();
+    const latencyUnit = page.getByText("ms", { exact: true });
+    await expect(latencyUnit).toBeVisible();
+    const latencyChange = page.getByText("-8.5%");
+    await expect(latencyChange).toBeVisible();
+
+    const qpsLabel = page.getByText("QPS 吞吐量");
+    await expect(qpsLabel).toBeVisible();
+    const qpsValue = page.getByText("85,400");
+    await expect(qpsValue).toBeVisible();
+    const qpsUnit = page.getByText("req/s");
+    await expect(qpsUnit).toBeVisible();
+    const qpsChange = page.getByText("+14.2%");
+    await expect(qpsChange).toBeVisible();
+
+    const errLabel = page.getByText("错误率 (Error Rate)");
+    await expect(errLabel).toBeVisible();
+    const errValue = page.getByText("0.01");
+    await expect(errValue).toBeVisible();
+
+    // 3. Verify real MCP tool execution completion confirmation in chat stream
+    const agentReply = page.getByText("真实 MCP show_interactive_card 已返回。");
+    await expect(agentReply).toBeVisible({ timeout: 20000 });
+  });
+
+  test("Flow 8: Agent calls studio-ui render_editorial_diagram -> renders Architecture Diagram SVG with hierarchical layers and components", async () => {
+    const { page } = launched!;
+
+    await page.waitForLoadState("domcontentloaded");
+    const composerInput = page.locator("textarea").first();
+    await expect(composerInput).toBeVisible({ timeout: 15000 });
+
+    await composerInput.click();
+    await composerInput.fill("请绘制微服务分层系统架构图");
+    await composerInput.press("Enter");
+
+    // 1. Verify EditorialDiagramCard title & architecture badge
+    const diagramTitle = page.getByText("微服务分层系统架构图", { exact: true });
+    await expect(diagramTitle).toBeVisible({ timeout: 20000 });
+
+    const archTag = page.getByText("系统架构分层");
+    await expect(archTag).toBeVisible();
+
+    // 2. Verify layer titles
+    const layer1 = page.getByText("接入网关层");
+    const layer2 = page.getByText("业务服务层");
+    const layer3 = page.getByText("数据持久层");
+
+    await expect(layer1).toBeVisible();
+    await expect(layer2).toBeVisible();
+    await expect(layer3).toBeVisible();
+
+    // 3. Verify component nodes inside layers
+    const kongNode = page.getByText("Kong Gateway");
+    const authNode = page.getByText("Auth Service");
+    const pgNode = page.getByText("PostgreSQL 主从");
+
+    await expect(kongNode).toBeVisible();
+    await expect(authNode).toBeVisible();
+    await expect(pgNode).toBeVisible();
+
+    // 4. Verify SVG element exists
+    const svgEl = page.locator("svg").filter({ hasText: "Kong Gateway" });
+    await expect(svgEl).toBeVisible();
+
+    // 5. Verify real MCP tool execution completion confirmation in chat stream
+    const agentReply = page.getByText("真实 MCP render_editorial_diagram 已返回。");
+    await expect(agentReply).toBeVisible({ timeout: 20000 });
+  });
 });

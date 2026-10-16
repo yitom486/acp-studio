@@ -52,6 +52,8 @@ import {
 import {
   isGenerativeTool,
   AcpGenerativeToolCard,
+  studioGenerativeUIComponents,
+  studioToolRenderers,
   type GenerativeCardAction,
 } from "@/components/assistant/toolkit";
 import {
@@ -859,7 +861,13 @@ const ASSISTANT_MESSAGE_PARTS = {
   Text: AcpMarkdownText,
   Reasoning: () => null,
   Image: AcpImagePart,
-  tools: { Fallback: () => null },
+  tools: {
+    by_name: studioToolRenderers,
+    Fallback: () => null,
+  },
+  GenerativeUI: {
+    components: studioGenerativeUIComponents,
+  },
 };
 
 /** 独立 Memoized 正文容器：隔绝思维链/工具组频繁重排与时间戳跳秒，保护已渲染正文稳定性 */

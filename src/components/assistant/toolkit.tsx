@@ -1,5 +1,4 @@
-import React from "react";
-import { makeAssistantToolUI } from "@assistant-ui/react";
+import type { ToolCallMessagePartComponent } from "@assistant-ui/react";
 import {
   DecisionCard,
   ChecklistCard,
@@ -17,22 +16,29 @@ import type { GenerativeCardAction } from "@/lib/present-result";
 
 export type { GenerativeCardAction };
 
+/**
+ * 现代 assistant-ui 生成式 UI 组件白名单注册表（符合 GenerativeUIComponentRegistry 规范）
+ * 供 MessagePrimitive.GenerativeUI 或 MessagePrimitive.Parts components.GenerativeUI 使用
+ * @see https://www.assistant-ui.com/docs/tools/generative-ui
+ */
+export const studioGenerativeUIComponents = {
+  DecisionCard,
+  ChecklistCard,
+  MetricsCard,
+  PromptFormCard,
+  ReactArtifactCard,
+  EditorialDiagramCard,
+};
 
 /**
- * 1. 结构化交互卡片工具 UI
+ * 现代 @assistant-ui/react 规范的 ToolCall 渲染器字典
+ * 替代已废弃的 makeAssistantToolUI，直接挂载到 MessagePrimitive.Parts 的 tools.by_name
+ * @see https://www.assistant-ui.com/docs/migrations/toolkit-tools
  */
-export const ShowInteractiveCardToolUI = makeAssistantToolUI<
-  {
-    title: string;
-    cardType?: "decision" | "metrics" | "checklist" | "form";
-    description?: string;
-    data?: Record<string, any>;
-  },
-  any
->({
-  toolName: "show_interactive_card",
-  render: ({ args, addResult }) => {
-    const { title = "交互卡片", cardType = "decision", description, data = {} } = args || {};
+export const studioToolRenderers: Record<string, ToolCallMessagePartComponent> = {
+  show_interactive_card: ({ args, addResult }: any) => {
+    const { title = "交互卡片", description, data = {} } = args || {};
+    const cardType = args?.cardType || args?.kind || "decision";
 
     if (cardType === "decision") {
       const options = Array.isArray(data.options) ? data.options : [];
@@ -86,22 +92,8 @@ export const ShowInteractiveCardToolUI = makeAssistantToolUI<
 
     return null;
   },
-});
 
-/**
- * 2. 自由 React / HTML 沙箱原型工具 UI
- */
-export const RenderReactSandboxToolUI = makeAssistantToolUI<
-  {
-    title?: string;
-    code: string;
-    template?: "react" | "html";
-    description?: string;
-  },
-  any
->({
-  toolName: "render_react_sandbox",
-  render: ({ args }) => {
+  render_react_sandbox: ({ args }: any) => {
     if (!args || !args.code) return null;
     return (
       <ReactArtifactCard
@@ -112,22 +104,8 @@ export const RenderReactSandboxToolUI = makeAssistantToolUI<
       />
     );
   },
-});
 
-/**
- * 3. 人机协同表单输入工具 UI
- */
-export const PromptFormToolUI = makeAssistantToolUI<
-  {
-    title: string;
-    description?: string;
-    submitLabel?: string;
-    fields: Array<any>;
-  },
-  any
->({
-  toolName: "prompt_form",
-  render: ({ args, addResult }) => {
+  prompt_form: ({ args, addResult }: any) => {
     const { title = "输入表单", description, submitLabel, fields = [] } = args || {};
     return (
       <PromptFormCard
@@ -141,29 +119,13 @@ export const PromptFormToolUI = makeAssistantToolUI<
       />
     );
   },
-});
 
-/**
- * 4. 出版级精美图表 (Editorial Diagram) 工具 UI
- */
-export const RenderEditorialDiagramToolUI = makeAssistantToolUI<
-  {
-    title: string;
-    diagramType: DiagramType;
-    description?: string;
-    theme?: "light" | "dark" | "system";
-    accent?: AccentColor;
-    data: Record<string, any>;
-  },
-  any
->({
-  toolName: "render_editorial_diagram",
-  render: ({ args }) => {
+  render_editorial_diagram: ({ args }: any) => {
     if (!args || !args.title) return null;
     return (
       <EditorialDiagramCard
         title={args.title}
-        diagramType={args.diagramType || "architecture"}
+        diagramType={inferDiagramType(args)}
         description={args.description}
         theme={args.theme || "system"}
         accent={args.accent || "emerald"}
@@ -171,21 +133,12 @@ export const RenderEditorialDiagramToolUI = makeAssistantToolUI<
       />
     );
   },
-});
+};
 
 /**
- * 组合注册组件：挂载到 AssistantRuntimeProvider 内部即可自动拦截对应 tool calls
+ * 兼容性保留导出，避免废弃注册带来的 runtime context 警告
  */
-export const StudioGenerativeToolUIs: React.FC = () => {
-  return (
-    <>
-      <ShowInteractiveCardToolUI />
-      <RenderReactSandboxToolUI />
-      <PromptFormToolUI />
-      <RenderEditorialDiagramToolUI />
-    </>
-  );
-};
+export const StudioGenerativeToolUIs: React.FC = () => null;
 
 /**
  * 规范化生成式工具名：支持多种代理客户端的调用和命名格式，包括：
@@ -200,8 +153,12 @@ export function normalizeGenerativeToolName(name?: string): string {
   if (!name || typeof name !== "string") return "";
   const str = name.trim();
 
-  // 1. 优先使用边界词匹配 4 大原生生成式工具名
-  const match = str.match(/\b(render_editorial_diagram|show_interactive_card|render_react_sandbox|prompt_form)\b/i);
+  // 1. 优先使用非字母数字前界匹配 4 大原生生成式工具名
+  //    真 agent (OpenCode / Claude) 常发 studio-ui__render_editorial_diagram，
+  //    \b 跨不过下划线 _，因此用 (?:^|[^a-zA-Z0-9]) 覆盖前缀下划线、双下划线或表达式。
+  const match = str.match(
+    /(?:^|[^a-zA-Z0-9])(render_editorial_diagram|show_interactive_card|render_react_sandbox|prompt_form)\b/i
+  );
   if (match) {
     return match[1].toLowerCase();
   }
@@ -209,42 +166,71 @@ export function normalizeGenerativeToolName(name?: string): string {
   // 2. 剥离可能的代理调用前缀与参数括号
   let clean = str.toLowerCase();
   clean = clean.replace(/^.*tools\s*\[\s*["']?studio[-_]ui["']?\s*\]\.?/i, "");
-  clean = clean.replace(/^studio[-_]ui[:_./]/i, "");
+  clean = clean.replace(/^(?:mcp__)?(?:tools?__)?studio[-_]ui[:_./]+/i, "");
   clean = clean.split(/[({\s]/)[0];
 
-  // 3. 兼容 MCP 命名空间分隔（真 agent 常发 studio-ui__xxx / mcp__studio-ui__xxx）：
-  //    __ 是命名空间分隔符（单词字符，\b 跨不过去），取最后一段再比对。
-  //    注意：单下划线前缀写法（studio-ui_render_...）已在第 2 步处理，这里只管 __。
+  // 3. 兼容 MCP 命名空间分隔（studio-ui__xxx / mcp__studio-ui__xxx）
   let namespaced = clean.replace(/^mcp__/i, "");
   if (namespaced.includes("__")) {
     const segs = namespaced.split("__").filter(Boolean);
     namespaced = segs.length > 0 ? segs[segs.length - 1] : namespaced;
   }
   namespaced = namespaced.replace(/^_+|_+$/g, "");
-  if (namespaced !== clean && isGenerativeToolName(namespaced)) {
+  if (namespaced && isGenerativeToolName(namespaced)) {
     return namespaced;
   }
   return clean;
 }
 
-export function isGenerativeTool(tcOrName: any): boolean {
-  if (!tcOrName) return false;
+/**
+ * 脚本类候选（code/script）必须是真实的 studio-ui 调用上下文，
+ * 否则注释/字符串里顺带一提工具名也会误判成卡片（从工具组消失 + 渲染空卡）。
+ * 真调用形如 tools["studio-ui"].xxx( 或 studio-ui.xxx(。
+ */
+function hasStudioUiCallContext(code: string): boolean {
+  return /tools\s*\[\s*["']?studio-ui/i.test(code) || /studio-ui\s*[._]\s*\w+\s*\(/i.test(code);
+}
+
+export function resolveGenerativeToolName(tcOrName: any): string {
+  if (!tcOrName) return "";
   if (typeof tcOrName === "string") {
     const clean = normalizeGenerativeToolName(tcOrName);
-    return isGenerativeToolName(clean);
+    return isGenerativeToolName(clean) ? clean : "";
   }
-  const candidates = [
+  const rawCode = typeof tcOrName.rawInput?.code === "string" ? tcOrName.rawInput.code : undefined;
+  const rawScript =
+    typeof tcOrName.rawInput?.script === "string" ? tcOrName.rawInput.script : undefined;
+  let input = tcOrName.rawInput;
+  if (typeof input === "string") {
+    try { input = JSON.parse(input); } catch { input = undefined; }
+  }
+  const candidates: unknown[] = [
     tcOrName.name,
+    input?.ToolName,
     tcOrName.title,
     tcOrName.id,
     tcOrName.kind,
+    tcOrName.rawOutput?.metadata?.toolCalls?.[0]?.tool,
+    tcOrName.rawOutput?.tool,
+    rawCode && hasStudioUiCallContext(rawCode) ? rawCode : undefined,
+    rawScript && hasStudioUiCallContext(rawScript) ? rawScript : undefined,
+    tcOrName.rawInput?.command,
+    tcOrName.rawInput?.CommandLine,
+    typeof tcOrName.rawInput === "string" ? tcOrName.rawInput : undefined,
+    typeof tcOrName.rawOutput === "string" ? tcOrName.rawOutput : undefined,
   ];
   for (const c of candidates) {
-    if (typeof c === "string" && isGenerativeToolName(normalizeGenerativeToolName(c))) {
-      return true;
+    if (typeof c === "string") {
+      const clean = normalizeGenerativeToolName(c);
+      if (isGenerativeToolName(clean)) return clean;
     }
   }
-  return false;
+  return "";
+}
+
+export function isGenerativeTool(tcOrName: any): boolean {
+  if (!tcOrName) return false;
+  return Boolean(resolveGenerativeToolName(tcOrName));
 }
 
 function isGenerativeToolName(clean: string): boolean {
@@ -322,7 +308,17 @@ export function extractToolArgs(tool: any): Record<string, any> {
 
   const result: Record<string, any> = {};
 
-  // 1. 优先扫描入参字段（rawInput / input / args / arguments / parameters / params）
+  // 1. 扫描 OpenCode / MCP output metadata（OpenCode 执行 sandbox 返回的标准结构）
+  const metaInput = tool.rawOutput?.metadata?.toolCalls?.[0]?.input;
+  if (metaInput && typeof metaInput === "object") {
+    Object.assign(result, metaInput);
+  }
+  const metaData = tool.rawOutput?.metadata?.toolCalls?.[0]?.data;
+  if (metaData && typeof metaData === "object") {
+    Object.assign(result, metaData);
+  }
+
+  // 2. 扫描入参字段（rawInput / input / args / arguments / parameters / params）
   const candidateInputs = [
     tool.rawInput,
     tool.input,
@@ -334,12 +330,17 @@ export function extractToolArgs(tool: any): Record<string, any> {
   for (const c of candidateInputs) {
     const parsed = safeEvalObject(c);
     if (parsed) {
-      Object.assign(result, parsed);
+      // agy exposes MCP calls through call_mcp_tool({ServerName, ToolName, Arguments}).
+      // Arguments contains the presentation payload, not the outer routing object.
+      const args = typeof parsed.ToolName === "string" ? safeEvalObject(parsed.Arguments) ?? parsed : parsed;
+      for (const [k, v] of Object.entries(args)) {
+        if (result[k] === undefined) result[k] = v;
+      }
       break;
     }
   }
 
-  // 2. 扫描出参字段（MCP Server 返回的 data: { title, diagramType, data... }）
+  // 3. 扫描出参字段（MCP Server 返回的 data: { title, diagramType, data... }）
   const candidateOutputs = [
     tool.rawOutput,
     tool.output,
@@ -352,7 +353,7 @@ export function extractToolArgs(tool: any): Record<string, any> {
         Object.assign(result, o.structuredContent);
       } else if (o.data && typeof o.data === "object") {
         Object.assign(result, o.data);
-      } else {
+      } else if (!o.metadata) {
         Object.assign(result, o);
       }
       break;
@@ -361,14 +362,14 @@ export function extractToolArgs(tool: any): Record<string, any> {
     if (parsed) {
       if (parsed.data && typeof parsed.data === "object") {
         Object.assign(result, parsed.data);
-      } else {
+      } else if (!parsed.metadata) {
         Object.assign(result, parsed);
       }
       break;
     }
   }
 
-  // 3. 扫描 ACP content 数组
+  // 4. 扫描 ACP content 数组
   if (Array.isArray(tool.content)) {
     for (const chunk of tool.content) {
       if (chunk?.type === "text" && typeof chunk.text === "string") {
@@ -380,9 +381,17 @@ export function extractToolArgs(tool: any): Record<string, any> {
     }
   }
 
-  // 4. 从 title 或 name 中的函数调用语句提取实参
+  // 5. 从 title、name、code、script、command 中的函数调用语句提取实参
   // 例如：await tools["studio-ui"].render_editorial_diagram({ title: "OAuth2", ... })
-  for (const strCandidate of [tool.title, tool.name]) {
+  const callStrings = [
+    tool.title,
+    tool.name,
+    tool.rawInput?.code,
+    tool.rawInput?.script,
+    tool.rawInput?.command,
+    typeof tool.rawInput === "string" ? tool.rawInput : undefined,
+  ];
+  for (const strCandidate of callStrings) {
     if (typeof strCandidate === "string" && strCandidate.includes("(")) {
       const startIdx = strCandidate.indexOf("(");
       const endIdx = strCandidate.lastIndexOf(")");
@@ -427,6 +436,14 @@ const GenerativeSkeleton: React.FC<{ title: string; hint: string }> = ({ title, 
   );
 };
 
+function hasDiagramContent(type: DiagramType, data: Record<string, any>): boolean {
+  const keys = {
+    architecture: ["layers"], sequence: ["messages", "steps"], flowchart: ["steps", "nodes"],
+    quadrant: ["items"], timeline: ["milestones"],
+  }[type];
+  return keys.some(key => Array.isArray(data[key]) && data[key].length > 0);
+}
+
 /**
  * 独立直接渲染组件：脱离 assistant-ui 内部深层 tool context 依赖，
  * 直接从 ACP 消息的 toolCalls 渲染富交互卡片。
@@ -435,13 +452,21 @@ export const AcpGenerativeToolCard: React.FC<{
   tool: any;
   onAction?: (action: GenerativeCardAction) => void | Promise<void>;
 }> = ({ tool, onAction }) => {
-  const normName = normalizeGenerativeToolName(tool?.name || tool?.title);
+  const normName = resolveGenerativeToolName(tool);
   const args = extractToolArgs(tool);
-  const isPending = tool?.status === "pending" || tool?.status === "running";
+  const isPending = tool?.status === "pending" || tool?.status === "running" || tool?.status === "in_progress";
+
+  if (normName && (tool?.status === "failed" || tool?.status === "cancelled")) {
+    const detail = typeof tool.rawError === "string" ? tool.rawError : typeof tool.rawOutput === "string" ? tool.rawOutput : "";
+    return <div role="status" className="my-3 rounded-lg border border-line p-4 text-sm text-ink-3">
+      <p>工具调用未成功，未生成可展示的内容。</p>
+      {detail && <p className="mt-2 whitespace-pre-wrap break-words">{detail.slice(0, 2000)}</p>}
+    </div>;
+  }
 
   if (normName === "show_interactive_card") {
     const title = args.title || "方案对比与决策";
-    const cardType = args.cardType || "decision";
+    const cardType = args.cardType || args.kind || "decision";
     const description = args.description;
     const data = args.data && typeof args.data === "object" ? args.data : args;
 
@@ -542,8 +567,11 @@ export const AcpGenerativeToolCard: React.FC<{
         ? args.data
         : args;
 
-    if (!args.title && !args.diagramType && isPending) {
+    if (!hasDiagramContent(diagramType, data) && isPending) {
       return <GenerativeSkeleton title="架构时序图表" hint="正在生成出版级矢量图表…" />;
+    }
+    if (!hasDiagramContent(diagramType, data)) {
+      return <div role="status" className="my-3 rounded-lg border border-line p-4 text-sm text-ink-3">图表数据缺失或格式不受支持，无法绘制。请检查工具参数与返回结果后重试。</div>;
     }
 
     return (

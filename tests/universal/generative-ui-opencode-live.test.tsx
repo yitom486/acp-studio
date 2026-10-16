@@ -237,4 +237,122 @@ describe("Generative UI - Live OpenCode End-to-End Simulation", () => {
     const svg = container.querySelector("svg");
     expect(svg).not.toBeNull();
   });
+
+  it("OpenCode Live 6: exact user screenshot tool call with JS expression title renders flowchart card", async () => {
+    // 100% 还原用户截图中 OpenCode 下发的完整调用
+    const userScreenshotTool = {
+      id: "call_01a1b2c3d4",
+      title:
+        'await tools["studio-ui"].render_editorial_diagram({ title: "Redis 缓存读写链路", description: "inkdown 服务端缓存标准链路: 命中直返，未命中回源回写", diagramType: "flowchart", accent: "indigo", data: { steps: [{ id: "req", label: "请求接入" }, { id: "redis", label: "查 Redis" }, { id: "hit", label: "命中直返" }, { id: "db", label: "未命中查 DB" }, { id: "write", label: "回写并设过期" }, { id: "ret", label: "返回" }] } })',
+      status: "completed" as const,
+    };
+
+    expect(isGenerativeTool(userScreenshotTool)).toBe(true);
+
+    const args = extractToolArgs(userScreenshotTool);
+    expect(args.title).toBe("Redis 缓存读写链路");
+    expect(args.diagramType).toBe("flowchart");
+    expect(args.accent).toBe("indigo");
+    expect(args.data?.steps).toHaveLength(6);
+
+    await act(async () => {
+      root.render(<AcpGenerativeToolCard tool={userScreenshotTool} />);
+    });
+
+    expect(container.textContent).toContain("Redis 缓存读写链路");
+    expect(container.textContent).toContain("流程与状态机");
+    expect(container.textContent).toContain("请求接入");
+    expect(container.textContent).toContain("查 Redis");
+    expect(container.textContent).toContain("命中直返");
+    expect(container.textContent).toContain("未命中查 DB");
+    expect(container.textContent).toContain("回写并设过期");
+    expect(container.textContent).toContain("返回");
+
+    const svg = container.querySelector("svg");
+    expect(svg).not.toBeNull();
+  });
+
+  it("OpenCode Live 7: real OpenCode execute sandbox call with title=execute, code in rawInput and MCP metadata in rawOutput", async () => {
+    // 真实生产线上抓取的 OpenCode 工具执行 payload
+    const realExecuteTool = {
+      id: "call_01a13f6c46bd76bdaee11a172b68b27a",
+      title: "execute",
+      kind: "other",
+      status: "completed" as const,
+      locations: [],
+      rawInput: {
+        code: 'await tools["studio-ui"].render_editorial_diagram({\n  title: "Redis 缓存读写穿透流程",\n  description: "inkdown 服务端缓存标准链路：命中直返，未命中回源回写",\n  diagramType: "flowchart",\n  theme: "system",\n  accent: "indigo",\n  data: {\n    steps: [\n      {id: "req", label: "请求接入", status: "completed"},\n      {id: "check", label: "查 Redis 缓存", status: "completed"},\n      {id: "hit", label: "命中直返", status: "active"}\n    ],\n    connections: [\n      {from: "req", to: "check"},\n      {from: "check", to: "hit"}\n    ]\n  }\n});\nreturn "rendered";',
+      },
+      rawOutput: {
+        metadata: {
+          toolCalls: [
+            {
+              tool: "studio-ui.render_editorial_diagram",
+              status: "completed",
+              input: {
+                title: "Redis 缓存读写穿透流程",
+                description: "inkdown 服务端缓存标准链路：命中直返，未命中回源回写",
+                diagramType: "flowchart",
+                theme: "system",
+                accent: "indigo",
+                data: {
+                  steps: [
+                    { id: "req", label: "请求接入", status: "completed" },
+                    { id: "check", label: "查 Redis 缓存", status: "completed" },
+                    { id: "hit", label: "命中直返", status: "active" },
+                  ],
+                  connections: [
+                    { from: "req", to: "check" },
+                    { from: "check", to: "hit" },
+                  ],
+                },
+              },
+            },
+          ],
+          truncated: false,
+        },
+      },
+    };
+
+    expect(isGenerativeTool(realExecuteTool)).toBe(true);
+
+    const args = extractToolArgs(realExecuteTool);
+    expect(args.title).toBe("Redis 缓存读写穿透流程");
+    expect(args.diagramType).toBe("flowchart");
+    expect(args.accent).toBe("indigo");
+    expect(args.data?.steps).toHaveLength(3);
+
+    await act(async () => {
+      root.render(<AcpGenerativeToolCard tool={realExecuteTool} />);
+    });
+
+    expect(container.textContent).toContain("Redis 缓存读写穿透流程");
+    expect(container.textContent).toContain("流程与状态机");
+    expect(container.textContent).toContain("请求接入");
+    expect(container.textContent).toContain("查 Redis 缓存");
+    expect(container.textContent).toContain("命中直返");
+
+    const svg = container.querySelector("svg");
+    expect(svg).not.toBeNull();
+  });
+
+  it("OpenCode Live 8: execute code that merely mentions a tool name in comments stays a regular tool", async () => {
+    // 误伤回归：注释里顺带一提 prompt_form，但没有 studio-ui 调用上下文，不得成卡。
+    const commentOnlyTool = {
+      id: "call_comment",
+      title: "execute",
+      status: "completed" as const,
+      rawInput: {
+        code: '// TODO: use prompt_form for onboarding\nconst r = await search({query: "users", limit: 5});\nreturn r;',
+      },
+      rawOutput: {
+        metadata: { toolCalls: [{ status: "completed", tool: "search" }], truncated: false },
+      },
+    };
+
+    expect(isGenerativeTool(commentOnlyTool)).toBe(false);
+
+    const regular = [commentOnlyTool].filter((tc) => !isGenerativeTool(tc));
+    expect(regular).toHaveLength(1);
+  });
 });

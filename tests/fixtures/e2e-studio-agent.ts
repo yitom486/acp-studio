@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 // Model decisions are scripted; MCP discovery and tool execution use the real server.
-const sessions = new Map<string, { mcpServers: any[]; presented?: "decision" | "form" }>();
+const sessions = new Map<string, { mcpServers: any[]; presented?: string }>();
 let sequence = 0;
 const modelState = {
   models: { currentModelId: "e2e-default", availableModels: [{ id: "e2e-default", name: "E2E Test Model" }] },
@@ -69,23 +69,166 @@ const app = acp.agent({ name: "e2e-agent", version: "1.0.0" })
       await text(ctx, sessionId, `【ACP 会话继续执行】部署参数已提交验证，正在初始化集群副本！ session=${sessionId}\n${fullText.slice(fullText.indexOf("\n") + 1)}`);
       return { stopReason: "end_turn" };
     }
-    const form = fullText.includes("表单") || fullText.includes("部署参数");
-    const name = form ? "prompt_form" : "show_interactive_card";
-    const args = form ? {
-      title: "服务部署参数", submitLabel: "确认并部署",
-      fields: [
-        { id: "cluster_name", label: "集群名称", type: "text", defaultValue: "prod-cluster-01", required: true },
-        { id: "replicas", label: "副本数量", type: "number", defaultValue: 3, required: true },
-      ],
-    } : {
-      title: "高可用服务架构选型", cardType: "decision",
-      data: { options: [
-        { id: "opt-event-driven", label: "事件驱动微服务 (Kafka + Go)", recommended: true },
-        { id: "opt-monolith", label: "经典单体架构 (Postgres + Node)" },
-      ] },
-    };
+
+    let name = "show_interactive_card";
+    let args: Record<string, unknown> = {};
+
+    if (fullText.includes("时序") || fullText.includes("sequence")) {
+      name = "render_editorial_diagram";
+      state.presented = "diagram";
+      args = {
+        title: "微服务调用链路时序图",
+        diagramType: "sequence",
+        description: "客户端网关与鉴权中心时序链路",
+        theme: "system",
+        accent: "emerald",
+        data: {
+          steps: [
+            { source: "Browser", target: "Gateway", label: "POST /login" },
+            { source: "Gateway", target: "AuthService", label: "Verify Credentials" },
+            { source: "AuthService", target: "Gateway", label: "Issue JWT Token" },
+          ],
+        },
+      };
+    } else if (fullText.includes("流程") || fullText.includes("状态机") || fullText.includes("flowchart")) {
+      name = "render_editorial_diagram";
+      state.presented = "flowchart";
+      args = {
+        title: "订单履约业务状态流转图",
+        diagramType: "flowchart",
+        description: "订单创建至配送完成的业务状态机",
+        theme: "system",
+        accent: "emerald",
+        data: {
+          steps: [
+            { id: "created", label: "订单已创建", description: "待买家支付", status: "已完成" },
+            { id: "paid", label: "在线支付成功", description: "资金渠道对账中", status: "进行中", isCurrent: true },
+            { id: "stock", label: "仓储打包出库", description: "WMS 自动化分拣", status: "等待" },
+            { id: "delivery", label: "顺丰冷链配送", description: "预计明日送达", status: "等待" },
+          ],
+          connections: [
+            { from: "created", to: "paid" },
+            { from: "paid", to: "stock" },
+            { from: "stock", to: "delivery" },
+          ],
+        },
+      };
+    } else if (fullText.includes("架构图") || fullText.includes("分层架构") || fullText.includes("architecture")) {
+      name = "render_editorial_diagram";
+      state.presented = "architecture";
+      args = {
+        title: "微服务分层系统架构图",
+        diagramType: "architecture",
+        description: "生产环境分层微服务拓扑结构",
+        theme: "system",
+        accent: "emerald",
+        data: {
+          layers: [
+            {
+              id: "gateway-layer",
+              title: "接入网关层",
+              nodes: [
+                { id: "kong", label: "Kong Gateway", subtext: "反向代理 & 鉴权", highlighted: true },
+                { id: "waf", label: "Cloudflare WAF", subtext: "DDoS 防护" },
+              ],
+            },
+            {
+              id: "service-layer",
+              title: "业务服务层",
+              nodes: [
+                { id: "auth-svc", label: "Auth Service", subtext: "JWT & OAuth2" },
+                { id: "order-svc", label: "Order Service", subtext: "订单状态机", highlighted: true },
+              ],
+            },
+            {
+              id: "data-layer",
+              title: "数据持久层",
+              nodes: [
+                { id: "pg", label: "PostgreSQL 主从", subtext: "OLTP 存储" },
+                { id: "redis", label: "Redis Cluster", subtext: "分布式缓存" },
+              ],
+            },
+          ],
+          connections: [
+            { from: "gateway-layer", to: "service-layer" },
+            { from: "service-layer", to: "data-layer" },
+          ],
+        },
+      };
+    } else if (fullText.includes("清单") || fullText.includes("检查项") || fullText.includes("checklist")) {
+      name = "show_interactive_card";
+      state.presented = "checklist";
+      args = {
+        title: "系统上线前安全门禁清单",
+        cardType: "checklist",
+        description: "生产发布前必须逐项核对确认",
+        data: {
+          items: [
+            { id: "db_backup", label: "数据库快照已完成备份", checked: true },
+            { id: "ssl_cert", label: "HTTPS 证书有效性校验", checked: false },
+            { id: "firewall", label: "网关 WAF 安全策略启用", checked: false },
+          ],
+        },
+      };
+    } else if (fullText.includes("指标") || fullText.includes("监控") || fullText.includes("metrics")) {
+      name = "show_interactive_card";
+      state.presented = "metrics";
+      args = {
+        title: "微服务核心运行指标看板",
+        cardType: "metrics",
+        description: "生产集群最近 1 小时关键监控指标汇总",
+        data: {
+          metrics: [
+            { label: "平均响应时延 P99", value: "12.4", unit: "ms", change: "-8.5%", progress: 75 },
+            { label: "QPS 吞吐量", value: "85,400", unit: "req/s", change: "+14.2%", progress: 85 },
+            { label: "错误率 (Error Rate)", value: "0.01", unit: "%", change: "-0.05%", progress: 10 },
+          ],
+        },
+      };
+    } else if (fullText.includes("沙箱") || fullText.includes("自由组件") || fullText.includes("sandbox")) {
+      name = "render_react_sandbox";
+      state.presented = "sandbox";
+      args = {
+        title: "实时计数器原型",
+        description: "包含实时计数与增减交互的 React 沙箱原型",
+        template: "react",
+        code: `function App() {
+  const [count, setCount] = React.useState(0);
+  return (
+    <div style={{ padding: "16px", color: "#fff" }}>
+      <h4>计数器: {count}</h4>
+      <button onClick={() => setCount(count + 1)}>增加</button>
+    </div>
+  );
+}`,
+      };
+    } else if (fullText.includes("表单") || fullText.includes("部署参数")) {
+      name = "prompt_form";
+      state.presented = "form";
+      args = {
+        title: "服务部署参数",
+        submitLabel: "确认并部署",
+        fields: [
+          { id: "cluster_name", label: "集群名称", type: "text", defaultValue: "prod-cluster-01", required: true },
+          { id: "replicas", label: "副本数量", type: "number", defaultValue: 3, required: true },
+        ],
+      };
+    } else {
+      name = "show_interactive_card";
+      state.presented = "decision";
+      args = {
+        title: "高可用服务架构选型",
+        cardType: "decision",
+        data: {
+          options: [
+            { id: "opt-event-driven", label: "事件驱动微服务 (Kafka + Go)", recommended: true },
+            { id: "opt-monolith", label: "经典单体架构 (Postgres + Node)" },
+          ],
+        },
+      };
+    }
+
     const rawOutput = await callStudio(sessionId, name, args);
-    state.presented = form ? "form" : "decision";
     // No rawInput: rendering must consume the actual MCP result.
     await ctx.client.notify(acp.methods.client.session.update, {
       sessionId,

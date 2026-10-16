@@ -213,6 +213,7 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
               onClick={() => setZoom(1)}
               className="p-1 rounded hover:text-foreground hover:bg-muted/80 transition-colors text-[10px] font-mono"
               title="重置缩放"
+              aria-label="重置缩放"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>

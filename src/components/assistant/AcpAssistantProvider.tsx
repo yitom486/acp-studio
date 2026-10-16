@@ -8,7 +8,6 @@ import {
 import { useStudioStore } from "@/stores/useStudioStore";
 import { convertAcpMessages, extractAppendText } from "@/lib/acp-assistant";
 import { mergeAssistantTurns } from "@/lib/threads";
-import { StudioGenerativeToolUIs } from "./toolkit";
 
 export interface AcpAssistantProviderProps {
   children: React.ReactNode;
@@ -198,7 +197,6 @@ export const AcpAssistantProvider: React.FC<AcpAssistantProviderProps> = ({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <StudioGenerativeToolUIs />
       {children}
     </AssistantRuntimeProvider>
   );
