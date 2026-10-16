@@ -18,6 +18,11 @@ import {
   type PendingElicitation,
 } from "@/lib/universal-api";
 import { parseRateLimitsFromStatusText } from "@/lib/quota-parser";
+import {
+  isGenerativeTool,
+  appendGenerativeToolPlaceholder,
+  hasGenerativeToolPlaceholder,
+} from "@/components/assistant/toolkit";
 
 export interface UseChatSendOptions {
   qc: QueryClient;
@@ -294,20 +299,35 @@ export function useChatSend({
               }),
             onToolCall: (c) =>
               cur.patchMessage(assistantId, (m) => {
+                const isGen = isGenerativeTool(c);
                 const existingText = m.content?.trim();
                 let updatedProgress = m.progressContent;
                 let newContent = m.content;
-                if (existingText) {
+                let stashedProgressChunk: string | undefined;
+
+                if (isGen) {
+                  // 生成式 UI 工具与前文属于同一完整阅读流，不抽离到阶段折叠区，直接在正文当前位置打入内联占位符
+                  newContent = appendGenerativeToolPlaceholder(newContent, c.id);
+                } else if (existingText && !hasGenerativeToolPlaceholder(newContent)) {
+                  stashedProgressChunk = existingText;
                   updatedProgress = updatedProgress
                     ? `${updatedProgress}\n\n${existingText}`
                     : existingText;
                   newContent = "";
                 }
+
                 return {
                   ...m,
                   content: newContent,
                   progressContent: updatedProgress,
-                  toolCalls: [...(m.toolCalls || []), { ...c, startedAt: Date.now() }],
+                  toolCalls: [
+                    ...(m.toolCalls || []),
+                    {
+                      ...c,
+                      startedAt: Date.now(),
+                      ...(stashedProgressChunk ? { _stashedProgressChunk: stashedProgressChunk } : {}),
+                    } as any,
+                  ],
                 };
               }),
             onToolCallUpdate: (c) =>
@@ -315,16 +335,39 @@ export function useChatSend({
                 const calls = [...(m.toolCalls || [])];
                 const i = calls.findIndex((x) => x.id === c.id);
                 const terminal = TERMINAL_TOOL.has(c.status);
-                if (i >= 0)
-                  calls[i] = {
+                let targetCall: any;
+                if (i >= 0) {
+                  targetCall = {
                     ...calls[i],
                     ...c,
                     title: c.title || calls[i].title,
                     startedAt: calls[i].startedAt ?? Date.now(),
                     completedAt: terminal ? (calls[i].completedAt ?? Date.now()) : calls[i].completedAt,
                   };
-                else calls.push({ ...c, startedAt: Date.now(), completedAt: terminal ? Date.now() : undefined });
-                return { ...m, toolCalls: calls };
+                  calls[i] = targetCall;
+                } else {
+                  targetCall = { ...c, startedAt: Date.now(), completedAt: terminal ? Date.now() : undefined };
+                  calls.push(targetCall);
+                }
+
+                let newContent = m.content;
+                let updatedProgress = m.progressContent;
+
+                if (isGenerativeTool(targetCall) && !hasGenerativeToolPlaceholder(newContent, targetCall.id)) {
+                  const stashed = targetCall._stashedProgressChunk as string | undefined;
+                  if (stashed && updatedProgress) {
+                    if (updatedProgress === stashed) {
+                      updatedProgress = undefined;
+                    } else if (updatedProgress.endsWith(`\n\n${stashed}`)) {
+                      updatedProgress = updatedProgress.slice(0, -(`\n\n${stashed}`.length)) || undefined;
+                    }
+                    newContent = newContent ? `${stashed}\n\n${newContent}` : stashed;
+                    delete targetCall._stashedProgressChunk;
+                  }
+                  newContent = appendGenerativeToolPlaceholder(newContent, targetCall.id);
+                }
+
+                return { ...m, content: newContent, progressContent: updatedProgress, toolCalls: calls };
               }),
             onPlan: (entries) => cur.patchMessage(assistantId, { plan: entries }),
             onAvailableCommands: (cmds) => useStudioStore.getState().setAvailableCommands(cmds, sid),

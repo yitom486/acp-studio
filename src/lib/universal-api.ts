@@ -4,6 +4,10 @@
  * Every request goes through apiFetch (adds the gateway Bearer token).
  */
 import { apiFetch } from "@/lib/gateway-auth";
+import {
+  isGenerativeTool,
+  appendGenerativeToolPlaceholder,
+} from "@/components/assistant/toolkit";
 
 /** usage_update payload: used/size/cost 必有；缓存计数由 agent 透传、有则收。 */
 export interface UsageUpdate {
@@ -1256,6 +1260,9 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
       } else {
         m.toolCalls = [...(m.toolCalls || []), newTool];
       }
+      if (isGenerativeTool(existing || newTool)) {
+        m.content = appendGenerativeToolPlaceholder(m.content, newTool.id);
+      }
     } else if (kind === "tool_call_update") {
       for (const m of byId.values()) {
         const t = m.toolCalls?.find((x) => x.id === u.toolCallId);
@@ -1267,6 +1274,9 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
             status: mapToolStatus(u.status),
             ...pickToolExtras(u),
           });
+          if (isGenerativeTool(t)) {
+            m.content = appendGenerativeToolPlaceholder(m.content, t.id);
+          }
           break;
         }
       }

@@ -604,4 +604,109 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     root.unmount();
     el.remove();
   });
+
+  it("embeds generative diagrams and interactive cards inline within prose via placeholders and transitions from skeleton to rendered card", async () => {
+    useStudioStore.setState({
+      sessionId: "sess-inline-gen-1",
+      messages: [
+        {
+          id: "asst-inline-1",
+          role: "assistant",
+          content:
+            "第一段：首先我们来看缓存读写流程图：\n\n<!--acp-tool:tc-flow-->\n\n第二段：如图所示，接下来请在下方卡片确认缓存淘汰策略：\n\n<!--acp-tool:tc-decision-->\n\n第三段：确认后系统将自动应用配置。",
+          toolCalls: [
+            {
+              id: "tc-flow",
+              name: "render_editorial_diagram",
+              title: "render_editorial_diagram",
+              status: "running",
+            },
+            {
+              id: "tc-decision",
+              name: "show_interactive_card",
+              title: "show_interactive_card",
+              status: "completed",
+              rawInput: {
+                title: "缓存淘汰策略选型",
+                cardType: "decision",
+                data: {
+                  options: [
+                    { id: "lru", label: "Allkeys-LRU 淘汰策略", recommended: true },
+                    { id: "lfu", label: "Volatile-LFU 淘汰策略" },
+                  ],
+                },
+              },
+            },
+          ],
+          timestamp: "14:00",
+          isStreaming: true,
+        },
+      ],
+      isStreaming: true,
+    } as any);
+
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    await act(async () => {
+      root.render(
+        h(AcpAssistantProvider, { onSend: () => {}, onStop: () => {} } as any,
+          h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
+      );
+    });
+
+    // 1. 当 tc-flow 仍在后台生成时，第一段与第二段之间显示骨架屏占位
+    const pendingHtml = el.innerHTML;
+    expect(pendingHtml).not.toContain("<!--acp-tool:");
+    expect(pendingHtml).toContain("正在生成出版级矢量图表…");
+    expect(pendingHtml.indexOf("第一段：首先我们来看缓存读写流程图")).toBeLessThan(
+      pendingHtml.indexOf("正在生成出版级矢量图表…")
+    );
+    expect(pendingHtml.indexOf("正在生成出版级矢量图表…")).toBeLessThan(
+      pendingHtml.indexOf("第二段：如图所示，接下来请在下方卡片确认缓存淘汰策略")
+    );
+
+    // 2. 后台完成 tc-flow 渲染数据回填，骨架屏原位替换为流程图 SVG，且严格保持段落与卡片交错顺序
+    await act(async () => {
+      useStudioStore.getState().patchMessage("asst-inline-1", (m) => ({
+        ...m,
+        isStreaming: false,
+        toolCalls: m.toolCalls?.map((tc) =>
+          tc.id === "tc-flow"
+            ? {
+                ...tc,
+                status: "completed" as const,
+                rawInput: {
+                  title: "Redis 读写穿透链路",
+                  diagramType: "flowchart",
+                  data: {
+                    steps: [
+                      { id: "s1", label: "请求进入网关" },
+                      { id: "s2", label: "查询 Redis 缓存" },
+                    ],
+                  },
+                },
+              }
+            : tc
+        ),
+      }));
+    });
+
+    const settledHtml = el.innerHTML;
+    const idxP1 = settledHtml.indexOf("第一段：首先我们来看缓存读写流程图");
+    const idxDiagram = settledHtml.indexOf("Redis 读写穿透链路");
+    const idxP2 = settledHtml.indexOf("第二段：如图所示，接下来请在下方卡片确认缓存淘汰策略");
+    const idxCard = settledHtml.indexOf("缓存淘汰策略选型");
+    const idxP3 = settledHtml.indexOf("第三段：确认后系统将自动应用配置");
+
+    expect(idxP1).toBeGreaterThan(-1);
+    expect(idxDiagram).toBeGreaterThan(idxP1);
+    expect(idxP2).toBeGreaterThan(idxDiagram);
+    expect(idxCard).toBeGreaterThan(idxP2);
+    expect(idxP3).toBeGreaterThan(idxCard);
+
+    root.unmount();
+    el.remove();
+  });
 });
+

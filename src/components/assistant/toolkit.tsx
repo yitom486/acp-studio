@@ -638,3 +638,120 @@ export const AcpGenerativeToolCard: React.FC<{
   return null;
 };
 
+export interface InterleavedTextSegment {
+  type: "text";
+  text: string;
+}
+
+export interface InterleavedToolSegment {
+  type: "generative-tool";
+  toolCallId: string;
+  tool: any;
+}
+
+export type InterleavedContentSegment = InterleavedTextSegment | InterleavedToolSegment;
+
+const GENERATIVE_PLACEHOLDER_REGEX = /<!--acp-tool:([^>]+)-->|::acp-tool\[([^\]]+)\]::/g;
+
+export function makeGenerativeToolPlaceholder(toolCallId: string): string {
+  return `<!--acp-tool:${toolCallId}-->`;
+}
+
+export function hasGenerativeToolPlaceholder(text: string | undefined, toolCallId?: string): boolean {
+  if (!text) return false;
+  if (!toolCallId) {
+    return /<!--acp-tool:[^>]+-->|::acp-tool\[[^\]]+\]::/.test(text);
+  }
+  return text.includes(`<!--acp-tool:${toolCallId}-->`) || text.includes(`::acp-tool[${toolCallId}]::`);
+}
+
+export function appendGenerativeToolPlaceholder(text: string | undefined, toolCallId: string): string {
+  const base = text ?? "";
+  if (!toolCallId || hasGenerativeToolPlaceholder(base, toolCallId)) return base;
+  const marker = makeGenerativeToolPlaceholder(toolCallId);
+  if (!base.trim()) return `${marker}\n\n`;
+  const sep = base.endsWith("\n\n") ? "" : base.endsWith("\n") ? "\n" : "\n\n";
+  return `${base}${sep}${marker}\n\n`;
+}
+
+export function stripGenerativeToolPlaceholders(text: string | undefined): string {
+  if (!text) return "";
+  return text
+    .replace(/<!--acp-tool:[^>]+-->|::acp-tool\[[^\]]+\]::/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * 将正文（含内联 `<!--acp-tool:ID-->` 占位符）与生成式工具卡片按流式出现顺序拆分为交错序列。
+ * - 若正文内存在占位符，卡片精确挂载在对应段落之间；
+ * - 若存在未匹配占位符的生成式工具（例如历史持久化消息或直接构造的测试消息），自动保序挂载在开头，保证 100% 向后兼容。
+ */
+export function splitInterleavedGenerativeContent(
+  text: string | undefined,
+  generativeTools: any[] | undefined
+): InterleavedContentSegment[] {
+  const tools = Array.isArray(generativeTools) ? generativeTools.filter((tc) => isGenerativeTool(tc)) : [];
+  const rawText = text ?? "";
+
+  if (tools.length === 0) {
+    const cleaned = stripGenerativeToolPlaceholders(rawText);
+    return cleaned ? [{ type: "text", text: cleaned }] : [];
+  }
+
+  const toolByKey = new Map<string, any>();
+  for (const tc of tools) {
+    if (tc?.id) toolByKey.set(String(tc.id), tc);
+    const args = extractToolArgs(tc);
+    if (args?.id) toolByKey.set(String(args.id), tc);
+  }
+
+  const placedToolIds = new Set<string>();
+  const bodySegments: InterleavedContentSegment[] = [];
+  let lastIndex = 0;
+
+  GENERATIVE_PLACEHOLDER_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = GENERATIVE_PLACEHOLDER_REGEX.exec(rawText)) !== null) {
+    const before = rawText.slice(lastIndex, match.index).trim();
+    if (before) {
+      bodySegments.push({ type: "text", text: before });
+    }
+    const rawKey = (match[1] || match[2] || "").trim();
+    const matchedTool = toolByKey.get(rawKey);
+    if (matchedTool) {
+      const canonicalId = String(matchedTool.id || rawKey);
+      if (!placedToolIds.has(canonicalId)) {
+        placedToolIds.add(canonicalId);
+        bodySegments.push({
+          type: "generative-tool",
+          toolCallId: canonicalId,
+          tool: matchedTool,
+        });
+      }
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  const tail = rawText.slice(lastIndex).trim();
+  if (tail) {
+    bodySegments.push({ type: "text", text: tail });
+  }
+
+  const unplacedSegments: InterleavedToolSegment[] = [];
+  for (const tc of tools) {
+    const canonicalId = String(tc?.id || "");
+    if (!placedToolIds.has(canonicalId)) {
+      placedToolIds.add(canonicalId);
+      unplacedSegments.push({
+        type: "generative-tool",
+        toolCallId: canonicalId,
+        tool: tc,
+      });
+    }
+  }
+
+  return [...unplacedSegments, ...bodySegments];
+}
+
+

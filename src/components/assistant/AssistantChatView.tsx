@@ -53,7 +53,7 @@ import {
   isGenerativeTool,
   AcpGenerativeToolCard,
   studioGenerativeUIComponents,
-  studioToolRenderers,
+  stripGenerativeToolPlaceholders,
   type GenerativeCardAction,
 } from "@/components/assistant/toolkit";
 import {
@@ -852,6 +852,35 @@ const AssistantWelcome: React.FC<{
   </div>
 );
 
+const GenerativeActionContext = React.createContext<
+  ((action: GenerativeCardAction) => void | Promise<void>) | undefined
+>(undefined);
+
+const AssistantInlineToolPart: React.FC<{ toolCallId: string }> = ({ toolCallId }) => {
+  const messageId = useAuiState((s) => s.message.id);
+  const tc = useStudioStore((s) =>
+    s.messages.find((m) => m.id === messageId)?.toolCalls?.find((t) => t.id === toolCallId)
+  );
+  const onGenerativeAction = React.useContext(GenerativeActionContext);
+  if (!tc || !isGenerativeTool(tc)) return null;
+  return (
+    <AcpGenerativeToolCard
+      tool={tc}
+      onAction={
+        onGenerativeAction
+          ? async (act) => {
+              await onGenerativeAction({
+                ...act,
+                messageId,
+                toolCallId: tc.id,
+              });
+            }
+          : undefined
+      }
+    />
+  );
+};
+
 const USER_MESSAGE_PARTS = {
   Text: AcpMarkdownText,
   Image: AcpImagePart,
@@ -862,15 +891,14 @@ const ASSISTANT_MESSAGE_PARTS = {
   Reasoning: () => null,
   Image: AcpImagePart,
   tools: {
-    by_name: studioToolRenderers,
-    Fallback: () => null,
+    Override: AssistantInlineToolPart as any,
   },
   GenerativeUI: {
     components: studioGenerativeUIComponents,
   },
 };
 
-/** 独立 Memoized 正文容器：隔绝思维链/工具组频繁重排与时间戳跳秒，保护已渲染正文稳定性 */
+/** 独立 Memoized 正文容器：隔绝思维链/工具组频繁重排与时间戳跳秒，支持正文与生成式交互卡片按占位符交错混排 */
 const AssistantMessageBody: React.FC = React.memo(() => (
   <div className="space-y-2">
     <MessagePrimitive.Parts components={ASSISTANT_MESSAGE_PARTS} />
@@ -1031,12 +1059,7 @@ const AssistantMessageView: React.FC<{
     return out;
   }, [acp?.toolCalls]);
 
-  // 提取属于 Generative UI 的富组件工具（卡片、矢量图表、沙箱、表单）
-  const generativeTools = React.useMemo(() => {
-    return (acp?.toolCalls || []).filter((tc) => isGenerativeTool(tc));
-  }, [acp?.toolCalls]);
-
-  // 常规工具（命令执行、文件编辑等）保持在折叠区
+  // 常规工具（命令执行、文件编辑等）保持在折叠区；生成式 UI 工具内嵌于正文流渲染
   const regularTools = React.useMemo(() => {
     return (acp?.toolCalls || []).filter((tc) => !isGenerativeTool(tc));
   }, [acp?.toolCalls]);
@@ -1222,29 +1245,9 @@ const AssistantMessageView: React.FC<{
               onOpenChangesModal={() => setTurnChangesOpen(true)}
             />
           )}
-          {/* 生成式富交互卡片 / 出版级矢量图表：优先直接高亮渲染 */}
-          {generativeTools.length > 0 && (
-            <div className="my-2.5 space-y-3">
-              {generativeTools.map((tc) => (
-                <AcpGenerativeToolCard
-                  key={tc.id}
-                  tool={tc}
-                  onAction={
-                    onGenerativeAction
-                      ? async (act) => {
-                          await onGenerativeAction({
-                            ...act,
-                            messageId,
-                            toolCallId: tc.id,
-                          });
-                        }
-                      : undefined
-                  }
-                />
-              ))}
-            </div>
-          )}
-          <AssistantMessageBody />
+          <GenerativeActionContext.Provider value={onGenerativeAction}>
+            <AssistantMessageBody />
+          </GenerativeActionContext.Provider>
           {citations.length > 0 && <Citations citations={citations} idPrefix={`msg-${messageId}`} />}
           {acp?.content && /Reasoning Cache Expired|referenced reasoning item .* expired/i.test(acp.content) && (
             <div className="mt-2.5 p-3 rounded-lg border border-warning/40 bg-warning/10 flex items-center justify-between gap-3 text-xs">
@@ -1289,7 +1292,7 @@ const AssistantMessageView: React.FC<{
               <MagneticButton
                 strength={0.2}
                 onClick={() => {
-                  const toCopy = conclusion || acp?.content || "";
+                  const toCopy = stripGenerativeToolPlaceholders(conclusion || acp?.content || "");
                   if (toCopy) {
                     navigator.clipboard.writeText(toCopy).catch(() => {});
                   }

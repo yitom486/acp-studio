@@ -205,7 +205,8 @@ export function partitionTurnContent(
     if (match && match.index > 15) {
       const progressPart = trimmedContent.slice(0, match.index).trim();
       const conclusionPart = trimmedContent.slice(match.index).trim();
-      if (progressPart && conclusionPart) {
+      const hasInlinePlaceholder = /<!--acp-tool:[^>]+-->|::acp-tool\[[^\]]+\]::/.test(progressPart);
+      if (progressPart && conclusionPart && !hasInlinePlaceholder) {
         return {
           progress: progressPart,
           conclusion: conclusionPart,

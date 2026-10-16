@@ -2,6 +2,49 @@ import type { ThreadMessageLike } from "@assistant-ui/react";
 import type { Message } from "@/lib/message-types";
 import type { PendingPermission } from "@/lib/universal-api";
 import { partitionTurnContent } from "@/lib/threads";
+import {
+  isGenerativeTool,
+  splitInterleavedGenerativeContent,
+} from "@/components/assistant/toolkit";
+
+function toToolCallPart(tc: NonNullable<Message["toolCalls"]>[number]) {
+  const rawName = tc.name || tc.title || "tool";
+  const cleanName = rawName.replace(/^studio[-_]ui[:_./]/i, "");
+  const toolName = cleanName || rawName;
+  let args: Record<string, any> = {};
+  if (tc.rawInput && typeof tc.rawInput === "object") {
+    args = tc.rawInput as Record<string, any>;
+  } else if (typeof tc.rawInput === "string") {
+    try {
+      const parsed = JSON.parse(tc.rawInput);
+      if (parsed && typeof parsed === "object") args = parsed;
+      else args = { rawText: tc.rawInput };
+    } catch {
+      args = { rawText: tc.rawInput };
+    }
+  } else {
+    args = { kind: tc.kind ?? "", status: tc.status };
+  }
+  const argsText =
+    typeof tc.rawInput === "string"
+      ? tc.rawInput
+      : tc.rawInput
+        ? JSON.stringify(tc.rawInput)
+        : tc.kind
+          ? `[${tc.kind}] ${tc.title}`
+          : tc.title;
+
+  return {
+    type: "tool-call" as const,
+    toolCallId: tc.id,
+    toolName,
+    args,
+    argsText,
+    result: tc.rawOutput !== undefined ? tc.rawOutput : tc.status,
+    isError: tc.status === "failed" || tc.status === "cancelled",
+    ...(tc.startedAt ? { timing: { startedAt: tc.startedAt, ...(tc.completedAt ? { completedAt: tc.completedAt } : {}) } } : {}),
+  };
+}
 
 /**
  * ACP Message -> assistant-ui ThreadMessageLike.
@@ -9,8 +52,8 @@ import { partitionTurnContent } from "@/lib/threads";
  * Mapping preserves all ACP-specific state so the custom Thread UI can
  * render it without loss:
  * - thought      -> reasoning part
- * - toolCalls[]  -> tool-call parts (toolName=title, args carries kind/status)
- * - content      -> text part
+ * - toolCalls[]  -> regular tool-call parts first, generative tool-call parts interleaved with text via placeholders
+ * - content      -> text part(s)
  * - plan/usage/model/mode/timestamp/isStreaming -> metadata.custom
  */
 export interface AcpCustomMetadata {
@@ -82,52 +125,34 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
     });
   }
 
-  for (const tc of msg.toolCalls || []) {
-    const rawName = tc.name || tc.title || "tool";
-    const cleanName = rawName.replace(/^studio[-_]ui[:_./]/i, "");
-    const toolName = cleanName || rawName;
-    let args: Record<string, any> = {};
-    if (tc.rawInput && typeof tc.rawInput === "object") {
-      args = tc.rawInput as Record<string, any>;
-    } else if (typeof tc.rawInput === "string") {
-      try {
-        const parsed = JSON.parse(tc.rawInput);
-        if (parsed && typeof parsed === "object") args = parsed;
-        else args = { rawText: tc.rawInput };
-      } catch {
-        args = { rawText: tc.rawInput };
-      }
-    } else {
-      args = { kind: tc.kind ?? "", status: tc.status };
-    }
-    const argsText =
-      typeof tc.rawInput === "string"
-        ? tc.rawInput
-        : tc.rawInput
-          ? JSON.stringify(tc.rawInput)
-          : tc.kind
-            ? `[${tc.kind}] ${tc.title}`
-            : tc.title;
+  const allTools = msg.toolCalls || [];
+  const regularTools = allTools.filter((tc) => !isGenerativeTool(tc));
+  const generativeTools = allTools.filter((tc) => isGenerativeTool(tc));
 
-    content.push({
-      type: "tool-call",
-      toolCallId: tc.id,
-      toolName,
-      args,
-      argsText,
-      result: tc.rawOutput !== undefined ? tc.rawOutput : tc.status,
-      isError: tc.status === "failed" || tc.status === "cancelled",
-      ...(tc.startedAt ? { timing: { startedAt: tc.startedAt, ...(tc.completedAt ? { completedAt: tc.completedAt } : {}) } } : {}),
-    });
+  for (const tc of regularTools) {
+    content.push(toToolCallPart(tc));
   }
 
-  // Always keep a text part so streaming / empty states render (conclusions directly surfaced at bottom).
+  // Interleave text segments and generative UI tool calls at their inline placeholder positions.
   const { conclusion } = partitionTurnContent(
     msg.content,
     (msg as any).progressContent,
-    Boolean(msg.toolCalls && msg.toolCalls.length > 0)
+    allTools.length > 0
   );
-  content.push({ type: "text", text: conclusion || msg.content || "" });
+  const rawBodyText = conclusion || msg.content || "";
+  const segments = splitInterleavedGenerativeContent(rawBodyText, generativeTools);
+  let hasTextPart = false;
+  for (const seg of segments) {
+    if (seg.type === "text") {
+      hasTextPart = true;
+      content.push({ type: "text", text: seg.text });
+    } else {
+      content.push(toToolCallPart(seg.tool));
+    }
+  }
+  if (!hasTextPart) {
+    content.push({ type: "text", text: "" });
+  }
 
   // Agent-sent images (after text; order within a turn is text-then-images).
   for (const img of msg.images || []) {
