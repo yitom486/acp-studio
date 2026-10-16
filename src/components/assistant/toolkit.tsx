@@ -6,7 +6,8 @@ import {
   PromptFormCard,
 } from "./GenerativeCards";
 import { ReactArtifactCard } from "./ReactArtifactCard";
-import { Sparkles } from "lucide-react";
+import { Loader } from "@/components/motion/Loader";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   EditorialDiagramCard,
   DiagramType,
@@ -420,21 +421,41 @@ export function parseToolArgs(rawInput: unknown): Record<string, any> {
   return extractToolArgs({ rawInput });
 }
 
-const GenerativeSkeleton: React.FC<{ title: string; hint: string }> = ({ title, hint }) => {
+const GenerativeSkeleton: React.FC<{
+  title: string;
+  hint: string;
+  kind?: "diagram" | "card" | "form" | "sandbox";
+}> = ({ title, hint, kind = "card" }) => {
   return (
-    <div className="my-3 rounded-xl border border-line bg-surface/75 p-4 animate-pulse select-none">
-      <div className="flex items-center gap-2 text-xs font-medium text-ink">
-        <Sparkles className="w-3.5 h-3.5 text-accent animate-spin" />
+    <div
+      data-testid="generative-inline-placeholder"
+      data-placeholder-kind={kind}
+      className="my-3 rounded-xl border border-line bg-surface/80 p-4 select-none shadow-xs"
+    >
+      <div className="flex items-center gap-2.5 text-xs font-medium text-ink">
+        <Loader variant="ascii-braille" size={14} className="text-primary font-bold shrink-0" />
         <span className="font-semibold">{title}</span>
         <span className="text-[11px] text-ink-3">({hint})</span>
       </div>
-      <div className="mt-3 space-y-2">
-        <div className="h-3 w-3/4 rounded bg-muted/40" />
-        <div className="h-20 w-full rounded bg-muted/20" />
-      </div>
+      {kind === "diagram" ? (
+        <div className="mt-3.5 flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/50 p-3">
+          <Skeleton className="h-10 w-1/4 rounded-md" />
+          <div className="h-px flex-1 bg-border/80" />
+          <Skeleton className="h-10 w-1/4 rounded-md" />
+          <div className="h-px flex-1 bg-border/80" />
+          <Skeleton className="h-10 w-1/4 rounded-md" />
+        </div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          <Skeleton className="h-3.5 w-2/3 rounded" />
+          <Skeleton className="h-9 w-full rounded-lg" />
+          <Skeleton className="h-9 w-full rounded-lg" />
+        </div>
+      )}
     </div>
   );
 };
+
 
 function hasDiagramContent(type: DiagramType, data: Record<string, any>): boolean {
   const keys = {
@@ -568,7 +589,7 @@ export const AcpGenerativeToolCard: React.FC<{
         : args;
 
     if (!hasDiagramContent(diagramType, data) && isPending) {
-      return <GenerativeSkeleton title="架构时序图表" hint="正在生成出版级矢量图表…" />;
+      return <GenerativeSkeleton title="架构时序图表" hint="正在生成出版级矢量图表…" kind="diagram" />;
     }
     if (!hasDiagramContent(diagramType, data)) {
       return <div role="status" className="my-3 rounded-lg border border-line p-4 text-sm text-ink-3">图表数据缺失或格式不受支持，无法绘制。请检查工具参数与返回结果后重试。</div>;
@@ -590,7 +611,7 @@ export const AcpGenerativeToolCard: React.FC<{
 
   if (normName === "render_react_sandbox") {
     if (!args.code) {
-      if (isPending) return <GenerativeSkeleton title={args.title || "动态组件原型"} hint="正在加载沙箱组件…" />;
+      if (isPending) return <GenerativeSkeleton title={args.title || "动态组件原型"} hint="正在加载沙箱组件…" kind="sandbox" />;
       return null;
     }
     return (
@@ -612,7 +633,7 @@ export const AcpGenerativeToolCard: React.FC<{
         ? args.data.fields
         : [];
     if (fields.length === 0 && isPending) {
-      return <GenerativeSkeleton title={args.title || "配置填报"} hint="正在准备人机表单…" />;
+      return <GenerativeSkeleton title={args.title || "配置填报"} hint="正在准备人机表单…" kind="form" />;
     }
     return (
       <div className="my-2.5">

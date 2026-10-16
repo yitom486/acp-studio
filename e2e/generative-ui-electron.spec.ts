@@ -366,4 +366,66 @@ test.describe("Real Electron App - Generative UI Closed-Loop E2E", () => {
     const agentReply = page.getByText("真实 MCP render_editorial_diagram 已返回。");
     await expect(agentReply).toBeVisible({ timeout: 20000 });
   });
+
+  test("Flow 9: Interleaved prose + inline placeholder skeleton -> replaces in-place with Flowchart SVG & Interactive DecisionCard -> preserves DOM order & interactive callback", async () => {
+    const { page } = launched!;
+
+    await page.waitForLoadState("domcontentloaded");
+    const composerInput = page.locator("textarea").first();
+    await expect(composerInput).toBeVisible({ timeout: 15000 });
+
+    await composerInput.click();
+    await composerInput.fill("请用图文混排的方式展示订单状态流转与架构选型");
+    await composerInput.press("Enter");
+
+    // 1. Verify Paragraph 1 and the intermediate inline placeholder skeleton appear during streaming
+    const p1 = page.getByText("第一部分：首先为您展示订单履约的核心状态流转图：");
+    await expect(p1).toBeVisible({ timeout: 15000 });
+
+    const placeholder = page
+      .locator('[data-testid="generative-inline-placeholder"][data-placeholder-kind="diagram"]')
+      .filter({ hasText: "正在生成出版级矢量图表…" });
+    await expect(placeholder).toBeVisible({ timeout: 10000 });
+
+    // 2. Wait for backend MCP completion -> placeholder transitions in-place to real Flowchart & DecisionCard
+    const diagramTitle = page.getByText("订单履约业务状态流转图", { exact: true });
+    await expect(diagramTitle).toBeVisible({ timeout: 20000 });
+    await expect(placeholder).toHaveCount(0);
+
+    const p2 = page.getByText("第二部分：结合上述状态流转，请在下方交互卡片中确认高可用架构方案：");
+    const cardTitle = page.getByRole("heading", { name: "高可用服务架构选型", exact: true });
+    const p3 = page.getByText("第三部分：点击上方卡片中的方案即可直接回传您的架构决策。");
+
+    await expect(p2).toBeVisible({ timeout: 20000 });
+    await expect(cardTitle).toBeVisible({ timeout: 20000 });
+    await expect(p3).toBeVisible({ timeout: 20000 });
+
+    // 3. Verify strict vertical DOM interleaving order inside the prose:
+    //    Paragraph 1 -> Flowchart Diagram -> Paragraph 2 -> Interactive DecisionCard -> Paragraph 3
+    const p1Box = await p1.boundingBox();
+    const diagramBox = await diagramTitle.boundingBox();
+    const p2Box = await p2.boundingBox();
+    const cardBox = await cardTitle.boundingBox();
+    const p3Box = await p3.boundingBox();
+
+    expect(p1Box).not.toBeNull();
+    expect(diagramBox).not.toBeNull();
+    expect(p2Box).not.toBeNull();
+    expect(cardBox).not.toBeNull();
+    expect(p3Box).not.toBeNull();
+
+    expect(p1Box!.y).toBeLessThan(diagramBox!.y);
+    expect(diagramBox!.y).toBeLessThan(p2Box!.y);
+    expect(p2Box!.y).toBeLessThan(cardBox!.y);
+    expect(cardBox!.y).toBeLessThan(p3Box!.y);
+
+    // 4. Verify interactive callback still works when DecisionCard is mounted inline inside prose
+    const optionBtn = page.getByText("事件驱动微服务 (Kafka + Go)");
+    await expect(optionBtn).toBeVisible();
+    await optionBtn.click();
+
+    const followUpAck = page.getByText("【ACP 会话继续执行】已确认收到您选定的方案！");
+    await expect(followUpAck).toBeVisible({ timeout: 20000 });
+  });
 });
+

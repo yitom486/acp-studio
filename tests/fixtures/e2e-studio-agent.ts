@@ -57,7 +57,10 @@ const app = acp.agent({ name: "e2e-agent", version: "1.0.0" })
     const { sessionId, prompt } = ctx.params;
     const state = sessions.get(sessionId);
     if (!state) throw new Error("Unknown session");
-    const fullText = prompt.map((block: any) => block.text || "").join(" ");
+    const fullText = prompt
+      .map((block: any) => String(block.text || ""))
+      .filter((t: string) => !t.trimStart().startsWith("<acp-compat-context"))
+      .join(" ");
     // Submit markers precede broad keywords so follow-ups do not regenerate cards.
     if (fullText.includes("[方案决策:")) {
       if (state.presented !== "decision") throw new Error("Decision submitted to the wrong session");
@@ -67,6 +70,86 @@ const app = acp.agent({ name: "e2e-agent", version: "1.0.0" })
     if (fullText.includes("[表单提交:")) {
       if (state.presented !== "form") throw new Error("Form submitted to the wrong session");
       await text(ctx, sessionId, `【ACP 会话继续执行】部署参数已提交验证，正在初始化集群副本！ session=${sessionId}\n${fullText.slice(fullText.indexOf("\n") + 1)}`);
+      return { stopReason: "end_turn" };
+    }
+
+    if (fullText.includes("图文混排") || fullText.includes("混排")) {
+      state.presented = "decision";
+      await text(ctx, sessionId, "第一部分：首先为您展示订单履约的核心状态流转图：\n\n");
+
+      const flowToolId = `e2e-${sessionId}-inline-flow`;
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: flowToolId,
+          name: "render_editorial_diagram",
+          title: "render_editorial_diagram",
+          status: "running",
+        },
+      });
+
+      // Pause briefly so E2E can assert the intermediate inline placeholder skeleton inside the prose
+      await new Promise((r) => setTimeout(r, 1500));
+
+      const flowOutput = await callStudio(sessionId, "render_editorial_diagram", {
+        title: "订单履约业务状态流转图",
+        diagramType: "flowchart",
+        description: "订单创建至配送完成的业务状态机",
+        theme: "system",
+        accent: "emerald",
+        data: {
+          steps: [
+            { id: "created", label: "订单已创建", description: "待买家支付", status: "已完成" },
+            { id: "paid", label: "在线支付成功", description: "资金渠道对账中", status: "进行中", isCurrent: true },
+            { id: "stock", label: "仓储打包出库", description: "WMS 自动化分拣", status: "等待" },
+          ],
+          connections: [
+            { from: "created", to: "paid" },
+            { from: "paid", to: "stock" },
+          ],
+        },
+      });
+
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: flowToolId,
+          name: "render_editorial_diagram",
+          title: "render_editorial_diagram",
+          status: "completed",
+          rawOutput: flowOutput,
+        },
+      });
+
+      await text(ctx, sessionId, "\n\n第二部分：结合上述状态流转，请在下方交互卡片中确认高可用架构方案：\n\n");
+
+      const decisionToolId = `e2e-${sessionId}-inline-decision`;
+      const decisionOutput = await callStudio(sessionId, "show_interactive_card", {
+        title: "高可用服务架构选型",
+        cardType: "decision",
+        data: {
+          options: [
+            { id: "opt-event-driven", label: "事件驱动微服务 (Kafka + Go)", recommended: true },
+            { id: "opt-monolith", label: "经典单体架构 (Postgres + Node)" },
+          ],
+        },
+      });
+
+      await ctx.client.notify(acp.methods.client.session.update, {
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: decisionToolId,
+          name: "show_interactive_card",
+          title: "show_interactive_card",
+          status: "completed",
+          rawOutput: decisionOutput,
+        },
+      });
+
+      await text(ctx, sessionId, "\n\n第三部分：点击上方卡片中的方案即可直接回传您的架构决策。");
       return { stopReason: "end_turn" };
     }
 
