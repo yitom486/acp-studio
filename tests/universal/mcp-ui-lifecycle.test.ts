@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import http from "node:http";
 import { startMcpUiServer, stopMcpUiServer, getMcpUiServerInfo } from "../../server/universal/mcp-ui-server";
 
-const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
+const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Connection: "close" };
 const version = "2025-03-26";
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -135,6 +135,7 @@ describe("Studio MCP connection lifecycle", () => {
     const first = await startMcpUiServer(0);
     await initialize(first.url, "before-shutdown");
     await stopMcpUiServer();
+    await delay(50);
     const restarted = await startMcpUiServer(first.port);
     expect(restarted.port).toBe(first.port);
     expect(await count(restarted.url)).toBe(0);
