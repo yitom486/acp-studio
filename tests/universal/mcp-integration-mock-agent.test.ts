@@ -62,10 +62,8 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
     const customMcp = inspected.mcpServers.find((s: any) => s.name === "custom-user-mcp");
     expect(customMcp).toBeDefined();
 
-    // Assert that studio skills directory was auto-injected into additionalDirectories!
-    expect(inspected.additionalDirectories.length).toBeGreaterThan(0);
-    const hasSkillsDir = inspected.additionalDirectories.some((d: string) => d.toLowerCase().includes("skills"));
-    expect(hasSkillsDir).toBe(true);
+    // Application configuration must not be added to writable workspace roots.
+    expect(inspected.additionalDirectories).toEqual([]);
   });
 
   it("simulates mock LLM output stream delivering full set of Generative UI tool calls", async () => {
@@ -186,7 +184,7 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
     expect(data1.promptBlocks[0].text).not.toContain("【客户端交互能力与体验建议");
   });
 
-  it("verifies agent end-to-end skill discovery via both MCP tools and ACP additionalDirectories", async () => {
+  it("discovers application skills through MCP without granting write access to configuration", async () => {
     const sessionRes: any = await conn.newSession({ cwd: process.cwd() });
     const sid = sessionRes.sessionId;
 
@@ -203,11 +201,8 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
     expect(chunk).toBeDefined();
     const data = JSON.parse(chunk.content.text);
 
-    // 1. Filesystem discovery via additionalDirectories
-    expect(data.fsDiscovery.skillsDir).not.toBeNull();
-    expect(data.fsDiscovery.diagramSkillFound).toBe(true);
-    expect(data.fsDiscovery.generativeUiSkillFound).toBe(true);
-    expect(data.fsDiscovery.diagramSkillText).toContain("Editorial Diagram Design");
+    // Unverified runtimes use the read-only MCP entry, not a writable config root.
+    expect(data.fsDiscovery.skillsDir).toBeNull();
 
     // 2. MCP protocol discovery via injected studio-ui server
     expect(data.mcpDiscovery.status).toBe("ok");
@@ -305,9 +300,7 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
     expect(resumeData.mcpServers.some((s: any) => s.name === "caller-mcp")).toBe(true);
 
     // Assert skillsDir was auto-injected in additionalDirectories on resume!
-    expect(resumeData.additionalDirectories.length).toBeGreaterThan(0);
-    const hasSkillsDir = resumeData.additionalDirectories.some((d: string) => d.toLowerCase().includes("skills"));
-    expect(hasSkillsDir).toBe(true);
+    expect(resumeData.additionalDirectories).toEqual([]);
 
     // 2. Test loadSession
     const { result: loadRes } = await conn.loadSession({
@@ -331,7 +324,7 @@ describe("MCP Integration Pipeline - Mock LLM Agent Tool Calls & Auto-Injection"
     const loadStudioMcp = loadData.mcpServers.find((s: any) => s.name === "studio-ui");
     expect(loadStudioMcp).toBeDefined();
     expect(loadStudioMcp.type).toBe("http");
-    expect(loadData.additionalDirectories.some((d: string) => d.toLowerCase().includes("skills"))).toBe(true);
+    expect(loadData.additionalDirectories).toEqual([]);
 
     await conn.closeSession({ sessionId: "test-resumed-session-1" });
     await conn.closeSession({ sessionId: "test-loaded-session-2" });

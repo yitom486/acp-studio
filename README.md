@@ -206,6 +206,27 @@ acp-studio/
 - [ ] 多个会话并行运行
 - [ ] 跨会话的用量与费用统计
 
+## 应用配置目录、长期指令与 Skills
+
+通过 Studio 启动的 agent 默认读取应用自有的 `~/.acp-client/`。可用绝对路径环境变量 `ACP_STUDIO_RESOURCES_DIR` 指向另一套配置；此入口不修改 agent 的全局配置、认证 HOME 或项目工作目录。
+
+```text
+~/.acp-client/
+  AGENTS.md                 通用长期规则；首次生成后保留你的编辑
+  SYSTEM.md                 附加指令，与 AGENTS.md 合并交付
+  skills/<name>/SKILL.md     技能，可通过 studio-ui 按需读取
+  mcp.json                  应用级 MCP 描述符：{"mcpServers":[]}
+  sessions/studio-*/        每个连接独占的生成快照，正常断开后清理
+```
+
+`SYSTEM.md` 是应用约定的文件名，不代表所有 CLI 都有通用的 system-prompt 参数，也不会替换供应商内置提示词。Studio 复用 `@yitom/acp-client` 的运行时适配器：已验证的桥优先走原生配置入口；未知版本保留明确标记的首轮用户上下文兼容模式。agy 0.1.24 bridge 通过 `_meta.appResources.directory` 生成会话私有附加目录，确认后不再将规则粘贴到用户消息。agent 的上下文压缩、管理员策略及模型遵从仍由运行时控制，不能承诺永不遗忘。
+
+修改规则后重新连接 agent，使新连接生成新快照；恢复、加载和派生会话同样传递当前连接的资源绑定。技能工具读取源目录中的文档，原生技能使用连接快照。默认内置技能只补充缺失文件，不覆盖已有正文。技能目录与文件不接受符号链接，只复制 Markdown 文档，不复制凭据或可执行脚本。独立连接互不删除对方的快照；强制结束应用可能留下快照目录。
+
+`mcp.json` 使用 ACP 描述符数组，例如 HTTP 服务 `{ "type":"http", "name":"my-tool", "url":"http://127.0.0.1:12345/mcp", "headers":[] }`，stdio 服务 `{ "name":"my-tool", "command":"node", "args":["/absolute/server.cjs"], "env":[] }`。调用方同名配置优先；Studio 自带的 MCP 地址仍按实际监听端口注入，不固化到磁盘。agy 全局 MCP 注册模式会被拒绝。应用配置目录不会加入项目可写根。
+
+连接状态的 `resources` 字段提供源目录、快照目录、配置摘要、桥版本、技能目录和各会话的交付方式。它反映配置交付事实；实际模型读取需另行验证。新增测试覆盖源文件保留、快照隔离、版本门、兼容引导、局部 MCP 与清理；本机真实 agy 已用仅存在于规则/技能文档中的随机标记验证读取。
+
 ## 参与贡献
 
 真实 Electron 端到端测试：运行 `bun run test:e2e`。测试会先完成前端类型检查、构建与 Electron 主进程构建，再启动独立应用实例；需要本机已安装 Bun 和项目依赖。

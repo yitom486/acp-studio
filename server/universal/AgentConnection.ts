@@ -24,7 +24,7 @@ import { InteractionManager } from "./interaction";
 import { FsGuard } from "./fs-guard";
 import { probeLiveAgyQuota } from "./runtimes/agy-quota";
 import { getMcpUiServerInfo } from "./mcp-ui-server";
-import { getStudioSkillsDir } from "./studio-skills";
+import { StudioAgentResources } from "./studio-agent-resources";
 
 // Re-export platform helpers for external consumers & test compatibility
 export {
@@ -48,7 +48,7 @@ export const CLIENT_GENERATIVE_UI_HINT = [
   "- 出版级矢量图表（render_editorial_diagram）：当呈现系统架构分层拓扑、服务调用时序、流程业务状态机、技术选型四象限决策矩阵或项目演进里程碑时，鼓励优先调用生成出版级矢量图表，代替原始简陋的 Mermaid 文本；",
   "- 结构化富交互卡片（show_interactive_card）：当向用户提供方案对比决策(decision)、任务排查或门禁清单(checklist)、核心性能与指标看板(metrics)时，鼓励直接渲染富交互卡片；",
   "- 人机协同交互表单（prompt_form）与动态组件沙箱原型（render_react_sandbox）；",
-  "- 专业技能按需调取（get_studio_skill / list_studio_skills）：如需查阅出版级图表 5 大原型的详细 JSON Schema 或交互卡片规范，可随时按需调取技能文档（零多余 Token 消耗）。",
+  "- 专业技能按需调取：查图表规范调用 get_studio_skill({name:\"diagram-design\"})，查交互卡片规范传 name:\"generative-ui\"；name 必填，不确定时先调用 list_studio_skills 获取标识。",
   "（注：以上工具均为可选的体验增强手段，请在符合对话场景时自然适度地运用。）",
 ].join("\n");
 
@@ -61,6 +61,7 @@ export const CLIENT_GENERATIVE_UI_HINT = [
 export class UniversalAgentConnection {
   readonly profile: AgentProfile;
   private proc: ChildProcess | null = null;
+  private stoppingProc: ChildProcess | null = null;
   private conn: acp.ClientConnection | null = null;
   private initResult: acp.InitializeResponse | null = null;
   private startedAt: string | null = null;
@@ -85,6 +86,7 @@ export class UniversalAgentConnection {
   private sessionTurnCounts = new Map<string, number>();
   private quotaCache = new QuotaCache();
   private lastQuota: AcpAgentQuota | null = null;
+  private resources = new StudioAgentResources(CLIENT_GENERATIVE_UI_HINT);
 
   constructor(profile: AgentProfile) {
     this.profile = profile;
@@ -157,6 +159,7 @@ export class UniversalAgentConnection {
       authStatus: (init?._meta as Record<string, unknown> | undefined)?.authStatus ?? capsMeta?.authStatus ?? null,
       meta: init?._meta ?? null,
       quota: this.lastQuota,
+      resources: this.resources.report(),
       lastError: this.lastError,
       startedAt: this.startedAt,
     };
@@ -252,6 +255,9 @@ export class UniversalAgentConnection {
       try {
         await this.spawn();
         return this.initResult;
+      } catch (err) {
+        await this.disconnect();
+        throw err;
       } finally {
         this.connectInFlight = null;
       }
@@ -261,7 +267,7 @@ export class UniversalAgentConnection {
   }
 
   private async spawn(): Promise<void> {
-    await this.disconnect().catch(() => undefined);
+    await this.disconnect();
     this.lastError = null;
     this.stderrTail = [];
 
@@ -278,6 +284,7 @@ export class UniversalAgentConnection {
       const hint = this.profile.installHint ? ` ${this.profile.installHint}` : "";
       throw new Error(`命令 '${this.profile.command}' 不在 PATH 中。${hint}`.trim());
     }
+    Object.assign(env, await this.resources.prepare(this.profile.id, cwd, resolved, env));
     console.log(`[UniversalACP:${this.profile.id}] spawn: ${this.profile.command} ${(this.profile.args || []).join(" ")}`);
 
     const proc = spawnCrossPlatform(this.profile.command, this.profile.args || [], {
@@ -406,6 +413,7 @@ export class UniversalAgentConnection {
         clientInfo: { name: "acp-studio-universal", title: "ACP Studio Universal", version: "1.0.0" },
       } as unknown as never);
       this.initResult = res as unknown as acp.InitializeResponse;
+      this.resources.handshake(this.initResult.agentInfo?.version || "");
       console.log(
         `[UniversalACP:${this.profile.id}] initialize ok protocol=${(this.initResult as unknown as { protocolVersion?: number }).protocolVersion}`
       );
@@ -451,19 +459,27 @@ export class UniversalAgentConnection {
   }
 
   async disconnect(): Promise<void> {
-    const proc = this.proc;
+    const proc = this.proc || this.stoppingProc;
+    this.stoppingProc = proc;
     this.proc = null;
     this.conn = null;
     this.initResult = null;
     this.startedAt = null;
     this.terminals.releaseAll();
-    if (proc && proc.exitCode === null && !proc.killed) {
-      try {
-        proc.kill();
-      } catch {
-        // ignore
-      }
+    if (proc?.pid && proc.exitCode === null && proc.signalCode === null) {
+      await new Promise<void>(resolve => {
+        const timer = setTimeout(() => { proc.removeListener("close", done); resolve(); }, 2000);
+        const done = () => { clearTimeout(timer); resolve(); };
+        proc.once("close", done);
+        try { proc.kill(); } catch { clearTimeout(timer); proc.removeListener("close", done); resolve(); }
+      });
     }
+    // Never remove a resource snapshot that a live bridge may still be reading.
+    if (!proc?.pid || proc.exitCode !== null || proc.signalCode !== null) {
+      await this.resources.dispose();
+      this.stoppingProc = null;
+    }
+    else throw new Error("Agent process did not exit; application resource snapshot retained for cleanup");
   }
 
   private ensureConn(): acp.ClientConnection {
@@ -484,7 +500,7 @@ export class UniversalAgentConnection {
   }
 
   /**
-   * Enrich session payload with Studio UI MCP server and studio skills directory.
+   * Enrich sessions with local MCP descriptors and the SDK's version-gated resource binding.
    * Applied symmetrically to session/new, session/resume, session/load, session/fork.
    */
   private enrichSessionPayload<T extends { cwd?: unknown; mcpServers?: unknown; additionalDirectories?: unknown }>(args: T): {
@@ -492,17 +508,17 @@ export class UniversalAgentConnection {
     mcpServers: unknown[];
     additionalDirectories: string[];
     roots: string[];
+    resourceMeta?: Record<string, unknown>;
   } {
     const cwd = typeof args.cwd === "string" && args.cwd ? args.cwd : (this.profile.defaultCwd || process.cwd());
     const additionalDirectories: string[] = Array.isArray(args.additionalDirectories)
       ? [...(args.additionalDirectories as string[])]
       : [];
-    const skillsDir = getStudioSkillsDir();
-    if (fs.existsSync(skillsDir) && !additionalDirectories.includes(skillsDir)) {
-      additionalDirectories.push(skillsDir);
-    }
     const roots = this.fsGuard.sessionRootsFor(cwd, additionalDirectories);
     const mcpServers = Array.isArray(args.mcpServers) ? [...(args.mcpServers as unknown[])] : [];
+    for (const configured of this.resources.configuredMcpServers()) {
+      if (!mcpServers.some((server: any) => server?.name === (configured as any).name)) mcpServers.push(configured);
+    }
     const mcpInfo = getMcpUiServerInfo();
     const agentCaps = (this.initResult as any)?.agentCapabilities?.mcpCapabilities;
     if (mcpInfo && (agentCaps?.http || !agentCaps || agentCaps?.sse)) {
@@ -518,20 +534,22 @@ export class UniversalAgentConnection {
         });
       }
     }
-    return { cwd, mcpServers, additionalDirectories, roots };
+    return { cwd, mcpServers, additionalDirectories, roots, resourceMeta: this.resources.sessionMeta() };
   }
 
   async newSession(args: { cwd?: string; mcpServers?: unknown[]; additionalDirectories?: string[] }): Promise<unknown> {
     const conn = this.ensureConn();
-    const { cwd, mcpServers, additionalDirectories, roots } = this.enrichSessionPayload(args);
+    const { cwd, mcpServers, additionalDirectories, roots, resourceMeta } = this.enrichSessionPayload(args);
     const result = await conn.agent.request(acp.methods.agent.session.new, {
       cwd,
       mcpServers: mcpServers as never[],
+      ...(resourceMeta ? { _meta: resourceMeta } : {}),
       ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
     } as unknown as never);
     const newSid = (result as { sessionId?: unknown } | null)?.sessionId;
     if (typeof newSid === "string") {
       this.sessionTurnCounts.set(newSid, 0);
+      this.resources.rememberSession(newSid, result);
     }
     this.fsGuard.rememberSessionRoots(newSid, roots);
     return result;
@@ -540,12 +558,13 @@ export class UniversalAgentConnection {
   async loadSession(args: Record<string, unknown>): Promise<{ result: unknown; replayed: unknown[] }> {
     const conn = this.ensureConn();
     const sessionId = String((args as { sessionId?: string }).sessionId || "");
-    const { cwd, mcpServers, additionalDirectories, roots } = this.enrichSessionPayload(args);
+    const { cwd, mcpServers, additionalDirectories, roots, resourceMeta } = this.enrichSessionPayload(args);
     const payload = {
       ...args,
       sessionId,
       cwd,
       mcpServers,
+      ...(resourceMeta ? { _meta: { ...(args._meta as object ?? {}), ...resourceMeta } } : {}),
       ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
     };
     // session/load replays history via session/update notifications before
@@ -558,6 +577,7 @@ export class UniversalAgentConnection {
       const result = await conn.agent.request(acp.methods.agent.session.load, payload as unknown as never);
       if (sessionId) {
         this.sessionTurnCounts.set(sessionId, 0);
+        this.resources.rememberSession(sessionId, result);
       }
       this.fsGuard.rememberSessionRoots(sessionId, roots);
       // Grace window: session/update notifications are dispatched
@@ -578,17 +598,19 @@ export class UniversalAgentConnection {
   /** UNSTABLE session/fork (advertised via sessionCapabilities.fork, e.g. codex). */
   async forkSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
-    const { cwd, mcpServers, additionalDirectories, roots } = this.enrichSessionPayload(args);
+    const { cwd, mcpServers, additionalDirectories, roots, resourceMeta } = this.enrichSessionPayload(args);
     const payload = {
       ...args,
       cwd,
       mcpServers,
+      ...(resourceMeta ? { _meta: { ...(args._meta as object ?? {}), ...resourceMeta } } : {}),
       ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
     };
     const result = await conn.agent.request(acp.methods.agent.session.fork, payload as unknown as never);
     const newSid = (result as { sessionId?: unknown } | null)?.sessionId;
     if (typeof newSid === "string") {
       this.sessionTurnCounts.set(newSid, 0);
+      this.resources.rememberSession(newSid, result);
     }
     this.fsGuard.rememberSessionRoots(newSid, roots);
     return result;
@@ -615,17 +637,19 @@ export class UniversalAgentConnection {
 
   async resumeSession(args: Record<string, unknown>): Promise<unknown> {
     const conn = this.ensureConn();
-    const { cwd, mcpServers, additionalDirectories, roots } = this.enrichSessionPayload(args);
+    const { cwd, mcpServers, additionalDirectories, roots, resourceMeta } = this.enrichSessionPayload(args);
     const payload = {
       ...args,
       cwd,
       mcpServers,
+      ...(resourceMeta ? { _meta: { ...(args._meta as object ?? {}), ...resourceMeta } } : {}),
       ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
     };
     const result = await conn.agent.request(acp.methods.agent.session.resume, payload as unknown as never);
     const sid = String(args.sessionId || (result as { sessionId?: unknown } | null)?.sessionId || "");
     if (sid) {
       this.sessionTurnCounts.set(sid, 0);
+      this.resources.rememberSession(sid, result);
     }
     this.fsGuard.rememberSessionRoots(sid, roots);
     return result;
@@ -642,7 +666,9 @@ export class UniversalAgentConnection {
     if (sid) {
       this.sessionTurnCounts.delete(sid);
     }
-    return conn.agent.request(acp.methods.agent.session.delete, args as unknown as never);
+    const result = await conn.agent.request(acp.methods.agent.session.delete, args as unknown as never);
+    this.resources.forgetSession(sid);
+    return result;
   }
 
   async closeSession(args: Record<string, unknown>): Promise<unknown> {
@@ -655,9 +681,12 @@ export class UniversalAgentConnection {
     if (!caps?.sessionCapabilities?.close) {
       // Best-effort: drop local sinks even if agent has no close
       if (sid) this.sessionSinks.delete(sid);
+      this.resources.forgetSession(sid);
       return {};
     }
-    return conn.agent.request(acp.methods.agent.session.close, args as unknown as never);
+    const result = await conn.agent.request(acp.methods.agent.session.close, args as unknown as never);
+    this.resources.forgetSession(sid);
+    return result;
   }
 
   async setMode(args: Record<string, unknown>): Promise<unknown> {
@@ -736,19 +765,16 @@ export class UniversalAgentConnection {
         else opts.signal.addEventListener("abort", onAbort, { once: true });
       }
 
-      // First-turn capability reminder (encouraging, non-mandatory):
-      // On session onboarding (turn 0), gently remind the connected agent of available studio-ui tools.
+      // Verified native delivery keeps application rules out of user messages.
+      // Unverified runtimes receive one explicitly marked compatibility block.
       const turnCount = this.sessionTurnCounts.get(sessionId) ?? 0;
       this.sessionTurnCounts.set(sessionId, turnCount + 1);
 
       let effectivePrompt = prompt;
-      const disableHint =
-        process.env.ACP_DISABLE_UI_PROMPT_HINT === "1" ||
-        process.env.ACP_DISABLE_UI_PROMPT_HINT === "true";
-
-      if (turnCount === 0 && !disableHint && Array.isArray(prompt)) {
+      const compatibilityContext = this.resources.compatibilityText(sessionId);
+      if (compatibilityContext && Array.isArray(prompt)) {
         effectivePrompt = [
-          { type: "text", text: CLIENT_GENERATIVE_UI_HINT },
+          { type: "text", text: compatibilityContext },
           ...prompt,
         ];
       }

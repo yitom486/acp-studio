@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { getStudioResourcesDir } from "./studio-resource-path";
+import { fileURLToPath } from "node:url";
 
 export interface StudioSkill {
   name: string;
@@ -17,7 +19,13 @@ export function getStudioSkillsDir(): string {
   if (process.env.ACP_STUDIO_SKILLS_DIR) {
     return path.resolve(process.env.ACP_STUDIO_SKILLS_DIR);
   }
-  return path.resolve(__dirname, "skills");
+  const configured = path.join(getStudioResourcesDir(), "skills");
+  return fs.existsSync(configured) ? configured : getBundledStudioSkillsDir();
+}
+
+export function getBundledStudioSkillsDir(): string {
+  const directory = typeof __dirname === "string" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(directory, "skills");
 }
 
 /**
