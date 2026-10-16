@@ -9,12 +9,17 @@
 
 ## [Unreleased]
 
+### Added
+<!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+
+## [0.1.9] - 2026-10-16
+
 ### Fixed
 - 修复首次建会话导致当前消息丢失；真实 Electron E2E 使用实际 studio-ui MCP 返回验证决策与表单回传，并自动构建、隔离运行与保存失败 trace。
-
 ### Added
 - 接入 acp-client 0.1.9 应用资源接口，支持 `~/.acp-client/` 的规则、附加指令、Skills 与局部 MCP 配置；按连接隔离快照，原生桥版本门与兼容交付可诊断，正常断开清理。
-<!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+- 正文内嵌生成式 UI 与流式占位符：支持在 AI 回答正文中通过流式隐藏锚点无缝混排矢量图表（流程图/时序图/架构图）、交互卡片（决策/清单/指标）与 React 沙箱；流式期间呈现 BeUI 动效与骨架屏，后端 MCP 返回后原位无缝挂载。
+- 真实 Electron 端到端闭环测试矩阵：全量覆盖 Flow 1–Flow 9，真实拉起 Electron 实例验证出版级矢量图表缩放与导出、交互卡片选择、表单参数回传、React 沙箱原型热更新、流式占位过渡与 DOM 纵向坐标混排顺序。
 
 ## [0.1.8] - 2026-10-14
 
@@ -256,7 +261,7 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.9...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
 [0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
 [0.1.2]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.2
@@ -266,3 +271,4 @@
 [0.1.6]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.6
 [0.1.7]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.7
 [0.1.8]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.8
+[0.1.9]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.9
