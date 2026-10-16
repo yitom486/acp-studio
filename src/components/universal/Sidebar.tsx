@@ -43,6 +43,7 @@ export interface SidebarProps {
   authOk: Record<string, boolean | null>;
   sessions: SessionItem[];
   sessionsLoading: boolean;
+  sessionsError?: string;
   activeSessionId: string | null;
   onRefreshSessions: () => void;
   onNewSession: (targetCwd?: string) => void;
@@ -61,6 +62,7 @@ export interface SidebarProps {
   recentWorkspaces?: RecentWorkspace[];
   onSelectWorkspace?: (path: string, name?: string) => void;
   onOpenSettings?: () => void;
+  onImportHistory?: () => void;
 }
 
 function shortCwd(cwd?: string): string {
@@ -428,6 +430,8 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
           <Plus className="w-3.5 h-3.5 text-muted-foreground" />
           <span>新会话</span>
         </button>
+        {p.onImportHistory && <button type="button" onClick={p.onImportHistory} title="导入外部历史" aria-label="导入外部历史"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><MoreHorizontal className="size-3.5" /></button>}
         <button
           type="button"
           onClick={() => setShowSearch(!showSearch)}
@@ -462,6 +466,7 @@ export const Sidebar: React.FC<SidebarProps> = (p) => {
       </div>
 
       {/* Optional Search Input */}
+      {p.sessionsError && <p role="alert" className="px-3 py-2 text-xs text-destructive">会话索引读取失败：{p.sessionsError}</p>}
       {showSearch && (
         <div className="px-2 pt-2">
           <input

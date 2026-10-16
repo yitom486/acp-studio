@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 import pkg from "./package.json" with { type: "json" };
+import { resolveRuntimeConfig } from "./shared/runtime-config";
+
+const runtime = resolveRuntimeConfig(process.env, process.argv, "development");
 
 export default defineConfig({
   plugins: [
@@ -24,6 +27,7 @@ export default defineConfig({
   ],
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(pkg.version),
+    "import.meta.env.VITE_GATEWAY_PORT": JSON.stringify(String(runtime.gatewayPort)),
   },
   resolve: {
     alias: {
@@ -32,11 +36,12 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
-    port: 5188,
+    port: runtime.vitePort,
     strictPort: true,
     watch: {
       ignored: [
         "**/scratch/**",
+        "**/.acp-tmp/**",
         "**/dist/**",
         "**/electron-dist/**",
         "**/release/**",
@@ -47,7 +52,7 @@ export default defineConfig({
     },
     proxy: {
       "/api": {
-        target: "http://localhost:13005",
+        target: `http://127.0.0.1:${runtime.gatewayPort}`,
         changeOrigin: true,
         ws: false,
         configure: (proxy) => {

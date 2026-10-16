@@ -24,6 +24,10 @@ export interface SessionItem {
   title?: string | null;
   cwd?: string;
   updatedAt?: string | null;
+  origin?: "created" | "imported" | "subagent";
+  kind?: "main" | "subagent";
+  parentSessionId?: string;
+  _meta?: Record<string, unknown> | null;
 }
 
 export function compactTimeAgo(iso?: string | null): string {

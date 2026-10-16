@@ -6,7 +6,7 @@ export default defineConfig({
   timeout: 60000,
   retries: 0,
   workers: 1,
-  reporter: [["list"]],
+  reporter: [["list"], ["html", { open: "never" }]],
   use: {
     trace: "retain-on-failure",
   },

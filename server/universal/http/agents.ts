@@ -8,6 +8,7 @@ import { z } from "zod";
 import { universalRegistry } from "../registry";
 import { anyBody, gatewayError, json, jsonBody, optStr } from "./shared";
 import { probeLiveAgyQuota } from "../runtimes/agy-quota";
+import { studioSessions } from "../session-index";
 
 export const agentsRouter = new Hono();
 
@@ -190,7 +191,8 @@ agentsRouter.delete("/:agentId/sessions/empty", jsonBody(emptySessionsBody), asy
         break;
       }
     }
-    const { deletable, kept } = selectEmptySessions(sessions, {
+    const managed = new Set(studioSessions.list(agentId).filter(row => row.kind === "main").map(row => row.sessionId));
+    const { deletable, kept } = selectEmptySessions(sessions.filter(row => managed.has(row.sessionId)), {
       exceptIds,
       ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
     });

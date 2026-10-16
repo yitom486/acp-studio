@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { createElement as h } from "react";
-import { renderToString } from "react-dom/server";
+import { renderToString as renderHtml } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StudioHeader } from "../../src/components/universal/StudioHeader";
+
+const renderToString = (element: Parameters<typeof renderHtml>[0]) =>
+  renderHtml(h(QueryClientProvider, { client: new QueryClient() }, element));
 
 describe("StudioHeader modern UI", () => {
   it("StudioHeader renders clean 52px single header with agent selector, title, and actions", () => {

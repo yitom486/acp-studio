@@ -2,9 +2,11 @@ import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { editorialCases, mermaidCases } from "./diagram-cases";
 
 // Model decisions are scripted; MCP discovery and tool execution use the real server.
-const sessions = new Map<string, { mcpServers: any[]; presented?: string }>();
+const sessions = new Map<string, { mcpServers: any[]; presented?: string; title?: string; parentID?: string }>();
+if (process.env.ACP_E2E_SUBAGENTS === "1") sessions.set("external-history", { mcpServers: [], title: "外部已有会话" });
 let sequence = 0;
 const modelState = {
   models: { currentModelId: "e2e-default", availableModels: [{ id: "e2e-default", name: "E2E Test Model" }] },
@@ -33,7 +35,7 @@ async function text(ctx: any, sessionId: string, value: string) {
   });
 }
 
-const app = acp.agent({ name: "e2e-agent", version: "1.0.0" })
+const app = acp.agent({ name: "e2e-agent" })
   .onRequest(acp.methods.agent.initialize, async () => ({
     protocolVersion: 1,
     agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} }, mcpCapabilities: { http: true } },
@@ -41,7 +43,7 @@ const app = acp.agent({ name: "e2e-agent", version: "1.0.0" })
     authMethods: [],
   }))
   .onRequest(acp.methods.agent.session.list, async () => ({
-    sessions: [...sessions.keys()].map((sessionId) => ({ sessionId, cwd: process.cwd() })),
+    sessions: [...sessions.entries()].map(([sessionId, session]) => ({ sessionId, cwd: process.cwd(), title: session.title })),
   }))
   .onRequest(acp.methods.agent.session.new, async (ctx: any) => {
     const sessionId = `e2e-session-${++sequence}`;
@@ -61,6 +63,47 @@ const app = acp.agent({ name: "e2e-agent", version: "1.0.0" })
       .map((block: any) => String(block.text || ""))
       .filter((t: string) => !t.trimStart().startsWith("<acp-compat-context"))
       .join(" ");
+    if (fullText.startsWith("E2E_DIAGRAM:")) {
+      const kind = fullText.slice("E2E_DIAGRAM:".length).trim();
+      const scenario = editorialCases.find(item => item.kind === kind);
+      if (!scenario) throw new Error(`Unknown diagram case: ${kind}`);
+      const rawOutput = await callStudio(sessionId, "render_editorial_diagram", {
+        title: scenario.title, diagramType: scenario.kind, data: scenario.data, theme: "system", accent: "blue",
+      });
+      await ctx.client.notify(acp.methods.client.session.update, { sessionId, update: {
+        sessionUpdate: "tool_call", toolCallId: `e2e-${sessionId}-${kind}`,
+        name: "render_editorial_diagram", title: "render_editorial_diagram", status: "completed", rawOutput,
+      } });
+      await text(ctx, sessionId, `图表生成完成：${scenario.kind}`);
+      return { stopReason: "end_turn" };
+    }
+    if (fullText.startsWith("E2E_MERMAID:")) {
+      const kind = fullText.slice("E2E_MERMAID:".length).trim();
+      const codes = kind === "multiple" ? mermaidCases.map(item => item.code)
+        : kind === "invalid" ? ["flowchart TD\n A[broken --> B"]
+        : [mermaidCases.find(item => item.kind === kind)?.code];
+      if (codes.some(code => !code)) throw new Error(`Unknown Mermaid case: ${kind}`);
+      // Split a fence across ACP events to exercise the real streaming Markdown path.
+      for (const code of codes) {
+        await text(ctx, sessionId, "图表说明：\n\n```mer");
+        await text(ctx, sessionId, `maid\n${code}\n`);
+        await text(ctx, sessionId, "```\n\n");
+      }
+      await text(ctx, sessionId, "图表输出完成。");
+      return { stopReason: "end_turn" };
+    }
+    if (fullText.includes("测试子会话")) {
+      const childId = `${sessionId}-child`;
+      sessions.set(childId, { mcpServers: [], title: "检查项目结构", parentID: sessionId });
+      await ctx.client.notify(acp.methods.client.session.update, { sessionId, update: {
+        sessionUpdate: "agent_message_chunk", content: { type: "text", text: "这是子智能体的独立输出" },
+        _meta: { "opencode/child-session": { id: childId, parentID: sessionId, title: "检查项目结构", depth: 1 } },
+      } });
+      await text(ctx, sessionId, "主会话正在继续执行");
+      await new Promise(resolve => setTimeout(resolve, 6000));
+      await text(ctx, sessionId, "，主会话执行完成。");
+      return { stopReason: "end_turn" };
+    }
     // Submit markers precede broad keywords so follow-ups do not regenerate cards.
     if (fullText.includes("[方案决策:")) {
       if (state.presented !== "decision") throw new Error("Decision submitted to the wrong session");
@@ -326,7 +369,7 @@ const app = acp.agent({ name: "e2e-agent", version: "1.0.0" })
 
 app.connect(acp.ndJsonStream(
   Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
-  Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
+  Readable.toWeb(process.stdin) as unknown as ReadableStream<Uint8Array>,
 ));
 process.stdin.resume();
 process.stdin.on("end", () => process.exit(0));

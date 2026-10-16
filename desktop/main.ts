@@ -6,8 +6,11 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, shell } from "electron";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import type { Server } from "node:http";
 import { serve } from "@hono/node-server";
-import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "../server/gateway";
+import { setupEnv, buildApp, shutdownBridges } from "../server/gateway";
+import { resolveRuntimeConfig } from "../shared/runtime-config";
+import { assertPortAvailable } from "../server/port-availability";
 import { ensureGatewayToken, gatewayTokenPreview } from "../server/universal/security";
 import { attachPtyUpgrade } from "../server/universal/pty";
 import { initUpdater, checkForUpdatesFromMenu } from "./updater";
@@ -16,17 +19,20 @@ import { addRecent, loadRecent } from "./recent";
 import { setTrashImpl } from "../server/universal/http/files";
 import { startMcpUiServer, stopMcpUiServer } from "../server/universal/mcp-ui-server";
 
-const isDev = process.env.ELECTRON_DEV === "1";
-const START_URL = process.env.ELECTRON_START_URL || `http://localhost:${PORT}`;
+const isDev = !app.isPackaged && process.env.ELECTRON_DEV === "1";
+const runtime = resolveRuntimeConfig(process.env, process.argv, isDev ? "development" : "production");
+const PORT = runtime.gatewayPort;
+const START_URL = process.env.ELECTRON_START_URL || (isDev
+  ? `http://localhost:${runtime.vitePort}` : `http://127.0.0.1:${PORT}`);
 
 // 设置 Windows 任务栏应用标识与独立分组，确保任务栏图标显示 ACP Studio 猫咪图标而非 Electron 默认原子图标
 if (process.platform === "win32") {
-  app.setAppUserModelId("studio.acp.app");
+  app.setAppUserModelId(isDev ? "studio.acp.app.dev" : "studio.acp.app");
 }
 
 // 隔离应用名称与 userData 路径，避免开发模式下与本地其他未打包的 Electron 应用（如 inkdown）
 // 共享 %APPDATA%\Electron 导致 Chromium ProcessSingleton 单例锁冲突（0x20 锁文件被占用错误）
-app.name = "acp-studio";
+app.name = isDev ? "acp-studio-dev" : "acp-studio";
 try {
   const customUserData =
     process.env.ACP_USER_DATA_DIR ||
@@ -47,10 +53,10 @@ async function startGateway() {
   // createWindow 在其之后执行，同一机器前后端共享同一 token。
   const token = ensureGatewayToken();
   if (!process.env.ACP_GATEWAY_TOKEN) process.env.ACP_GATEWAY_TOKEN = token;
-  await freePortIfOccupied(PORT);
+  await assertPortAvailable(PORT);
 
   // 启动专用的 Studio UI MCP Server (自动层叠端口 13920+)
-  await startMcpUiServer().catch((err) => {
+  await startMcpUiServer(runtime.mcpPort).catch((err) => {
     console.warn(`[Electron] 启动 MCP UI 端口服务失败: ${(err as Error)?.message || err}`);
   });
 
@@ -81,14 +87,14 @@ async function startGateway() {
   }
   const honoApp = buildApp();
   // hostname 127.0.0.1：只绑回环（ACP_PUBLIC_DIR 逻辑不动）。
-  const srv = serve({ fetch: honoApp.fetch, port: PORT, hostname: "127.0.0.1" }, () => {
-    // token 只打前8位+掩码，不打全量进日志。
-    console.log(`[Electron] gateway listening at http://127.0.0.1:${PORT} (token ${gatewayTokenPreview()})`);
-  }) as unknown as {
-    requestTimeout: number;
-    headersTimeout: number;
-    close: (cb?: () => void) => void;
-  };
+  let srv!: Server;
+  await new Promise<void>((resolve, reject) => {
+    srv = serve({ fetch: honoApp.fetch, port: PORT, hostname: "127.0.0.1" }, () => {
+      console.log(`[Electron] gateway listening at http://127.0.0.1:${PORT} (token ${gatewayTokenPreview()})`);
+      resolve();
+    }) as Server;
+    srv.once("error", reject);
+  });
   // Never cut long-lived SSE streams.
   srv.requestTimeout = 0;
   srv.headersTimeout = 0;
@@ -108,8 +114,7 @@ async function loadURLWithRetry(targetWin: BrowserWindow, url: string, maxRetrie
     } catch (err: any) {
       if (targetWin.isDestroyed()) return;
       if (i === maxRetries - 1) {
-        console.error(`[Electron] 尝试连接开发服务器 ${url} 超时:`, err?.message || err);
-        return;
+        throw new Error(`无法加载页面 ${url}: ${err?.message || err}`);
       }
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
@@ -216,6 +221,7 @@ async function createWindow(cwd?: string) {
     // 首帧底色跟随上次保存的主题标题栏色，避免启动时闪一下旧的蓝黑底
     backgroundColor: initialOverlay.color,
     title: "ACP Studio",
+    show: false,
     icon: appIcon,
     titleBarStyle: "hidden",
     ...(isMac
@@ -232,6 +238,14 @@ async function createWindow(cwd?: string) {
   // 先登记再加载页面：渲染端一启动就会通过 gateway:getToken 校验“是否本应用窗口”
   windows.add(w);
   win = w;
+  console.log(`[Electron] 桌面窗口已创建 (${isDev ? "开发版" : "正式版"})`);
+  w.once("ready-to-show", () => {
+    if (!w.isDestroyed()) { w.show(); w.focus(); }
+  });
+  w.on("closed", () => {
+    windows.delete(w);
+    if (win === w) win = [...windows][0] || null;
+  });
 
   if (appIcon && !w.isDestroyed()) {
     try {
@@ -241,21 +255,32 @@ async function createWindow(cwd?: string) {
     }
   }
 
-  if (isDev) {
-    // 开发模式快捷键：F12 开启开发者工具，F5 刷新
-    w.webContents.on("before-input-event", (event, input) => {
-      if (input.key === "F12" || (input.control && input.shift && input.key.toLowerCase() === "i")) {
-        w.webContents.toggleDevTools();
-        event.preventDefault();
-      }
-      if (input.key === "F5" || (input.control && input.key.toLowerCase() === "r")) {
-        w.webContents.reload();
-        event.preventDefault();
-      }
-    });
-    await loadURLWithRetry(w, windowUrl(cwd));
-  } else {
-    await w.loadURL(windowUrl(cwd));
+  try {
+    if (isDev) {
+      // 开发模式快捷键：F12 开启开发者工具，F5 刷新
+      w.webContents.on("before-input-event", (event, input) => {
+        if (input.key === "F12" || (input.control && input.shift && input.key.toLowerCase() === "i")) {
+          w.webContents.toggleDevTools();
+          event.preventDefault();
+        }
+        if (input.key === "F5" || (input.control && input.key.toLowerCase() === "r")) {
+          w.webContents.reload();
+          event.preventDefault();
+        }
+      });
+      await loadURLWithRetry(w, windowUrl(cwd));
+    } else {
+      await w.loadURL(windowUrl(cwd));
+    }
+    if (!w.isDestroyed()) {
+      if (w.isMinimized()) w.restore();
+      w.show();
+      w.focus();
+      console.log(`[Electron] 页面已加载，窗口已显示 (visible=${w.isVisible()})`);
+    }
+  } catch (error) {
+    if (!w.isDestroyed()) w.destroy();
+    throw new Error(`无法打开 ACP Studio 页面 (${windowUrl(cwd)})。请检查服务是否成功启动后重试。`, { cause: error });
   }
 
   // 外链（target=_blank / window.open）一律交给系统浏览器，不在应用里开新窗口
@@ -302,11 +327,13 @@ async function createWindow(cwd?: string) {
   w.on("focus", () => {
     win = w;
   });
-  w.on("closed", () => {
-    windows.delete(w);
-    if (win === w) win = [...windows][0] || null;
-  });
   return w;
+}
+
+function reportStartupFailure(error: unknown) {
+  console.error("[Electron] 启动或页面加载失败:", error);
+  dialog.showErrorBox("ACP Studio 启动失败", error instanceof Error ? error.message : String(error));
+  if (windows.size === 0) app.quit();
 }
 
 // Native Desktop IPC Handlers: Folder selection & system explorer reveal
@@ -350,7 +377,7 @@ ipcMain.handle("window:isMaximized", (e) => {
 
 // ---- 工作台：新窗口 / 最近文件夹 / 在文件管理器中显示 / 复制路径 ----
 ipcMain.handle("window:new", (_e, cwd?: string) => {
-  void createWindow(typeof cwd === "string" && cwd ? cwd : undefined);
+  void createWindow(typeof cwd === "string" && cwd ? cwd : undefined).catch(reportStartupFailure);
 });
 ipcMain.handle("recent:list", () => loadRecent());
 ipcMain.handle("recent:add", (_e, p: string) => {
@@ -386,7 +413,7 @@ const menuActions: MenuActions = {
     if (!res.canceled && res.filePaths[0]) await openFolderInto(res.filePaths[0]);
   },
   openRecent: (p) => void openFolderInto(p),
-  newWindow: () => void createWindow(),
+  newWindow: () => void createWindow().catch(reportStartupFailure),
   checkForUpdates: () => checkForUpdatesFromMenu(),
 };
 
@@ -408,11 +435,12 @@ if (!app.requestSingleInstanceLock()) {
     // 第二次启动带了目录参数（如 `acp-studio .`）→ 新窗口打开该目录；否则聚焦已有窗口
     const dir = argv.slice(1).reverse().find((a) => !a.startsWith("-") && fs.existsSync(a) && fs.statSync(a).isDirectory());
     if (dir) {
-      void createWindow(path.resolve(dir));
+      void createWindow(path.resolve(dir)).catch(reportStartupFailure);
       return;
     }
     if (win) {
       if (win.isMinimized()) win.restore();
+      if (!win.isVisible()) win.show();
       win.focus();
     }
   });
@@ -422,10 +450,10 @@ if (!app.requestSingleInstanceLock()) {
     buildAppMenu(menuActions, { isDev });
     await createWindow();
     initUpdater();
-  });
+  }).catch(reportStartupFailure);
 
   app.on("activate", () => {
-    if (windows.size === 0) void createWindow();
+    if (windows.size === 0) void createWindow().catch(reportStartupFailure);
   });
 
   app.on("window-all-closed", async () => {

@@ -545,7 +545,7 @@ function ResourceRow({
       )}
       style={{ paddingLeft: `${8 + row.depth * 14}px` }}
     >
-      <span aria-hidden="true" className="grid size-4 shrink-0 place-items-center">
+      <span aria-hidden="true" className="flex h-4 min-w-4 shrink-0 items-center justify-center">
         {renderIcon?.(row.item, expanded) ?? defaultIcon(row.item, expanded)}
       </span>
 

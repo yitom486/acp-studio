@@ -786,7 +786,8 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
     // 显式杀会话（handleKillPty）会轮转 id，保证下次是全新 shell。
     if (!ptyIdRef.current) ptyIdRef.current = newPtyId();
     const ptyId = ptyIdRef.current;
-    const bases = ptyWsCandidateBases(window.location.host, window.location.protocol, 3004, getGatewayBase());
+    const gatewayPort = import.meta.env.DEV ? Number(import.meta.env.VITE_GATEWAY_PORT) : Number(window.location.port);
+    const bases = ptyWsCandidateBases(window.location.host, window.location.protocol, gatewayPort, getGatewayBase());
     setPtyDead(false);
     const attempt = (i: number) => {
       if (i >= bases.length) {

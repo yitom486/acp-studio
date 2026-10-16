@@ -6,6 +6,7 @@ import { AssistantChatView } from "@/components/assistant/AssistantChatView";
 import { matchPermToToolCalls } from "@/lib/acp-assistant";
 import { StudioHeader } from "@/components/universal/StudioHeader";
 import { StatusBar } from "@/components/universal/StatusBar";
+import { ExternalHistoryDialog } from "@/components/universal/SessionHistoryTools";
 import { Sidebar, type SessionItem } from "@/components/universal/Sidebar";
 import { PermissionDialog } from "@/components/universal/PermissionDialog";
 import { ElicitationCard } from "@/components/universal/ElicitationCard";
@@ -125,6 +126,7 @@ export default function App() {
   const qc = useQueryClient();
   const agentsRef = useRef<AgentSummary[]>([]);
   const [customOpen, setCustomOpen] = useState(false);
+  const [importHistoryOpen, setImportHistoryOpen] = useState(false);
   const s = useStudioShallow();
 
   // Server state (TanStack Query)
@@ -299,6 +301,7 @@ export default function App() {
       >
         <ResizablePanel id="sidebar" panelRef={sidebarPanel} collapsible collapsedSize={0} minSize="200px" defaultSize="240px" maxSize="420px" onResize={onSidebarResize} className="overflow-hidden [&>aside]:w-full [&>aside]:h-full">
         <Sidebar
+          onImportHistory={supportsList ? () => setImportHistoryOpen(true) : undefined}
           agents={agents}
           activeAgentId={s.activeAgentId}
           onSelectAgent={handleSelectAgent}
@@ -308,6 +311,7 @@ export default function App() {
           onCleanupEmpty={handleCleanupEmpty}
           authOk={s.authOk}
           sessions={sessions}
+          sessionsError={sessionsQuery.error?.message}
           sessionsLoading={(sessionsQuery.isLoading && sessions.length === 0) || manualRefreshing}
           activeSessionId={s.sessionId}
           onRefreshSessions={handleRefreshSessions}
@@ -407,6 +411,8 @@ export default function App() {
             onClearMessages={() => !s.isStreaming && s.setMessages([])}
             compact={hasTabs}
           />
+          {importHistoryOpen && <ExternalHistoryDialog key={s.activeAgentId} agentId={s.activeAgentId}
+            onClose={() => setImportHistoryOpen(false)} onOpen={item => void handleOpenSession(item)} />}
 
           <AcpAssistantProvider
             onSend={(t) => { if (!runLocal(t ?? "")) void handleSend(t); }}

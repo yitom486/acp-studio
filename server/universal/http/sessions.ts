@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { universalRegistry } from "../registry";
 import { gatewayError, json, jsonBody, optStr } from "./shared";
+import { studioSessions } from "../session-index";
 
 /** URL action → canonical action (legacy aliases kept for older clients). */
 const ACTIONS: Record<string, string> = {
@@ -14,6 +15,10 @@ const ACTIONS: Record<string, string> = {
   load: "load",
   resume: "resume",
   list: "list",
+  history: "history",
+  children: "children",
+  import: "import",
+  "view-child": "view-child",
   delete: "delete",
   close: "close",
   cancel: "cancel",
@@ -45,7 +50,22 @@ sessionsRouter.post("/:agentId/session/:action", jsonBody(sessionBody), async (c
   if (!action) return json({ ok: false, error: `Unknown universal route POST ${new URL(c.req.url).pathname}` }, 404);
   const body = c.get("body") as Record<string, unknown> & z.infer<typeof sessionBody>;
   try {
-    const conn = universalRegistry.connFor(c.req.param("agentId"));
+    const agentId = c.req.param("agentId");
+    const conn = universalRegistry.connFor(agentId);
+    if (action === "history") return json({ ok: true, result: { sessions: studioSessions.list(agentId).filter(row => row.kind === "main") } });
+    if (action === "children") return json({ ok: true, result: { sessions: studioSessions.children(agentId, String(body.sessionId || "")) } });
+    if (action === "import") {
+      const sessionId = String(body.sessionId || "");
+      if (studioSessions.get(agentId, sessionId)?.kind === "subagent") throw new Error("子智能体会话只能通过主会话的子任务入口查看");
+      studioSessions.remember(agentId, sessionId, "imported", {
+        ...(typeof body.cwd === "string" ? { cwd: body.cwd } : {}),
+        ...(typeof body.title === "string" ? { title: body.title } : {}),
+      });
+      return json({ ok: true, result: studioSessions.get(agentId, sessionId) });
+    }
+    if (body.sessionId && studioSessions.get(agentId, body.sessionId)?.kind === "subagent" && action !== "view-child" && action !== "commands") {
+      throw new Error("子智能体会话为只读查看，请返回主会话操作");
+    }
     // Connect on demand; a real connect failure resurfaces from the RPC below.
     await conn.connect().catch((err: Error) => {
       console.warn(`[Universal] session/${action} connect failed (request will report it): ${err?.message || err}`);
@@ -62,6 +82,7 @@ sessionsRouter.post("/:agentId/session/:action", jsonBody(sessionBody), async (c
         break;
       case "load": {
         const loaded = await conn.loadSession(body);
+        studioSessions.remember(agentId, String(body.sessionId || ""), "imported", { ...(body.cwd ? { cwd: body.cwd } : {}) });
         return json({ ok: true, result: await withCommands(conn, loaded.result, String(body.sessionId || "")), replayed: loaded.replayed });
       }
       case "commands": {
@@ -85,9 +106,18 @@ sessionsRouter.post("/:agentId/session/:action", jsonBody(sessionBody), async (c
       }
       case "resume":
         result = await withCommands(conn, await conn.resumeSession(body), String(body.sessionId || ""));
+        studioSessions.remember(agentId, String(body.sessionId || ""), "imported", { ...(body.cwd ? { cwd: body.cwd } : {}) });
         break;
-      case "list":
-        result = await conn.listSessions(body);
+      case "list": {
+        const listed = await conn.listSessions(body) as { sessions?: Array<Record<string, unknown>> };
+        const references = new Map(studioSessions.list(agentId).map(row => [row.sessionId, row]));
+        result = { ...listed, sessions: (listed.sessions || []).map(row => ({ ...row,
+          ...(references.get(String(row.sessionId || row.id || "")) || {}),
+        })) };
+        break;
+      }
+      case "view-child":
+        result = await conn.viewChild(String(body.sessionId || ""));
         break;
       case "delete":
         result = await conn.deleteSession(body);

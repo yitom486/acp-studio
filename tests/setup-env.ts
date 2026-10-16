@@ -16,6 +16,7 @@ const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "acp-studio-test-home-"));
 process.env.ACP_AGENTS_FILE = path.join(sandbox, "agents.json");
 process.env.ACP_AGENTS_HOME = path.join(sandbox, "agents");
 process.env.ACP_STUDIO_RESOURCES_DIR = path.join(sandbox, "app-resources");
+process.env.ACP_SESSION_INDEX_FILE = path.join(sandbox, "session-index.json");
 
 process.on("exit", () => {
   fs.rmSync(sandbox, { recursive: true, force: true });

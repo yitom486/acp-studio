@@ -1,18 +1,19 @@
+import { assertPortAvailable } from "./port-availability";
 /**
  * Node.js entry for the same gateway (used by Electron main).
  * Run: `node server/node.ts` (Node 22.6+ strips types natively).
  */
 import { serve } from "@hono/node-server";
-import { setupEnv, PORT, buildApp, freePortIfOccupied, shutdownBridges } from "./gateway";
+import { setupEnv, PORT, buildApp, MCP_PORT, shutdownBridges } from "./gateway";
 import { gatewayBootstrapUrl, gatewayTokenPreview } from "./universal/security";
 import { attachPtyUpgrade } from "./universal/pty";
 import { startMcpUiServer } from "./universal/mcp-ui-server";
 
 setupEnv();
-await freePortIfOccupied(PORT);
+await assertPortAvailable(PORT, "127.0.0.1");
 
 // Start dedicated 5-digit MCP Server (auto-cascade starting from 13920)
-await startMcpUiServer().catch((err) => {
+await startMcpUiServer(MCP_PORT).catch((err) => {
   console.warn(`[Server] 启动 MCP UI 端口服务失败: ${(err as Error)?.message || err}`);
 });
 
@@ -51,6 +52,11 @@ const gracefulShutdown = async () => {
   await shutdownBridges();
   process.exit(0);
 };
+
+server.on("error", (error) => {
+  console.error("[Server] 网关监听失败:", error);
+  void shutdownBridges().finally(() => process.exit(1));
+});
 
 process.on("SIGINT", gracefulShutdown);
 process.on("SIGTERM", gracefulShutdown);

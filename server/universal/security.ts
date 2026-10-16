@@ -5,8 +5,7 @@
  * - 网关只监听 127.0.0.1（见 server/index.ts / server/node.ts / desktop/main.ts），
  *   本文件做纵深防御：即使监听被改动，鉴权与 CORS 依然要求本地来源或 Bearer token。
  * - 旧的 `Access-Control-Allow-Origin: *` 已移除，改为只回显可信本地 Origin。
- * - 旧的 taskkill 强杀端口逻辑已收敛为 server/gateway.ts::freePortIfOccupied（安全版：
- *   只杀“进程名匹配 + 健康检查通过”的本项目旧实例，否则 loud 报错退出）。
+ * - 端口占用只报错，不结束已有进程；开发与正式网关使用独立的默认端口。
  *
  * 接线：
  * - 鉴权：gateway.ts 与 universal 路由入口都直接（静态）导入 `requireAuth`，

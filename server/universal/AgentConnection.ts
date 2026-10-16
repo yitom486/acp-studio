@@ -25,6 +25,7 @@ import { FsGuard } from "./fs-guard";
 import { probeLiveAgyQuota } from "./runtimes/agy-quota";
 import { getMcpUiServerInfo } from "./mcp-ui-server";
 import { StudioAgentResources } from "./studio-agent-resources";
+import { studioSessions, childAssociation } from "./session-index";
 
 // Re-export platform helpers for external consumers & test compatibility
 export {
@@ -71,6 +72,8 @@ export class UniversalAgentConnection {
   private connectInFlight: Promise<unknown> | null = null;
   private sessionSinks = new Map<string, Set<SseSend>>();
   private sessionCommands = new Map<string, unknown[]>();
+  private childParents = new Map<string, string>();
+  private childUpdates = new Map<string, unknown[]>();
 
   private interaction: InteractionManager;
   private fsGuard: FsGuard;
@@ -376,6 +379,27 @@ export class UniversalAgentConnection {
       })
       .onNotification(acp.methods.client.session.update, async (ctx: unknown) => {
         const params = (ctx as { params: { sessionId: string; update: Record<string, unknown> } }).params;
+        const association = childAssociation(params.sessionId, params.update);
+        if (association) {
+          studioSessions.linkChild(self.profile.id, association.parentSessionId, association.sessionId, association.title);
+          self.childParents.set(association.sessionId, association.parentSessionId);
+          self.fsGuard.rememberSessionRoots(association.sessionId, self.fsGuard.allowedRootsFor(association.parentSessionId));
+        }
+        const childId = association?.sessionId || (self.childParents.has(params.sessionId) ? params.sessionId : null);
+        if (childId && params.update.sessionUpdate !== "subagent_update") {
+          const updates = self.childUpdates.get(childId) || [];
+          updates.push(params.update);
+          if (updates.length > 200) updates.shift();
+          self.childUpdates.set(childId, updates);
+          // Keep child output out of the main transcript. A read-only replay subscriber
+          // still receives it on the child's own ID.
+          self.broadcast(childId, { type: "update", sessionId: childId, update: params.update });
+          return;
+        }
+        if (params.update.sessionUpdate === "session_info_update") {
+          const title = params.update.title;
+          if (typeof title === "string") studioSessions.update(self.profile.id, params.sessionId, { title, updatedAt: new Date().toISOString() });
+        }
         if (params.update?.sessionUpdate === "available_commands_update" && params.sessionId) {
           const list = (params.update as { availableCommands?: unknown }).availableCommands;
           self.sessionCommands.set(params.sessionId, Array.isArray(list) ? list : []);
@@ -548,6 +572,7 @@ export class UniversalAgentConnection {
     } as unknown as never);
     const newSid = (result as { sessionId?: unknown } | null)?.sessionId;
     if (typeof newSid === "string") {
+      studioSessions.remember(this.profile.id, newSid, "created", { cwd });
       this.sessionTurnCounts.set(newSid, 0);
       this.resources.rememberSession(newSid, result);
     }
@@ -609,6 +634,7 @@ export class UniversalAgentConnection {
     const result = await conn.agent.request(acp.methods.agent.session.fork, payload as unknown as never);
     const newSid = (result as { sessionId?: unknown } | null)?.sessionId;
     if (typeof newSid === "string") {
+      studioSessions.remember(this.profile.id, newSid, "created", { cwd });
       this.sessionTurnCounts.set(newSid, 0);
       this.resources.rememberSession(newSid, result);
     }
@@ -657,7 +683,35 @@ export class UniversalAgentConnection {
 
   async listSessions(args: Record<string, unknown> = {}): Promise<unknown> {
     const conn = this.ensureConn();
-    return conn.agent.request(acp.methods.agent.session.list, args as unknown as never);
+    const result = await conn.agent.request(acp.methods.agent.session.list, args as unknown as never);
+    for (const row of result.sessions || []) {
+      const association = childAssociation("", row);
+      if (association) {
+        studioSessions.linkChild(this.profile.id, association.parentSessionId, association.sessionId, association.title);
+        this.childParents.set(association.sessionId, association.parentSessionId);
+      }
+    }
+    return result;
+  }
+
+  /** Child inspection never binds the UI, resumes, prompts or changes its configuration. */
+  async viewChild(sessionId: string): Promise<{ replayed: unknown[]; source: "live" | "agent" }> {
+    const record = studioSessions.get(this.profile.id, sessionId);
+    if (record?.kind !== "subagent") throw new Error("该会话不是已识别的子智能体会话");
+    const live = this.childUpdates.get(sessionId);
+    if (live?.length) return { replayed: [...live], source: "live" };
+    if (!this.initResult?.agentCapabilities?.loadSession) throw new Error("该 Agent 未提供子会话历史回放，当前也没有可查看的运行记录。");
+    this.childParents.set(sessionId, record.parentSessionId!);
+    const replayed: unknown[] = [];
+    const unsubscribe = this.subscribe(sessionId, event => {
+      if (event.type === "update") replayed.push(event.update);
+    });
+    try {
+      await this.ensureConn().agent.request(acp.methods.agent.session.load, {
+        sessionId, cwd: record.cwd || process.cwd(), mcpServers: [],
+      });
+      return { replayed, source: "agent" };
+    } finally { unsubscribe(); }
   }
 
   async deleteSession(args: Record<string, unknown>): Promise<unknown> {
@@ -667,6 +721,7 @@ export class UniversalAgentConnection {
       this.sessionTurnCounts.delete(sid);
     }
     const result = await conn.agent.request(acp.methods.agent.session.delete, args as unknown as never);
+    studioSessions.forget(this.profile.id, sid);
     this.resources.forgetSession(sid);
     return result;
   }
@@ -748,9 +803,11 @@ export class UniversalAgentConnection {
   ): Promise<unknown> {
     const conn = this.ensureConn();
     if (!sessionId) throw new Error("sessionId is required");
+    if (studioSessions.get(this.profile.id, sessionId)?.kind === "subagent") throw new Error("子智能体会话仅供查看，请在主会话中发送消息");
     if (this.promptLocks.has(sessionId)) {
       throw new Error("session busy: previous prompt still running (409)");
     }
+    studioSessions.update(this.profile.id, sessionId, { updatedAt: new Date().toISOString() });
     this.promptLocks.add(sessionId);
     const unsub = this.subscribe(sessionId, onEvent);
     let onAbort: (() => void) | undefined;

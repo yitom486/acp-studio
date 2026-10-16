@@ -23,9 +23,28 @@ ACP_GATEWAY=node bun run dev:desktop   # 要体验真 PTY 终端：改跑 Node �
 
 # 亦可分步调试：
 bun run build:electron   # 仅打包 main+preload 到 electron-dist/
-bun run dev              # 启动网关 (3004) + Vite (5188)
+bun run dev              # 启动开发网关 (13015) + Vite (5188)
 bun run dev:electron     # 外接已启动的 vite(5188)+网关，只启动 Electron 窗口调试
 ```
+
+开发版和正式版可以同时运行：开发 HTTP 网关默认 `13015`、MCP 默认 `13930`，
+正式版分别为 `13005`、`13920`；开发页面仍使用 `5188`。`PORT`、`MCP_PORT`、
+`ACP_DEV_VITE_PORT` 可显式覆盖，开发启动器会把同一配置传给网关、Vite 和桌面窗口。
+开发与正式版分别使用 `acp-studio-dev`、`acp-studio` 的 Electron 数据目录和单实例锁。
+端口被占用时会报错退出，不再强杀占用进程；退出开发环境只结束本次启动的子进程树。
+Windows 下启动器直接管理 Vite 和网关，不为后台服务创建独立控制台窗口，
+由启动器统一关闭并确认退出，避免脚本包装进程先退出后遗留 Vite 占用端口。
+页面加载或网关启动失败会显示错误提示，不会留下空白窗口。
+
+会话列表默认读取应用管理的引用索引，仅包含本应用创建或主动导入的主会话。
+索引位于应用资源目录的 `history/development.json` / `history/production.json`，
+也可通过 `ACP_SESSION_INDEX_FILE` 指定。索引不保存聊天正文、不修改 Agent 的原生历史目录；
+前端仍有用于快速恢复的有限本地缓存。Agent 不支持历史持久化或回放时，引用本身不能恢复缺失的正文。
+已有外部历史可通过侧栏“导入外部历史”按页选择添加，不会自动认定旧记录均由本应用创建。
+已识别的子智能体不进入主列表，在顶部“子任务”菜单中只读查看，可一键返回主会话，
+不会切换主会话 ID、清空输入或停止正在运行的任务。识别依赖明确的 ACP 子会话事件或
+`opencode/child-session` 元数据，不以标题或普通 fork 的 parent 字段猜测。
+近期子任务事件只缓存在网关内存，历史原文仍通过 Agent 的回放能力读取；界面注明记录来源。
 
 ## 生产运行（免安装验证）
 

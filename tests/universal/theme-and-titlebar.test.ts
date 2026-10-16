@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import React from "react";
-import { renderToString } from "react-dom/server";
+import { renderToString as renderHtml } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useThemeStore, THEMES, type ThemeId } from "@/stores/useThemeStore";
 import { TitleBar } from "@/components/universal/TitleBar";
 import { StudioHeader } from "@/components/universal/StudioHeader";
+
+const renderToString = (element: Parameters<typeof renderHtml>[0]) =>
+  renderHtml(React.createElement(QueryClientProvider, { client: new QueryClient() }, element));
 
 describe("Theme Store & Window TitleBar & StudioHeader", () => {
   beforeEach(() => {

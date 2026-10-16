@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
+import { TEST_GATEWAY_TOKEN } from "../../tests/helpers/gateway-auth";
 
 const projectRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -15,7 +16,11 @@ export interface LaunchedApp {
   cleanup: () => Promise<void>;
 }
 
-export async function launchElectronApp(options?: { port?: number }): Promise<LaunchedApp> {
+export async function launchElectronApp(options?: {
+  port?: number;
+  developmentUrl?: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<LaunchedApp> {
   const port = options?.port || await new Promise<number>((resolve, reject) => {
     const server = createServer();
     server.on("error", reject);
@@ -64,13 +69,20 @@ export async function launchElectronApp(options?: { port?: number }): Promise<La
       PORT: String(port),
       ACP_PUBLIC_DIR: path.join(projectRoot, "dist"),
       ACP_USER_DATA_DIR: tmpDir,
+      ACP_GATEWAY_TOKEN: TEST_GATEWAY_TOKEN,
+      ACP_AGENTS_FILE: path.join(tmpDir, "agents.json"),
+      ACP_STUDIO_RESOURCES_DIR: path.join(tmpDir, "resources"),
       ACP_AGENTS_JSON: JSON.stringify(agentsConfig),
-      ELECTRON_DEV: "0",
+      ELECTRON_DEV: options?.developmentUrl ? "1" : "0",
       NODE_ENV: "production",
       ACP_DISABLE_UI_PROMPT_HINT: "1",
       ACP_DEFAULT_AGENT_ID: "e2e-agent",
       ACP_DISABLE_UPDATES: "1",
       ELECTRON_START_URL: `http://127.0.0.1:${port}/?cwd=${encodeURIComponent(workspace)}`,
+      ...options?.env,
+      ...(options?.developmentUrl ? {
+        ELECTRON_START_URL: `${options.developmentUrl}/?cwd=${encodeURIComponent(workspace)}`,
+      } : {}),
     },
   });
 

@@ -1,4 +1,5 @@
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef, useMemo, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Maximize2,
   Minimize2,
@@ -133,6 +134,34 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    fullscreenButtonRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setIsFullscreen(false);
+      } else if (event.key === "Tab") {
+        const dialog = containerRef.current?.closest('[role="dialog"]');
+        const buttons = Array.from(dialog?.querySelectorAll<HTMLButtonElement>("button") || []);
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        if (buttons.length && (index < 0 || (event.shiftKey ? index === 0 : index === buttons.length - 1))) {
+          event.preventDefault();
+          buttons[event.shiftKey ? buttons.length - 1 : 0].focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+      requestAnimationFrame(() => fullscreenButtonRef.current?.focus());
+    };
+  }, [isFullscreen]);
 
   const accentStyles = ACCENT_MAP[accent] || ACCENT_MAP.emerald;
   const meta = DIAGRAM_TYPE_META[diagramType] || DIAGRAM_TYPE_META.architecture;
@@ -163,11 +192,14 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  return (
+  const card = (
     <div
+      role={isFullscreen ? "dialog" : undefined}
+      aria-modal={isFullscreen ? true : undefined}
+      aria-label={isFullscreen ? `${title} 全屏预览` : undefined}
       className={`my-3.5 rounded-xl border border-border/70 bg-card/90 overflow-hidden shadow-sm transition-all duration-200 ${
         isFullscreen
-          ? "fixed inset-4 z-50 flex flex-col bg-background/95 backdrop-blur-md shadow-2xl border-border"
+          ? "fixed inset-4 z-[100] flex flex-col bg-background/95 backdrop-blur-md shadow-2xl border-border"
           : ""
       }`}
     >
@@ -243,6 +275,7 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
           </button>
           <button
             type="button"
+            ref={fullscreenButtonRef}
             onClick={() => setIsFullscreen(!isFullscreen)}
             className="p-1 rounded hover:text-foreground hover:bg-muted/80 transition-colors"
             title={isFullscreen ? "退出全屏" : "全屏放大"}
@@ -297,6 +330,9 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
       </div>
     </div>
   );
+  // Chat turns may create transformed/contained stacking contexts. Fullscreen
+  // must escape them so the app header cannot cover its exit button.
+  return isFullscreen ? createPortal(card, document.body) : card;
 };
 
 // =============================================================================

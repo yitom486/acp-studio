@@ -1,21 +1,33 @@
 /**
  * ACP Studio unified Desktop dev orchestrator.
  * Handles:
- * 1. Preflight stale process cleanup on Windows
+ * 1. Check development ports without stopping other applications
  * 2. Compiles desktop/main.ts and desktop/preload.ts
  * 3. Starts dev server and Vite client with color-coded prefix logs
  * 4. Waits for Vite dev server (port 5188) to be ready before launching Electron
  * 5. Watches desktop/ directory for changes and rebuilds main bundle
  * 6. Clean process-tree shutdown on Ctrl+C or when Electron exits
  */
-import { spawn, execSync, type ChildProcess } from "node:child_process";
-import * as net from "node:net";
-import * as path from "node:path";
+import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { createRequire } from "node:module";
+import { resolveRuntimeConfig } from "../shared/runtime-config";
+import { assertPortAvailable } from "../server/port-availability";
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 const isWin = process.platform === "win32";
-const VITE_PORT = 5188;
-const GATEWAY_PORT = 13005;
+const runtime = resolveRuntimeConfig(process.env, process.argv, "development");
+const VITE_PORT = runtime.vitePort;
+const GATEWAY_PORT = runtime.gatewayPort;
+const devEnv = {
+  ...process.env,
+  ACP_RUNTIME_MODE: "development",
+  PORT: String(GATEWAY_PORT),
+  HOST: "127.0.0.1",
+  MCP_PORT: String(runtime.mcpPort),
+  ACP_DEV_VITE_PORT: String(VITE_PORT),
+  FORCE_COLOR: "1",
+};
 
 const children: ChildProcess[] = [];
 let isExiting = false;
@@ -40,32 +52,6 @@ function log(prefix: string, color: string, msg: string) {
   }
 }
 
-function recyclePort(port: number, serviceName: string): void {
-  if (!isWin) return;
-  try {
-    const stdout = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, {
-      encoding: "utf8",
-      windowsHide: true,
-    });
-    const pids = new Set<number>();
-    for (const line of stdout.split("\n")) {
-      const parts = line.trim().split(/\s+/);
-      const pid = Number(parts[parts.length - 1]);
-      if (pid && !isNaN(pid) && pid !== process.pid) {
-        pids.add(pid);
-      }
-    }
-    for (const pid of pids) {
-      console.log(`${c.yellow}[launcher] 端口 ${port} (${serviceName}) 残留旧进程 PID ${pid}，taskkill 自动回收...${c.reset}`);
-      try {
-        execSync(`taskkill /F /T /PID ${pid}`, { windowsHide: true, stdio: "ignore" });
-      } catch {}
-    }
-  } catch {
-    // Port is free (findstr exits with code 1)
-  }
-}
-
 async function cleanupAndExit(code = 0) {
   if (isExiting) return;
   isExiting = true;
@@ -73,25 +59,35 @@ async function cleanupAndExit(code = 0) {
 
   // Collect active child PIDs for atomic batch shutdown
   const pids = children
+    .filter((child) => child.exitCode === null && child.signalCode === null)
     .map((child) => child.pid)
     .filter((pid): pid is number => typeof pid === "number");
 
   if (isWin && pids.length > 0) {
-    const pidFlags = pids.flatMap((pid) => ["/PID", String(pid)]).join(" ");
+    const pidFlags = pids.flatMap((pid) => ["/PID", String(pid)]);
     try {
-      execSync(`taskkill /F /T ${pidFlags}`, { windowsHide: true, stdio: "ignore" });
-    } catch {}
-    try {
-      execSync("taskkill /F /IM electron.exe", { windowsHide: true, stdio: "ignore" });
-    } catch {}
+      execFileSync("taskkill", ["/F", "/T", ...pidFlags], { windowsHide: true, stdio: "ignore" });
+    } catch (error) {
+      // taskkill may race a child's normal exit. Verify below before reporting success.
+      log("dev:desktop", c.yellow, `进程树关闭检查: ${(error as Error).message}`);
+    }
   } else {
     for (const child of children) {
       try {
-        child.kill("SIGTERM");
+        if (child.pid) process.kill(-child.pid, "SIGTERM");
       } catch {}
     }
   }
 
+  const deadline = Date.now() + 5000;
+  const active = () => children.filter(child => child.pid && child.exitCode === null && child.signalCode === null);
+  while (active().length && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  if (active().length) {
+    log("dev:desktop", c.red, `未能关闭本次启动的进程: ${active().map(child => child.pid).join(", ")}`);
+    process.exit(1);
+  }
   console.log(`${c.green}[dev:desktop] 所有服务已安全退出。${c.reset}`);
   process.exit(code);
 }
@@ -106,7 +102,8 @@ async function waitForVite(port: number, timeoutMs = 15000): Promise<boolean> {
   while (Date.now() - start < timeoutMs) {
     for (const url of urls) {
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(1000) });
+        await res.body?.cancel();
         if (res.status < 500) return true;
       } catch {
         // still starting up
@@ -142,18 +139,27 @@ async function buildElectron(): Promise<boolean> {
 
 function startSubProcess(name: string, color: string, cmd: string, args: string[]): ChildProcess {
   const child = spawn(cmd, args, {
-    shell: isWin,
+    shell: false,
+    // Windows detached consoles can be surfaced by Bun's watch subprocess even
+    // with windowsHide. Direct service PIDs avoid script-shell orphaning without
+    // allocating a new console; POSIX still needs a group for tree shutdown.
+    detached: !isWin,
+    windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, FORCE_COLOR: "1" },
+    env: devEnv,
   });
 
   child.stdout?.on("data", (data) => log(name, color, data));
   child.stderr?.on("data", (data) => log(name, color, data));
 
+  child.on("error", (error) => {
+    log(name, c.red, `启动失败: ${error.message}`);
+    void cleanupAndExit(1);
+  });
   child.on("exit", (code) => {
-    if (!isExiting && code !== 0 && code !== null) {
-      log(name, c.red, `进程异常退出 (code: ${code})`);
-      cleanupAndExit(code);
+    if (!isExiting) {
+      log(name, c.red, `进程已退出 (code: ${code})`);
+      void cleanupAndExit(code || 1);
     }
   });
 
@@ -164,18 +170,10 @@ function startSubProcess(name: string, color: string, cmd: string, args: string[
 async function main() {
   console.log(`${c.bold}${c.magenta}=== ACP Studio 桌面端集成开发环境启动中 ===${c.reset}\n`);
 
-  // 1. Windows preflight: kill lingering electron.exe and reclaim Vite dev port
-  if (isWin) {
-    try {
-      const cleanup = spawn("taskkill", ["/F", "/IM", "electron.exe"], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
-      await new Promise((r) => cleanup.on("close", r));
-    } catch {}
-    recyclePort(GATEWAY_PORT, "Universal Gateway");
-    recyclePort(VITE_PORT, "Vite Dev Server");
-  }
+  // Never reclaim a port by killing its owner: it may be the release app.
+  await assertPortAvailable(GATEWAY_PORT);
+  await assertPortAvailable(VITE_PORT, "0.0.0.0", "Vite");
+  console.log(`[launcher] 开发网关 ${GATEWAY_PORT}，开发页面 ${VITE_PORT}；正式版默认使用 13005。`);
 
   // 2. Build electron bundle
   console.log(`${c.cyan}[build] 正在编译 Electron 主进程与 Preload 脚本...${c.reset}`);
@@ -193,36 +191,53 @@ async function main() {
   if (useNodeGateway) {
     console.log(`${c.cyan}[launcher] ACP_GATEWAY=node：改跑 Node 网关，真 PTY 可用。${c.reset}`);
   }
-  const serverProc = useNodeGateway
-    ? startSubProcess("server", c.cyan, "bun", ["run", "dev:server:node"])
-    : startSubProcess("server", c.cyan, "bun", ["--watch", "server/index.ts"]);
-  const clientProc = startSubProcess("client", c.green, "bun", ["run", "dev:client"]);
+  if (useNodeGateway) {
+    const nodeExecutable = Bun.which("node");
+    if (!nodeExecutable) throw new Error("ACP_GATEWAY=node 需要 PATH 中安装 Node.js。");
+    const build = await Bun.build({ entrypoints: ["server/node.ts"], target: "node", outdir: ".tmp-node" });
+    if (!build.success) throw new AggregateError(build.logs, "Node 网关编译失败");
+    startSubProcess("server", c.cyan, nodeExecutable, [".tmp-node/node.js", "--development"]);
+  } else {
+    startSubProcess("server", c.cyan, process.execPath, ["--watch", "server/index.ts"]);
+  }
+  // Track Vite itself, not a bun-run/script-shell wrapper that can exit first
+  // on Windows Ctrl+C and leave its node process holding the port.
+  const viteCli = path.join(path.dirname(createRequire(import.meta.url).resolve("vite/package.json")), "bin/vite.js");
+  startSubProcess("client", c.green, process.execPath, [viteCli]);
 
   // 4. Wait for Vite client ready
   console.log(`${c.yellow}[launcher] 正在等待 Vite 开发服务器就绪 (http://localhost:${VITE_PORT})...${c.reset}`);
   const viteReady = await waitForVite(VITE_PORT);
   if (!viteReady) {
-    console.warn(`${c.yellow}[launcher] Vite 响应超时，尝试直接拉起 Electron...${c.reset}`);
+    throw new Error(`Vite 启动超时 (http://localhost:${VITE_PORT})，请检查上方日志后重试。`);
   } else {
     console.log(`${c.green}[launcher] Vite 开发服务器已就绪！秒开桌面窗口...${c.reset}\n`);
   }
 
-  // 5. Start Electron
-  const electronProc = spawn(
-    isWin ? "npx.cmd" : "npx",
-    ["electron", "electron-dist/main.cjs"],
-    {
-      shell: isWin,
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        ELECTRON_DEV: "1",
-        ELECTRON_START_URL: `http://localhost:${VITE_PORT}`,
-      },
-    }
-  );
+  if (!await waitForVite(GATEWAY_PORT)) {
+    throw new Error(`开发网关启动超时 (http://127.0.0.1:${GATEWAY_PORT})，请检查上方日志后重试。`);
+  }
+
+  // Resolve the installed Electron executable and spawn it directly, without a shell.
+  const electronExecutable = createRequire(import.meta.url)("electron") as string;
+  const electronEnv: NodeJS.ProcessEnv = { ...devEnv, ELECTRON_DEV: "1", ELECTRON_START_URL: `http://localhost:${VITE_PORT}` };
+  delete electronEnv.ELECTRON_RUN_AS_NODE;
+  const electronProc = spawn(electronExecutable, ["electron-dist/main.cjs"], {
+    shell: false,
+    detached: !isWin,
+    // This is the user-facing GUI. SW_HIDE can hide Electron's first native
+    // window even while its renderer and ACP connection are already running.
+    windowsHide: false,
+    stdio: "inherit",
+    env: electronEnv,
+  });
+  electronProc.on("error", (error) => {
+    console.error(`[electron] 启动失败: ${error.message}`);
+    void cleanupAndExit(1);
+  });
 
   children.push(electronProc);
+  console.log(`[launcher] Electron 已启动 (PID ${electronProc.pid})`);
 
   // When Electron GUI window closes, cleanly shut down server and client
   electronProc.on("exit", (code) => {

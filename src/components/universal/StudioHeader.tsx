@@ -27,6 +27,7 @@ import { WorkspaceDropdown } from "./WorkspaceDropdown";
 import { GatewayDot } from "./GatewayDot";
 import { useStudioStore, type RecentWorkspace } from "@/stores/useStudioStore";
 import { QuotaCard, QuotaRing } from "./QuotaCard";
+import { SubagentMenu } from "./SessionHistoryTools";
 
 export interface StudioHeaderProps {
   /** 编辑器打开时聊天栏变窄：隐藏中间的会话标题，避免挤压重叠 */
@@ -380,6 +381,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
 
       {/* RIGHT: Actions (Changes, Terminal, Providers, + New Session, More Menu) */}
       <div className="flex items-center gap-1.5 shrink-0">
+        <SubagentMenu key={`${activeAgentId}:${sessionId}`} agentId={activeAgentId} sessionId={sessionId} />
         {/* Code Changes / Diff */}
         <Button
           size="sm"

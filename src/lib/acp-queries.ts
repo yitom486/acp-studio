@@ -11,13 +11,17 @@ export const acpKeys = {
   gitFile: (cwd: string, file: string) => ["universal", "git", "file", cwd, file] as const,
 };
 
-function normalizeSessions(res: any): SessionItem[] {
+export function normalizeSessions(res: any): SessionItem[] {
   const items = res?.sessions || [];
   return (Array.isArray(items) ? items : []).map((s: any) => ({
     sessionId: s.sessionId || s.id,
     title: s.title,
     cwd: s.cwd,
     updatedAt: s.updatedAt,
+    origin: s.origin,
+    kind: s.kind,
+    parentSessionId: s.parentSessionId,
+    _meta: s._meta,
   }));
 }
 
@@ -31,13 +35,14 @@ export function useAgentsQuery() {
   });
 }
 
-/** Server state: session list of one agent. Disabled until connected. */
+/** App-managed references remain available even when the native agent is disconnected. */
 export function useSessionsQuery(agentId: string, enabled: boolean) {
   return useQuery<SessionItem[]>({
     queryKey: acpKeys.sessions(agentId),
-    queryFn: () => sessionRpc(agentId, "list", {}).then(normalizeSessions),
-    enabled,
+    queryFn: () => sessionRpc(agentId, "history", {}).then(normalizeSessions),
+    enabled: !!agentId,
     staleTime: 5000,
+    refetchInterval: 5000,
   });
 }
 
