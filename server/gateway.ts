@@ -262,10 +262,11 @@ export function buildApp() {
 }
 
 export async function shutdownBridges() {
-  await stopMcpUiServer().catch((err) => {
-    console.warn(`[Server] 关闭 MCP UI 服务失败: ${(err as Error)?.message || err}`);
-  });
+  // Let agents release their MCP connections before stopping the shared listener.
   await universalRegistry.shutdown().catch((err) => {
     console.warn(`[Server] 关闭 agent 桥接失败：${(err as Error)?.message || err}`);
+  });
+  await stopMcpUiServer().catch((err) => {
+    console.warn(`[Server] 关闭 MCP UI 服务失败: ${(err as Error)?.message || err}`);
   });
 }

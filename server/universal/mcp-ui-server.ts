@@ -1,7 +1,7 @@
 /**
  * Universal ACP Studio Built-in MCP Server for Generative UI.
  *
- * Runs an SSE-based Model Context Protocol (MCP) server on a dedicated 5-digit port
+ * Runs a Streamable HTTP MCP server on a shared local port.
  * (default starting at 13920, automatically cascading up if occupied).
  *
  * Exposes core interactive tools:
@@ -13,6 +13,7 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { listStudioSkills, getStudioSkill } from "./studio-skills";
 import {
@@ -28,13 +29,42 @@ export interface McpServerInfo {
   version: string;
 }
 
-let activeServer: http.Server | null = null;
-let activeInfo: McpServerInfo | null = null;
-let activeTransport: StreamableHTTPServerTransport | null = null;
-let activeMcp: McpServer | null = null;
+interface McpUiSession {
+  mcp: McpServer;
+  transport: StreamableHTTPServerTransport;
+  lastActivity: number;
+  requests: number;
+  closed: boolean;
+  closing?: Promise<void>;
+}
+
+interface McpUiRuntime {
+  server: http.Server;
+  info: McpServerInfo | null;
+  sessions: Map<string, McpUiSession>;
+  connections: Set<McpUiSession>;
+  sweep?: ReturnType<typeof setInterval>;
+  stopping: boolean;
+}
+
+export interface McpUiServerOptions {
+  /** Reclaim abandoned sessions with no active HTTP requests or SSE streams. */
+  sessionIdleTimeoutMs?: number;
+  sessionSweepIntervalMs?: number;
+}
+
+let activeRuntime: McpUiRuntime | null = null;
+let lifecycle: Promise<unknown> = Promise.resolve();
+
+// Serialize start/stop, including calls made while listen() or shutdown is pending.
+function withLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+  const result = lifecycle.then(operation);
+  lifecycle = result.catch(() => undefined);
+  return result;
+}
 
 export function getMcpUiServerInfo(): McpServerInfo | null {
-  return activeInfo;
+  return activeRuntime?.info ?? null;
 }
 
 /**
@@ -70,6 +100,7 @@ export function createMcpUiServer(): McpServer {
         schemaVersion: PRESENT_SCHEMA_VERSION,
         id,
         kind: cardType,
+        cardType,
         title,
         description,
         data,
@@ -268,7 +299,7 @@ export function createMcpUiServer(): McpServer {
       description:
         "【Studio 技能按需调取】按需获取特定 Studio 技能的完整指导文档、设计原则与结构化调用示例（如 diagram-design 或 generative-ui）。零 Token 浪费，仅在需要时按需查阅。",
       inputSchema: {
-        name: z.string().describe("技能标识，例如 'diagram-design' 或 'generative-ui'"),
+        name: z.string().describe("必填技能标识。图表规范传 'diagram-design'，交互卡片规范传 'generative-ui'；不确定时先调用 list_studio_skills 获取 name，不能省略此字段。"),
       },
     },
     async ({ name }) => {
@@ -323,7 +354,7 @@ async function listenWithCascade(
         server.once("listening", onListening);
         server.listen(port, "127.0.0.1");
       });
-      return port;
+      return (server.address() as import("node:net").AddressInfo).port;
     } catch (err: any) {
       if (err.code === "EADDRINUSE") {
         console.warn(`[MCP Server] 端口 ${port} 已被占用，自动顺延到 ${port + 1}...`);
@@ -336,126 +367,178 @@ async function listenWithCascade(
   throw new Error(`[MCP Server] 无法在端口 ${startPort} 到 ${port} 范围内找到可用端口。`);
 }
 
-/**
- * Starts the dedicated 5-digit MCP Server.
- */
-export async function startMcpUiServer(
-  preferredPort = 13920
-): Promise<McpServerInfo> {
-  if (activeInfo && activeServer) {
-    return activeInfo;
-  }
-
-  const mcp = createMcpUiServer();
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-    enableJsonResponse: true,
-  });
-  await mcp.connect(transport);
-  activeTransport = transport;
-  activeMcp = mcp;
-
-  const httpServer = http.createServer(async (req, res) => {
-    // 允许本地跨域
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, Mcp-Session-Id, Mcp-Protocol-Version");
-
-    if (req.method === "OPTIONS") {
-      res.writeHead(204).end();
-      return;
-    }
-
-    const host = req.headers.host || "127.0.0.1";
-    const url = new URL(req.url || "/", `http://${host}`);
-
-    // 健康检查与服务信息
-    if (url.pathname === "/" || url.pathname === "/health") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          ok: true,
-          name: "studio-ui",
-          version: "1.0.0",
-          port: activeInfo?.port,
-          endpoint: activeInfo?.url,
-        })
-      );
-      return;
-    }
-
-    // Streamable HTTP 单端点（MCP 2025 官方最新主流规范，统一支持直连 JSON-RPC 与双向流式推流）
-    if (url.pathname === "/mcp") {
-      try {
-        let parsedBody: unknown = undefined;
-        if (req.method === "POST") {
-          const chunks: Buffer[] = [];
-          for await (const chunk of req) {
-            chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
-          }
-          const raw = Buffer.concat(chunks).toString("utf-8");
-          if (raw.trim()) {
-            try {
-              parsedBody = JSON.parse(raw);
-            } catch {
-              // 由 transport 处理解析异常
-            }
-          }
-        }
-        await transport.handleRequest(req, res, parsedBody);
-      } catch (err: any) {
-        console.error("[MCP Server] Streamable HTTP request error:", err);
-        if (!res.headersSent) {
-          res.writeHead(500).end("Streamable HTTP error");
-        }
-      }
-      return;
-    }
-
-    res.writeHead(404, { "Content-Type": "text/plain" }).end("Not found");
-  });
-
-  const parsedPort = process.env.MCP_PORT
-    ? parseInt(process.env.MCP_PORT, 10)
-    : preferredPort;
-
-  const boundPort = await listenWithCascade(httpServer, parsedPort);
-  activeServer = httpServer;
-  activeInfo = {
-    port: boundPort,
-    url: `http://127.0.0.1:${boundPort}/mcp`,
-    name: "studio-ui",
-    version: "1.0.0",
-  };
-
-  console.log(`[MCP Server] Studio UI MCP Server running at ${activeInfo.url} (Streamable HTTP)`);
-  return activeInfo;
+function forgetSession(runtime: McpUiRuntime, session: McpUiSession): void {
+  const id = session.transport.sessionId;
+  if (id && runtime.sessions.get(id) === session) runtime.sessions.delete(id);
 }
 
-/**
- * Gracefully shuts down the MCP UI Server.
- */
-export async function stopMcpUiServer(): Promise<void> {
-  if (!activeServer) return;
+function closeSession(runtime: McpUiRuntime, session: McpUiSession): Promise<void> {
+  if (session.closing) return session.closing;
+  session.closed = true;
+  forgetSession(runtime, session);
+  // Protocol.close also closes its transport, terminating only this session's streams.
+  session.closing = session.mcp.close().finally(() => runtime.connections.delete(session));
+  return session.closing;
+}
 
-  if (activeTransport) {
-    try {
-      await activeTransport.close();
-    } catch {}
-    activeTransport = null;
-  }
-  if (activeMcp) {
-    try {
-      await activeMcp.close();
-    } catch {}
-    activeMcp = null;
-  }
+function rpcError(res: http.ServerResponse, status: number, code: number, message: string): void {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }));
+}
 
-  await new Promise<void>((resolve) => {
-    activeServer?.close(() => resolve());
+function trackRequest(session: McpUiSession, res: http.ServerResponse): void {
+  session.lastActivity = Date.now();
+  session.requests++;
+  let completed = false;
+  const complete = () => {
+    if (completed) return;
+    completed = true;
+    session.requests--;
+    session.lastActivity = Date.now();
+    res.removeListener("finish", complete);
+    res.removeListener("close", complete);
+  };
+  // Track the response lifetime, including uploads and long-lived SSE streams.
+  res.once("finish", complete);
+  res.once("close", complete);
+}
+
+async function handleMcpRequest(runtime: McpUiRuntime, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  let session: McpUiSession | undefined;
+  let created = false;
+  try {
+    if (runtime.stopping) { rpcError(res, 503, -32000, "MCP server is stopping"); return; }
+    const id = req.headers["mcp-session-id"];
+    if (typeof id === "string") {
+      session = runtime.sessions.get(id);
+      if (!session || session.closed) { rpcError(res, 404, -32001, "MCP session not found"); return; }
+      // Protect the session from idle eviction while the request body is arriving.
+      trackRequest(session, res);
+    }
+    let body: unknown;
+    if (req.method === "POST") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+      catch { rpcError(res, 400, -32700, "Parse error"); return; }
+    }
+
+    if (!session && req.method === "POST" && isInitializeRequest(body)) {
+      created = true;
+      const mcp = createMcpUiServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        enableJsonResponse: true,
+        onsessioninitialized: sessionId => {
+          if (runtime.stopping || session!.closed) throw new Error("MCP server is stopping");
+          runtime.sessions.set(sessionId, session!);
+        },
+        onsessionclosed: () => forgetSession(runtime, session!),
+      });
+      session = { mcp, transport, lastActivity: Date.now(), requests: 0, closed: false };
+      runtime.connections.add(session);
+      await mcp.connect(transport);
+      const protocolOnClose = transport.onclose;
+      // Preserve the SDK's protocol cleanup when removing our routing entry.
+      transport.onclose = () => {
+        session!.closed = true;
+        forgetSession(runtime, session!);
+        runtime.connections.delete(session!);
+        protocolOnClose?.();
+      };
+    } else if (!session) {
+      rpcError(res, 400, -32000, "Initialize a new MCP session or provide Mcp-Session-Id");
+      return;
+    }
+
+    if (runtime.stopping || session.closed) {
+      await closeSession(runtime, session);
+      rpcError(res, 503, -32000, "MCP server is stopping");
+      return;
+    }
+    if (created) trackRequest(session, res);
+    await session.transport.handleRequest(req, res, body);
+  } catch (err) {
+    console.error("[MCP Server] Streamable HTTP request error:", err);
+    if (!res.headersSent && !res.destroyed) rpcError(res, 500, -32603, "Internal MCP error");
+    else if (!res.writableEnded) res.end();
+  } finally {
+    // Invalid/aborted handshakes must not leave an unrouteable server behind.
+    if (created && session && (!session.transport.sessionId || res.statusCode >= 400 || res.destroyed && !res.writableFinished)) {
+      await closeSession(runtime, session).catch(err => console.error("[MCP Server] Session cleanup failed:", err));
+    }
+  }
+}
+
+async function closeRuntime(runtime: McpUiRuntime): Promise<void> {
+  runtime.stopping = true;
+  clearInterval(runtime.sweep);
+  // Stop accepting clients first; closing transports releases open SSE responses.
+  const stopped = new Promise<void>(resolve => runtime.server.close(() => resolve()));
+  await Promise.allSettled([...runtime.connections].map(session => closeSession(runtime, session)));
+  runtime.sessions.clear();
+  runtime.connections.clear();
+  runtime.server.closeAllConnections();
+  await stopped;
+}
+
+/** One HTTP listener, with independent MCP protocol state per client connection. */
+export function startMcpUiServer(preferredPort = 13920, options: McpUiServerOptions = {}): Promise<McpServerInfo> {
+  return withLifecycle(async () => {
+    if (activeRuntime?.info) return activeRuntime.info;
+    const idleTimeout = options.sessionIdleTimeoutMs ?? 60 * 60 * 1000;
+    const sweepInterval = options.sessionSweepIntervalMs ?? 60 * 1000;
+    if (![idleTimeout, sweepInterval].every(value => Number.isFinite(value) && value > 0)) {
+      throw new Error("MCP session timeouts must be positive finite numbers");
+    }
+    const runtime: McpUiRuntime = {
+      server: http.createServer(), info: null, sessions: new Map(), connections: new Set(), stopping: false,
+    };
+    runtime.server.on("request", (req, res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, Mcp-Session-Id, Mcp-Protocol-Version");
+      res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id, Mcp-Protocol-Version");
+      if (req.method === "OPTIONS") { res.writeHead(204).end(); return; }
+      const pathname = new URL(req.url || "/", "http://127.0.0.1").pathname;
+      if (pathname === "/" || pathname === "/health") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, name: "studio-ui", version: "1.0.0", port: runtime.info?.port,
+          endpoint: runtime.info?.url, activeSessions: runtime.sessions.size }));
+      } else if (pathname === "/mcp") {
+        void handleMcpRequest(runtime, req, res);
+      } else res.writeHead(404, { "Content-Type": "text/plain" }).end("Not found");
+    });
+    try {
+      const port = process.env.MCP_PORT ? Number(process.env.MCP_PORT) : preferredPort;
+      const boundPort = await listenWithCascade(runtime.server, port);
+      runtime.info = { port: boundPort, url: `http://127.0.0.1:${boundPort}/mcp`, name: "studio-ui", version: "1.0.0" };
+      runtime.sweep = setInterval(() => {
+        const cutoff = Date.now() - idleTimeout;
+        for (const session of runtime.connections) {
+          if (!session.requests && session.lastActivity <= cutoff) {
+            void closeSession(runtime, session).catch(err => console.error("[MCP Server] Idle session cleanup failed:", err));
+          }
+        }
+      }, sweepInterval);
+      runtime.sweep.unref();
+      activeRuntime = runtime;
+      console.log(`[MCP Server] Studio UI MCP Server running at ${runtime.info.url} (Streamable HTTP)`);
+      return runtime.info;
+    } catch (err) {
+      await closeRuntime(runtime);
+      throw err;
+    }
   });
+}
 
-  activeServer = null;
-  activeInfo = null;
-  console.log("[MCP Server] Studio UI MCP Server stopped.");
+/** Close every session and release the listener before permitting a restart. */
+export function stopMcpUiServer(): Promise<void> {
+  return withLifecycle(async () => {
+    const runtime = activeRuntime;
+    if (!runtime) return;
+    activeRuntime = null;
+    await closeRuntime(runtime);
+    console.log("[MCP Server] Studio UI MCP Server stopped.");
+  });
 }
