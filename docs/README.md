@@ -29,7 +29,7 @@
       "type": "custom",
       "command": "d:\\project\\js\\Electron\\antigravity-acp\\run-zed-acp-silent.exe",
       "args": [
-        "d:\\project\\js\\Electron\\antigravity-acp\\scratch\\repos\\yitom486-agy-acp-map\\src\\sdk-server.ts"
+        "d:\\project\\js\\agy-acp-map\\src\\sdk-server.ts"
       ],
       "env": {
         "HTTP_PROXY": "http://127.0.0.1:7897",

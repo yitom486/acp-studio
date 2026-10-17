@@ -190,8 +190,7 @@ acp-studio/
 │   └── components/              # 聊天、侧边栏、终端、git、审批等组件
 ├── desktop/                     # Electron 主进程、preload、构建脚本
 ├── tests/                       # Vitest 测试（含离线 mock ACP agent）
-├── docs/                        # 协议、Zed 集成、认证等文档
-└── scratch/repos/yitom486-agy-acp-map   # Antigravity 桥接库（git submodule，仅联调用）
+└── docs/                        # 协议、Zed 集成、认证等文档
 ```
 
 ## 路线图
