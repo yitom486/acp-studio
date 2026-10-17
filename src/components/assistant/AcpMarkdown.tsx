@@ -7,7 +7,8 @@ import {
 } from "@assistant-ui/react-markdown";
 import "@assistant-ui/react-markdown/styles/dot.css";
 import remarkGfm from "remark-gfm";
-import { Check, Copy } from "lucide-react";
+import rehypeRaw from "rehype-raw";
+import { Check, Copy, Info, Lightbulb, AlertCircle, AlertTriangle, ShieldAlert } from "lucide-react";
 import { useMessagePartText, type TextMessagePartComponent } from "@assistant-ui/react";
 import { closeOpenFences, hasMath } from "@/lib/markdown-preprocess";
 import { getMathPlugins, loadMathPlugins, subscribeMath } from "@/components/assistant/math-plugins";
@@ -132,6 +133,105 @@ export const AcpSyntaxHighlighter: React.FC<{
   );
 };
 
+const ALERT_STYLES: Record<string, {
+  border: string;
+  bg: string;
+  text: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+}> = {
+  NOTE: {
+    border: "border-blue-500/30",
+    bg: "bg-blue-500/10",
+    text: "text-blue-500",
+    icon: Info,
+    label: "Note",
+  },
+  TIP: {
+    border: "border-emerald-500/30",
+    bg: "bg-emerald-500/10",
+    text: "text-emerald-500",
+    icon: Lightbulb,
+    label: "Tip",
+  },
+  IMPORTANT: {
+    border: "border-purple-500/30",
+    bg: "bg-purple-500/10",
+    text: "text-purple-500",
+    icon: AlertCircle,
+    label: "Important",
+  },
+  WARNING: {
+    border: "border-amber-500/30",
+    bg: "bg-amber-500/10",
+    text: "text-amber-500",
+    icon: AlertTriangle,
+    label: "Warning",
+  },
+  CAUTION: {
+    border: "border-rose-500/30",
+    bg: "bg-rose-500/10",
+    text: "text-rose-500",
+    icon: ShieldAlert,
+    label: "Caution",
+  },
+};
+
+export const AcpBlockquote: React.FC<{ className?: string; children?: React.ReactNode }> = ({ className, children, ...props }) => {
+  const childArray = React.Children.toArray(children);
+  const contentChildren = childArray.filter(
+    (c) => typeof c !== "string" || c.trim().length > 0
+  );
+  const firstChild = contentChildren[0];
+
+  if (React.isValidElement(firstChild) && (firstChild.props as any)?.children) {
+    const pChildren = React.Children.toArray((firstChild.props as any).children);
+    const firstText = typeof pChildren[0] === "string" ? pChildren[0] : "";
+    const match = firstText.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(\n)?/i);
+
+    if (match) {
+      const alertType = match[1].toUpperCase();
+      const style = ALERT_STYLES[alertType] || ALERT_STYLES.NOTE;
+      const Icon = style.icon;
+      const restText = firstText.slice(match[0].length);
+      const remainingPChildren = restText ? [restText, ...pChildren.slice(1)] : pChildren.slice(1);
+      const newFirstChild = React.cloneElement(firstChild as React.ReactElement<any>, {}, ...remainingPChildren);
+      const otherChildren = contentChildren.slice(1);
+
+      return (
+        <div
+          data-alert={alertType.toLowerCase()}
+          className={cn(
+            "my-3 rounded-lg border px-3.5 py-2.5 text-xs text-foreground shadow-xs leading-relaxed",
+            style.border,
+            style.bg,
+            className
+          )}
+          {...props}
+        >
+          <div className={cn("flex items-center gap-1.5 font-semibold text-[12px] mb-1 select-none", style.text)}>
+            <Icon className="w-3.5 h-3.5 shrink-0" />
+            <span>{style.label}</span>
+          </div>
+          <div className="space-y-1.5 [&>p]:my-1">
+            {newFirstChild}
+            {otherChildren}
+          </div>
+        </div>
+      );
+    }
+  }
+
+  return (
+    <blockquote
+      className={cn("my-2 border-l-2 border-primary/50 pl-3 text-muted-foreground italic", className)}
+      {...props}
+    >
+      {children}
+    </blockquote>
+  );
+};
+
 /** 与旧 Markdown.tsx 一致的 Tailwind 映射，经 memoize stable 化避免流式重渲染。 */
 const acpComponents = memoizeMarkdownComponents({
   h1: ({ className, ...props }: any) => (
@@ -158,9 +258,7 @@ const acpComponents = memoizeMarkdownComponents({
   li: ({ className, ...props }: any) => (
     <li className={cn("leading-relaxed", className)} {...props} />
   ),
-  blockquote: ({ className, ...props }: any) => (
-    <blockquote className={cn("my-2 border-l-2 border-primary/50 pl-3 text-muted-foreground", className)} {...props} />
-  ),
+  blockquote: AcpBlockquote,
   a: ({ className, href, children, ...props }: any) => {
     if (!isSafeLinkHref(href)) {
       return <span className="text-muted-foreground">{children}</span>;
@@ -234,6 +332,63 @@ const acpComponents = memoizeMarkdownComponents({
     }
     return <AcpImageView src={src} alt={typeof alt === "string" ? alt : undefined} />;
   },
+  kbd: ({ className, ...props }: any) => (
+    <kbd
+      className={cn(
+        "inline-flex items-center justify-center font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded border border-border bg-muted/80 text-foreground shadow-xs select-all mx-0.5 align-middle tracking-tight",
+        className
+      )}
+      {...props}
+    />
+  ),
+  mark: ({ className, ...props }: any) => (
+    <mark className={cn("bg-primary/20 text-foreground px-1 py-0.5 rounded font-medium", className)} {...props} />
+  ),
+  del: ({ className, ...props }: any) => (
+    <del className={cn("line-through opacity-70", className)} {...props} />
+  ),
+  s: ({ className, ...props }: any) => (
+    <s className={cn("line-through opacity-70", className)} {...props} />
+  ),
+  ins: ({ className, ...props }: any) => (
+    <ins className={cn("underline underline-offset-2 decoration-primary", className)} {...props} />
+  ),
+  u: ({ className, ...props }: any) => (
+    <u className={cn("underline underline-offset-2", className)} {...props} />
+  ),
+  sub: ({ className, ...props }: any) => (
+    <sub className={cn("text-[10px] align-sub", className)} {...props} />
+  ),
+  sup: ({ className, ...props }: any) => (
+    <sup className={cn("text-[10px] align-super", className)} {...props} />
+  ),
+  abbr: ({ className, ...props }: any) => (
+    <abbr
+      className={cn("underline decoration-dotted underline-offset-4 cursor-help", className)}
+      {...props}
+    />
+  ),
+  details: ({ className, ...props }: any) => (
+    <details
+      className={cn(
+        "my-2 rounded-lg border border-border bg-muted/30 p-2.5 text-xs transition-colors open:bg-muted/50",
+        className
+      )}
+      {...props}
+    />
+  ),
+  summary: ({ className, ...props }: any) => (
+    <summary
+      className={cn(
+        "font-medium text-foreground cursor-pointer select-none outline-none py-0.5 hover:text-primary transition-colors flex items-center gap-1.5",
+        className
+      )}
+      {...props}
+    />
+  ),
+  span: ({ className, ...props }: any) => <span className={className} {...props} />,
+  div: ({ className, ...props }: any) => <div className={className} {...props} />,
+  section: ({ className, ...props }: any) => <section className={className} {...props} />,
   CodeHeader: AcpCodeHeader,
   SyntaxHighlighter: AcpSyntaxHighlighter,
 });
@@ -300,6 +455,7 @@ const customByLanguage = {
 };
 
 const BASE_REMARK = [remarkGfm];
+const BASE_REHYPE = [rehypeRaw];
 const fencesOnly = (t: string) => closeOpenFences(t);
 
 export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
@@ -313,7 +469,7 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   }, [needsMath, math]);
   const useMath = needsMath && !!math;
   const remarkPlugins = useMemo(() => (useMath ? [...BASE_REMARK, ...math!.remark] : BASE_REMARK), [useMath, math]);
-  const rehypePlugins = useMemo(() => (useMath ? math!.rehype : undefined), [useMath, math]);
+  const rehypePlugins = useMemo(() => (useMath ? [rehypeRaw, ...math!.rehype] : BASE_REHYPE), [useMath, math]);
   const preprocess = useMemo(() => (useMath ? (t: string) => closeOpenFences(math!.preprocess(t)) : fencesOnly), [useMath, math]);
   return (
     <MarkdownTextPrimitive
