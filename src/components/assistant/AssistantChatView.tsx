@@ -885,10 +885,10 @@ const AssistantMessageView: React.FC<{
           <MessageBubble
             variant="outline"
             className="w-full max-w-full"
-            layout={process.env.NODE_ENV === "test" ? false : "size"}
+            layout={false}
           >
             <MessageBubbleContent
-              layout={process.env.NODE_ENV === "test" ? false : "size"}
+              layout={false}
               className="w-full max-w-full rounded-2xl p-4 sm:p-5 space-y-3 text-foreground shadow-xs"
             >
               <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">
@@ -966,7 +966,7 @@ const AssistantMessageView: React.FC<{
                     : 0
                 }
                 collapseOnComplete={true}
-                contentClassName="max-h-[196px]"
+                maxHeight={280}
                 activeLabel={
                   <ThinkingShimmer duration={1.8} className="font-medium text-foreground">
                     {liveLabel}

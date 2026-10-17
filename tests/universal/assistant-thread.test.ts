@@ -491,7 +491,7 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     // 展示 2/3 成功比例，而不是纯吓人的“有失败”
     expect(el.innerHTML).toContain("2/3 成功");
     expect(el.innerHTML).toContain("1 次失败/重试");
-    expect(el.innerHTML).toContain("max-h-[196px]");
+    expect(el.innerHTML).toContain("data-state=\"closed\"");
     root.unmount();
     el.remove();
   });
@@ -528,11 +528,10 @@ describe("assistant-ui ACP thread (client smoke)", () => {
           h(AssistantChatView, { agentName: "Codex", onSelectSuggestion: () => {} } as any))
       );
     });
-    // 流式输出期间应处于展开状态（grid-rows-[1fr]），且具备 196px 高度限制的滚动容器
-    expect(el.innerHTML).toContain("grid-rows-[1fr]");
-    expect(el.innerHTML).toContain("max-h-[196px]");
-    expect(el.innerHTML).toContain("正在调用");
+    // 流式输出期间应处于工作状态，展示工具列表与计数
+    expect(el.innerHTML).toContain("data-state=\"working\"");
     expect(el.innerHTML).toContain("工具调用 · 6");
+    expect(el.innerHTML).toContain("read file 6");
     root.unmount();
     el.remove();
   });
