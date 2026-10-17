@@ -61,6 +61,7 @@ export interface AgentActivityTrace {
   detail?: ReactNode;
   icon?: ReactNode;
   fullContent?: ReactNode;
+  defaultExpanded?: boolean;
 }
 
 export interface AgentActivityCustom {

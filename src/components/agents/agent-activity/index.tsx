@@ -151,11 +151,11 @@ export function AgentActivity({
   const contentType = items.length
     ? getContentType(items)
     : (initialContentType ?? "mixed");
-  const cappedHeight = Math.min(contentHeight, Math.max(0, maxHeight));
-  const viewportHeight = working ? Math.max(0, maxHeight) : cappedHeight;
   const capped = contentHeight > maxHeight;
-  const streamOffset = working
-    ? Math.min(0, viewportHeight - contentHeight)
+  const cappedHeight = contentHeight > 0 ? Math.min(contentHeight, Math.max(0, maxHeight)) : undefined;
+  const viewportHeight = cappedHeight;
+  const streamOffset = working && contentHeight > maxHeight
+    ? Math.min(0, maxHeight - contentHeight)
     : 0;
 
   useLayoutEffect(() => {
@@ -245,7 +245,7 @@ export function AgentActivity({
           ref={viewportRef}
           className={cn(
             "scrollbar-hide pr-1",
-            capped && expanded && !working ? "overflow-y-auto" : "overflow-y-hidden",
+            capped && expanded ? "overflow-y-auto" : "overflow-y-hidden",
           )}
           style={{ height: viewportHeight, maskImage, WebkitMaskImage: maskImage }}
         >

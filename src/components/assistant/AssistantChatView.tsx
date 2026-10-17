@@ -615,9 +615,10 @@ const AssistantMessageView: React.FC<{
             {doneMs != null ? ` · 用时 ${fmtElapsed(doneMs)}` : ""})
           </span>
         ),
+        defaultExpanded: true,
         fullContent: (
-          <div className="relative mt-1 pl-3 border-l border-line text-[12.5px] leading-relaxed text-ink-2 font-sans break-words whitespace-pre-wrap">
-            {acp.thought}
+          <div className="relative mt-1 pl-3 border-l-2 border-primary/40 text-[12.5px] leading-relaxed text-muted-foreground font-sans break-words max-h-[300px] overflow-y-auto overscroll-contain select-text">
+            <AcpStandaloneMarkdown content={acp.thought} />
           </div>
         ),
       });

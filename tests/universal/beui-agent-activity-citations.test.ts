@@ -171,4 +171,41 @@ describe("Stage 2: beUI AgentActivity & Citations", () => {
     });
     el.remove();
   });
+
+  it("renders AgentActivity thinking trace with defaultExpanded fullContent visible", async () => {
+    const { AgentActivity: AgentActivityNew } = await import("@/components/agents/agent-activity");
+    const items = [
+      {
+        id: "thought-1",
+        type: "trace" as const,
+        kind: "thinking" as const,
+        label: "思考过程",
+        detail: "(111 字)",
+        fullContent: h("div", { "data-testid": "thought-body" }, "深入分析 VSCode 渲染架构限制..."),
+      },
+    ];
+
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+
+    await act(async () => {
+      root.render(
+        h(AgentActivityNew, {
+          items,
+          status: "working",
+          duration: 2.5,
+        }),
+      );
+    });
+
+    const thoughtBody = el.querySelector('[data-testid="thought-body"]');
+    expect(thoughtBody).toBeTruthy();
+    expect(thoughtBody?.textContent).toContain("深入分析 VSCode 渲染架构限制...");
+
+    await act(async () => {
+      root.unmount();
+    });
+    el.remove();
+  });
 });

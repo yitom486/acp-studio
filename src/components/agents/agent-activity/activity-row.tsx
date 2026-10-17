@@ -242,7 +242,9 @@ function TraceIcon({ kind }: { kind: AgentActivityTrace["kind"] }) {
 }
 
 function TraceRow({ item }: { item: AgentActivityTrace }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(
+    item.defaultExpanded ?? (item.kind === "thinking")
+  );
   const hasFullContent = Boolean(item.fullContent);
 
   return (
