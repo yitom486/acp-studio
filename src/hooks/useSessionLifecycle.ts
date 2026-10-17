@@ -256,10 +256,18 @@ export function useSessionLifecycle({
       const active = agents.find(
         (a) => a.id === useStudioStore.getState().activeAgentId
       );
-      if (active?.status?.connected && ensuredRef.current !== active.id) {
+      if (active && ensuredRef.current !== active.id) {
         ensuredRef.current = active.id;
-        // Resume-first: never abandon the restored thread's session on boot.
-        await resolveSession(active.id);
+        try {
+          if (!active.status?.connected) {
+            await connectAgent(active.id);
+            invalidateAgents(qc);
+          }
+          // Resume-first: never abandon the restored thread's session on boot.
+          await resolveSession(active.id);
+        } catch (err) {
+          console.warn("[App] Eager pre-warm active agent failed:", err);
+        }
       }
       await probes;
     })();
@@ -278,11 +286,19 @@ export function useSessionLifecycle({
       // ever enters the live view.
       if (!restoreThread(id)) newThread(id);
       const target = agentsRef.current.find((a) => a.id === id);
-      if (target?.status?.connected) {
-        invalidateSessions(qc, id);
-        // Resume this agent's remembered session; only news when none/fails.
-        void resolveSession(id);
-      }
+      invalidateSessions(qc, id);
+      // Pre-warm selected agent in background
+      void (async () => {
+        try {
+          if (!target?.status?.connected) {
+            await connectAgent(id);
+            invalidateAgents(qc);
+          }
+          await resolveSession(id);
+        } catch (err) {
+          console.warn(`[App] Eager connect on agent select (${id}) failed:`, err);
+        }
+      })();
     },
     [qc, agentsRef, abortRef, resolveSession]
   );
@@ -384,8 +400,22 @@ export function useSessionLifecycle({
       st.setBusy(false);
       st.setSessionError(null);
       st.setSessionLoading(false);
+
+      // Prewarm new session in background so first user message doesn't block on session/new
+      void (async () => {
+        try {
+          const known = agentsRef.current.find((a) => a.id === agentId)?.status?.connected;
+          if (!known) {
+            await connectAgent(agentId);
+            invalidateAgents(qc);
+          }
+          await ensureSession(agentId, true);
+        } catch (err) {
+          console.warn(`[App] Prewarm new session for ${agentId} failed:`, err);
+        }
+      })();
     },
-    []
+    [qc, agentsRef, ensureSession]
   );
 
   /** Open a session from the sidebar: optimistic 0ms switch + background server sync. */
