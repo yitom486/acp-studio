@@ -12,7 +12,7 @@ import { gitStatus, searchWorkspace, type SearchMatch } from "@/lib/universal-ap
 import { openDiff, openFile, applyWatchEvents } from "@/lib/workbench-actions";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { cn } from "@/lib/utils";
-import { ACP_PATH_MIME, encodeDragRefs } from "@/lib/composer-drop";
+import { ACP_PATH_MIME, encodeDragRefs, setActiveDragRefs } from "@/lib/composer-drop";
 import { reportError } from "@/lib/error-bus";
 
 interface TreeNode {
@@ -375,14 +375,20 @@ export const FileTreePanel: React.FC<{ cwd: string | null }> = ({ cwd }) => {
             "group relative flex h-full items-center gap-1.5 pr-2 text-xs cursor-pointer select-none rounded-md transition-colors",
             node.isSelected ? "bg-accent/85 font-medium text-foreground ring-1 ring-border/50" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
             node.isFocused && !node.isSelected && "bg-accent/35",
-            d.id === activeId && !node.isSelected && "text-foreground font-medium",
+            d.id === activeId && !node.isSelected && "text-foreground font-medium"
           )}
+          draggable={true}
           onDragStart={(e) => {
             // 拖到聊天输入框 = @ 引用（文件树内部移动仍由 react-dnd 处理）
             if (d.type === "other") return;
-            e.dataTransfer.setData(ACP_PATH_MIME, encodeDragRefs([{ path: d.id, kind: isDir ? "dir" : "file" }]));
+            const refs = [{ path: d.id, kind: isDir ? ("dir" as const) : ("file" as const) }];
+            setActiveDragRefs(refs);
+            e.dataTransfer.setData(ACP_PATH_MIME, encodeDragRefs(refs));
             e.dataTransfer.setData("text/plain", `@${d.id}${isDir ? "/" : ""}`);
             e.dataTransfer.effectAllowed = "copyMove";
+          }}
+          onDragEnd={() => {
+            setActiveDragRefs(null);
           }}
           onClick={() => {
             if (isDir) node.toggle();

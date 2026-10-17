@@ -31,7 +31,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { configCurrentValue, findConfigOption, extractModelThinking, searchWorkspaceFiles, readWorkspaceFile, type Attachment, type ConfigOptionLike, type ModelCatalogEntry, type WorkspaceFileEntry } from "@/lib/universal-api";
 import { matchMentionToken, applyMentionInsert, buildMentionAttachment, formatFileSize } from "@/lib/mention";
-import { ACP_PATH_MIME, decodeDragRefs, relativeToWorkspace, classifyOutsideFile, collectFolderFiles, stripMentionText, FOLDER_FILE_CAP, OUTSIDE_FILE_MAX, type DragRef } from "@/lib/composer-drop";
+import { ACP_PATH_MIME, decodeDragRefs, getActiveDragRefs, relativeToWorkspace, classifyOutsideFile, collectFolderFiles, stripMentionText, FOLDER_FILE_CAP, OUTSIDE_FILE_MAX, type DragRef } from "@/lib/composer-drop";
 import { fsList } from "@/lib/fs-api";
 import { matchSlashToken, replaceSlashToken, mergeCommands, filterCommands, type SlashCommand } from "@/lib/slash-commands";
 import { ACP_INSERT_SNIPPET_EVENT, ACP_COMPOSER_DROP_EVENT, formatSnippetPrompt, type CodeSnippetPayload, type ComposerDropPayload } from "@/lib/composer-bridge";
@@ -376,35 +376,63 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     let text = aui.composer.getState().text;
     const notes: string[] = [];
     const have = new Set(p.attachments.map((a) => a.mention?.path).filter(Boolean));
+
     for (const r of refs) {
+      // 保证用户拖入的 @引用 文本一定被记录进输入框
+      const label = r.kind === "dir" ? `${r.path.replace(/\/$/, "")}/` : r.path;
+      text = `${text}${text && !/\s$/.test(text) ? " " : ""}@${label} `;
+
       try {
-        let paths = [r.path];
         if (r.kind === "dir") {
-          const { files, truncated } = await collectFolderFiles(r.path, (d) => fsList(cwd, d));
-          paths = files;
-          if (truncated) notes.push(`文件夹 ${r.path || "."} 只引用了前 ${FOLDER_FILE_CAP} 个文件`);
-          if (!files.length) notes.push(`文件夹 ${r.path} 里没有可引用的文件`);
+          let files: string[] = [];
+          try {
+            const res = await collectFolderFiles(r.path, (d) => fsList(cwd, d));
+            files = res.files;
+            if (res.truncated) notes.push(`文件夹 ${r.path || "."} 只引用了前 ${FOLDER_FILE_CAP} 个文件`);
+          } catch (e: any) {
+            notes.push(`遍历文件夹 ${r.path} 失败：${e.message}`);
+          }
+          for (const fp of files) {
+            if (have.has(fp)) continue;
+            try {
+              const f = await readWorkspaceFile(cwd, fp);
+              have.add(fp);
+              added.push({ ...buildMentionAttachment(f), mention: { path: fp, kind: "file" } });
+            } catch {
+              // 二进制/超限文件无法作为文本附件，已保留 @ 引用
+            }
+          }
+        } else {
+          if (!have.has(r.path)) {
+            try {
+              const f = await readWorkspaceFile(cwd, r.path);
+              have.add(r.path);
+              added.push({ ...buildMentionAttachment(f), mention: { path: r.path, kind: "file" } });
+            } catch {
+              // 读取失败不阻塞 @ 引用文本
+            }
+          }
         }
-        for (const fp of paths) {
-          if (have.has(fp)) continue;
-          have.add(fp);
-          const f = await readWorkspaceFile(cwd, fp);
-          added.push({ ...buildMentionAttachment(f), mention: { path: fp, kind: "file" } });
-        }
-        const label = r.kind === "dir" ? `${r.path}/` : r.path;
-        text = `${text}${text && !/\s$/.test(text) ? " " : ""}@${label} `;
       } catch (err: any) {
         notes.push(`引用 ${r.path} 失败：${err.message}`);
       }
     }
+
     if (added.length) p.setAttachments([...p.attachments, ...added]);
     aui.composer.setText(text);
     if (notes.length) setNotice(notes.join("；"));
+
+    // 自动聚焦输入框
+    requestAnimationFrame(() => {
+      const textarea = document.querySelector<HTMLTextAreaElement>('textarea[data-testid="composer-input"], textarea');
+      textarea?.focus();
+    });
   };
 
   const processDropData = async (payload: ComposerDropPayload) => {
-    if (payload.internalRefs && payload.internalRefs.length) {
-      await addRefs(payload.internalRefs);
+    const internal = (payload.internalRefs && payload.internalRefs.length) ? payload.internalRefs : getActiveDragRefs();
+    if (internal && internal.length) {
+      await addRefs(internal);
       return;
     }
     const cwd = p.currentWorkspace;
@@ -423,6 +451,14 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     if (outside.length) await handleFiles(outside);
     if (outsideDirs) setNotice(`工作区外的文件夹不能直接拖入（${outsideDirs} 个已忽略），请拖入其中的文件。`);
     if (payload.text && !refs.length && !outside.length) {
+      const plain = payload.text.trim();
+      const match = plain.match(/^@([^\s]+)$/);
+      if (match && cwd) {
+        const rawPath = match[1].replace(/\/$/, "");
+        const isDir = plain.endsWith("/");
+        await addRefs([{ path: rawPath, kind: isDir ? "dir" : "file" }]);
+        return;
+      }
       const cur = aui.composer.getState().text;
       aui.composer.setText(cur ? `${cur} ${payload.text}` : payload.text);
     }
@@ -433,11 +469,16 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     setDragOver(false);
     const dt = e.dataTransfer;
     if (!dt) return;
+
+    // 1. 优先提取内部拖拽引用（自定义 MIME 或全局活动引用）
     const internal = decodeDragRefs(dt.getData(ACP_PATH_MIME));
-    if (internal.length) {
-      await addRefs(internal);
+    const activeRefs = internal.length ? internal : getActiveDragRefs();
+    if (activeRefs && activeRefs.length) {
+      await addRefs(activeRefs);
       return;
     }
+
+    // 2. 检查从 OS 拖入的文件/目录（通过 DataTransfer.files / webkitGetAsEntry）
     const cwd = p.currentWorkspace;
     const refs: DragRef[] = [];
     const outside: File[] = [];
@@ -455,6 +496,22 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     if (refs.length) await addRefs(refs);
     if (outside.length) await handleFiles(outside);
     if (outsideDirs) setNotice(`工作区外的文件夹不能直接拖入（${outsideDirs} 个已忽略），请拖入其中的文件。`);
+
+    // 3. 兜底纯文本拖拽（如由别处拖来的 @文件路径）
+    if (!refs.length && !outside.length) {
+      const plain = dt.getData("text/plain")?.trim();
+      if (plain) {
+        const match = plain.match(/^@([^\s]+)$/);
+        if (match && cwd) {
+          const rawPath = match[1].replace(/\/$/, "");
+          const isDir = plain.endsWith("/");
+          await addRefs([{ path: rawPath, kind: isDir ? "dir" : "file" }]);
+          return;
+        }
+        const cur = aui.composer.getState().text;
+        aui.composer.setText(cur ? `${cur} ${plain}` : plain);
+      }
+    }
   };
 
   useEffect(() => {
@@ -650,8 +707,15 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                 ? "border-signal/60"
                 : "border-input focus-within:border-ring/70"
             }`}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+              if (!dragOver) setDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+              setDragOver(false);
+            }}
             onDrop={(e) => void handleDrop(e)}
           >
             {dragOver && (

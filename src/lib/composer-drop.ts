@@ -14,6 +14,16 @@ export interface DragRef {
   kind: "file" | "dir";
 }
 
+let activeDragRefs: DragRef[] | null = null;
+
+export function setActiveDragRefs(refs: DragRef[] | null) {
+  activeDragRefs = refs;
+}
+
+export function getActiveDragRefs(): DragRef[] | null {
+  return activeDragRefs;
+}
+
 export function encodeDragRefs(refs: DragRef[]): string {
   return JSON.stringify(refs);
 }

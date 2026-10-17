@@ -90,7 +90,7 @@ import { ReasoningText } from "@/components/agents/loading-states/reasoning-text
 import { TextScramble } from "@/components/motion/text-scramble";
 import { TextShimmer } from "@/components/motion/text-shimmer";
 import { FolderDown } from "lucide-react";
-import { ACP_PATH_MIME, decodeDragRefs } from "@/lib/composer-drop";
+import { ACP_PATH_MIME, decodeDragRefs, getActiveDragRefs } from "@/lib/composer-drop";
 import { sendDropToComposer } from "@/lib/composer-bridge";
 
 export interface AssistantChatViewProps {
@@ -1277,7 +1277,7 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
     setDragOver(false);
     const dt = e.dataTransfer;
     if (!dt) return;
-    const internalRefs = decodeDragRefs(dt.getData(ACP_PATH_MIME));
+    const internalRefs = decodeDragRefs(dt.getData(ACP_PATH_MIME)) || getActiveDragRefs() || [];
     const files = Array.from(dt.files || []);
     const text = dt.getData("text/plain");
     sendDropToComposer({

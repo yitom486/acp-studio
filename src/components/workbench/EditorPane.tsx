@@ -13,6 +13,7 @@ import { baseExtensions, languageFor, setFlashLines } from "./codemirror-setup";
 import { cn } from "@/lib/utils";
 import { AcpStandaloneMarkdown } from "@/components/assistant/AcpMarkdown";
 import { sendSnippetToComposer } from "@/lib/composer-bridge";
+import { ACP_PATH_MIME, encodeDragRefs, setActiveDragRefs } from "@/lib/composer-drop";
 
 const NotebookViewer = lazy(() => import("./NotebookViewer"));
 const MarkdownWysiwyg = lazy(() => import("./MarkdownWysiwyg"));
@@ -42,15 +43,54 @@ function buildState(tab: EditorTab, onChange: (text: string) => void): EditorSta
   });
 }
 
+interface SelectionInfo {
+  fromLine: number;
+  toLine: number;
+  code: string;
+  top: number;
+  left: number;
+  visible: boolean;
+}
+
+function computeSelectionCoords(v: EditorView, hostEl: HTMLElement): { top: number; left: number; visible: boolean } {
+  const sel = v.state.selection.main;
+  if (sel.empty) return { top: 0, left: 0, visible: false };
+
+  // 坐标基于选区尾部（光标所在行位置）
+  const coords = v.coordsAtPos(sel.to) || v.coordsAtPos(sel.head);
+  if (!coords) return { top: 0, left: 0, visible: false };
+
+  const hostRect = hostEl.getBoundingClientRect();
+  // 选区是否滚动到可视窗口外
+  if (coords.bottom < hostRect.top || coords.top > hostRect.bottom) {
+    return { top: 0, left: 0, visible: false };
+  }
+
+  const PILL_WIDTH = 220;
+  const PILL_HEIGHT = 28;
+
+  // 紧随选中代码行旁边浮动（就在旁边）
+  const targetLeft = coords.right - hostRect.left + 12;
+  const maxLeft = Math.max(16, hostRect.width - PILL_WIDTH - 16);
+
+  if (targetLeft <= maxLeft) {
+    const top = Math.max(8, Math.min(coords.top - hostRect.top - 2, hostRect.height - PILL_HEIGHT - 8));
+    return { top, left: targetLeft, visible: true };
+  }
+
+  // 若右侧到达边界，浮动在选区下方或上方
+  const left = Math.max(16, Math.min(coords.left - hostRect.left, maxLeft));
+  if (coords.bottom - hostRect.top + PILL_HEIGHT + 8 < hostRect.height) {
+    return { top: coords.bottom - hostRect.top + 6, left, visible: true };
+  }
+  return { top: Math.max(8, coords.top - hostRect.top - PILL_HEIGHT - 6), left, visible: true };
+}
+
 const FileEditor: React.FC<{ tab: EditorTab; cwd: string | null }> = ({ tab, cwd }) => {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const tabId = tab.id;
-  const [selection, setSelection] = useState<{
-    fromLine: number;
-    toLine: number;
-    code: string;
-  } | null>(null);
+  const [selection, setSelection] = useState<SelectionInfo | null>(null);
   const [sentFeedback, setSentFeedback] = useState(false);
 
   const onSelectionRef = useRef(setSelection);
@@ -134,13 +174,14 @@ const FileEditor: React.FC<{ tab: EditorTab; cwd: string | null }> = ({ tab, cwd
           ]),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) onChange(u.state.doc.toString());
-            if (u.selectionSet || u.docChanged) {
+            if (u.selectionSet || u.docChanged || u.geometryChanged) {
               const sel = u.state.selection.main;
-              if (!sel.empty) {
+              if (!sel.empty && host.current) {
                 const fromLine = u.state.doc.lineAt(sel.from).number;
                 const toLine = u.state.doc.lineAt(sel.to).number;
                 const code = u.state.sliceDoc(sel.from, sel.to);
-                onSelectionRef.current({ fromLine, toLine, code });
+                const pos = computeSelectionCoords(u.view, host.current);
+                onSelectionRef.current({ fromLine, toLine, code, ...pos });
               } else {
                 onSelectionRef.current(null);
               }
@@ -150,12 +191,27 @@ const FileEditor: React.FC<{ tab: EditorTab; cwd: string | null }> = ({ tab, cwd
       });
     const v = new EditorView({ state, parent: host.current });
     view.current = v;
+
+    const scrollEl = v.scrollDOM;
+    const handleScroll = () => {
+      const curSel = v.state.selection.main;
+      if (!curSel.empty && host.current) {
+        const fromLine = v.state.doc.lineAt(curSel.from).number;
+        const toLine = v.state.doc.lineAt(curSel.to).number;
+        const code = v.state.sliceDoc(curSel.from, curSel.to);
+        const pos = computeSelectionCoords(v, host.current);
+        onSelectionRef.current({ fromLine, toLine, code, ...pos });
+      }
+    };
+    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+
     let cancelled = false;
     void languageFor(tab.path).then((lang) => {
       if (!cancelled && lang) v.dispatch({ effects: langCompartment.reconfigure(lang) });
     });
     return () => {
       cancelled = true;
+      scrollEl.removeEventListener("scroll", handleScroll);
       states.set(tabId, v.state);
       v.destroy();
       view.current = null;
@@ -186,8 +242,14 @@ const FileEditor: React.FC<{ tab: EditorTab; cwd: string | null }> = ({ tab, cwd
   return (
     <div className="relative h-full overflow-hidden group">
       <div ref={host} className="h-full overflow-hidden" />
-      {selection && (
-        <div className="absolute bottom-4 right-6 z-20 flex items-center gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-150 shadow-lg rounded-full border border-border bg-popover/95 backdrop-blur-md px-3 py-1.5 text-xs text-popover-foreground">
+      {selection && selection.visible && (
+        <div
+          style={{
+            top: `${selection.top}px`,
+            left: `${selection.left}px`,
+          }}
+          className="absolute z-20 flex items-center gap-1.5 animate-in fade-in zoom-in-95 duration-150 shadow-lg rounded-full border border-border bg-popover/95 backdrop-blur-md px-3 py-1.5 text-xs text-popover-foreground transition-[top,left] duration-75 select-none"
+        >
           <Sparkles className="w-3.5 h-3.5 text-signal animate-pulse shrink-0" />
           <span className="font-mono text-[11px] text-muted-foreground mr-0.5">
             {selection.fromLine === selection.toLine ? `L${selection.fromLine}` : `L${selection.fromLine}-L${selection.toLine}`}
@@ -284,6 +346,18 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
               role="tab"
               aria-selected={t.id === activeId}
               title={t.path}
+              draggable={t.kind === "file"}
+              onDragStart={(e) => {
+                if (t.kind !== "file") return;
+                const refs = [{ path: t.path, isDirectory: false }];
+                setActiveDragRefs(refs);
+                e.dataTransfer.setData(ACP_PATH_MIME, encodeDragRefs(refs));
+                e.dataTransfer.setData("text/plain", `@${t.path}`);
+                e.dataTransfer.effectAllowed = "copyMove";
+              }}
+              onDragEnd={() => {
+                setActiveDragRefs(null);
+              }}
               onClick={() => setActive(t.id)}
               onDoubleClick={() => pinTab(t.id)}
               onAuxClick={(e) => e.button === 1 && requestClose(t)}
