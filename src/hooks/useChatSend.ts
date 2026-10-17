@@ -412,6 +412,13 @@ export function useChatSend({
                 }));
                 return;
               }
+              if (a.kind === "compaction_update" || a.kind === "compaction_summary_chunk") {
+                cur.patchMessage(assistantId, (m) => ({
+                  ...m,
+                  statusHint: "正在压缩历史上下文…",
+                }));
+                return;
+              }
               appendActivityMessage(a, now(), assistantId);
             },
             onPermissionRequest: (p) => useStudioStore.getState().addPermission(p),

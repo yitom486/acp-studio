@@ -114,7 +114,7 @@ const ThinkingStateCapsule: React.FC<{ startedAt?: number; statusHint?: string }
     return () => clearInterval(timer);
   }, [startedAt, hasPendingPermission, hasPendingElicitation]);
 
-  let label = `正在思考与分析意图… (${elapsed.toFixed(1)}s)`;
+  let label = `正在思考… (${elapsed.toFixed(1)}s)`;
 
   if (hasPendingPermission) {
     label = "等待用户确认授权…";
@@ -122,10 +122,6 @@ const ThinkingStateCapsule: React.FC<{ startedAt?: number; statusHint?: string }
     label = "等待用户回应提问…";
   } else if (statusHint) {
     label = `${statusHint} (${elapsed.toFixed(1)}s)`;
-  } else if (elapsed > 20) {
-    label = `复杂逻辑推理与计算中… (${elapsed.toFixed(1)}s)`;
-  } else if (elapsed > 8) {
-    label = `深度检索与分析上下文中… (${elapsed.toFixed(1)}s)`;
   }
 
   return (
