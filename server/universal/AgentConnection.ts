@@ -394,6 +394,17 @@ export class UniversalAgentConnection {
           // Keep child output out of the main transcript. A read-only replay subscriber
           // still receives it on the child's own ID.
           self.broadcast(childId, { type: "update", sessionId: childId, update: params.update });
+
+          // Inform parent session sink that child session is actively working
+          const parentSessionId = self.childParents.get(childId);
+          if (parentSessionId) {
+            const childTitle = studioSessions.get(self.profile.id, childId)?.title || "子智能体";
+            self.emitActivity(parentSessionId, "subagent_active", {
+              childId,
+              title: childTitle,
+              updateType: params.update.sessionUpdate,
+            });
+          }
           return;
         }
         if (params.update.sessionUpdate === "session_info_update") {

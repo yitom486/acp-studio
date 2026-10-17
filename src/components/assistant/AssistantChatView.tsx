@@ -97,8 +97,8 @@ export interface AssistantChatViewProps {
 
 // ---------- part renderers (Text 由 AcpMarkdownText 直供 primitive) ----------
 
-/** 智能体首 Token 到达前的思考/等待指示器 (真实状态驱动，无编造步骤) */
-const ThinkingStateCapsule: React.FC<{ startedAt?: number }> = ({ startedAt }) => {
+/** 智能体首 Token 到达前的思考/等待指示器 (真实状态驱动，多阶段自适应推进) */
+const ThinkingStateCapsule: React.FC<{ startedAt?: number; statusHint?: string }> = ({ startedAt, statusHint }) => {
   const [elapsed, setElapsed] = React.useState(() =>
     startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 100) / 10) : 0
   );
@@ -115,14 +115,17 @@ const ThinkingStateCapsule: React.FC<{ startedAt?: number }> = ({ startedAt }) =
   }, [startedAt, hasPendingPermission, hasPendingElicitation]);
 
   let label = `正在思考与分析意图… (${elapsed.toFixed(1)}s)`;
-  let dotClass = "bg-primary animate-pulse";
 
   if (hasPendingPermission) {
     label = "等待用户确认授权…";
-    dotClass = "bg-amber-500 animate-ping";
   } else if (hasPendingElicitation) {
     label = "等待用户回应提问…";
-    dotClass = "bg-blue-500 animate-ping";
+  } else if (statusHint) {
+    label = `${statusHint} (${elapsed.toFixed(1)}s)`;
+  } else if (elapsed > 20) {
+    label = `复杂逻辑推理与计算中… (${elapsed.toFixed(1)}s)`;
+  } else if (elapsed > 8) {
+    label = `深度检索与分析上下文中… (${elapsed.toFixed(1)}s)`;
   }
 
   return (
@@ -1123,7 +1126,7 @@ const AssistantMessageView: React.FC<{
         <div className="shrink-0 w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center text-foreground mt-0.5 shadow-xs">
           <Bot className="w-4 h-4 text-primary" />
         </div>
-        <ThinkingStateCapsule startedAt={acp?.startedAt} />
+        <ThinkingStateCapsule startedAt={acp?.startedAt} statusHint={acp?.statusHint} />
       </MessagePrimitive.Root>
     );
   }
@@ -1182,7 +1185,9 @@ const AssistantMessageView: React.FC<{
             {running ? (
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                <span className="inline-flex items-center text-muted-foreground text-[11px]">生成中…</span>
+                <span className="inline-flex items-center text-muted-foreground text-[11px]">
+                  {acp?.statusHint || "生成中…"}
+                </span>
               </span>
             ) : (
               <>
@@ -1223,9 +1228,15 @@ const AssistantMessageView: React.FC<{
 
         {/* 等待态已提前 return 胶囊；此处只有到达过 token 的消息 */}
         <>
-          {/* 过程区：思考链 + 阶段推进记录 + 工具组收拢，正文保持干净 */}
-          {(!!acp?.thought || !!progress || regularTools.length > 0) && (
+          {/* 过程区：思考链 + 阶段推进记录 + 工具组收拢 + 协同状态徽章，正文保持干净 */}
+          {(!!acp?.thought || !!progress || regularTools.length > 0 || (running && !!acp?.statusHint)) && (
             <div className="space-y-1.5">
+              {running && !!acp?.statusHint && (
+                <div className="rounded-card bg-surface/85 border border-primary/30 px-3 py-2 text-xs text-ink flex items-center gap-2 shadow-xs animate-fade-slide-in">
+                  <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
+                  <span className="font-medium text-primary">{acp.statusHint}</span>
+                </div>
+              )}
               {!!acp?.thought && (
                 <AcpReasoningView thought={acp.thought} running={running} timing={acp.thoughtTiming} />
               )}

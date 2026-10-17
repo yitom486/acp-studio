@@ -216,6 +216,7 @@ export function useChatSend({
         useStudioStore.getState().patchMessage(id, (m) => ({
           ...m,
           isStreaming: false,
+          statusHint: undefined,
           completedAt: m.completedAt ?? t,
           thoughtTiming:
             m.thoughtTiming?.startedAt && !m.thoughtTiming.completedAt
@@ -401,7 +402,18 @@ export function useChatSend({
             onQuota: (q) => {
               if (q) useStudioStore.getState().setQuota(q);
             },
-            onActivity: (a) => appendActivityMessage(a, now(), assistantId),
+            onActivity: (a) => {
+              if (a.kind === "subagent_active") {
+                const d = (a.detail || {}) as { childId?: string; title?: string; updateType?: string };
+                const title = d.title || "子智能体";
+                cur.patchMessage(assistantId, (m) => ({
+                  ...m,
+                  statusHint: `${title} 协同处理中…`,
+                }));
+                return;
+              }
+              appendActivityMessage(a, now(), assistantId);
+            },
             onPermissionRequest: (p) => useStudioStore.getState().addPermission(p),
             onElicitationRequest: (e) => useStudioStore.getState().addElicitation(e),
             onDone: (_stopReason, resp) => {

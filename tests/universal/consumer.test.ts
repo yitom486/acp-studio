@@ -168,4 +168,36 @@ describe("consumeUniversalChat (v1 full updates)", () => {
     });
     expect(flat[1].value).toBe('["deepseek-official","deepseek-v4-pro"]');
   });
+
+  it("handles subagent_active activity event with child session metadata", async () => {
+    const frames = [
+      { type: "start", sessionId: "parent-sess" },
+      {
+        type: "activity",
+        kind: "subagent_active",
+        detail: {
+          childId: "child-subagent-1",
+          title: "图像生成智能体",
+          updateType: "tool_call",
+        },
+      },
+      { type: "done", sessionId: "parent-sess", stopReason: "end_turn" },
+    ];
+    globalThis.fetch = vi.fn(async () => sseResponse(frames)) as unknown as typeof fetch;
+
+    let subagentEvent: any = null;
+    await consumeUniversalChat(
+      { agentId: "codex", sessionId: "parent-sess", prompt: "generate icon" },
+      {
+        onActivity: (a) => {
+          if (a.kind === "subagent_active") subagentEvent = a.detail;
+        },
+      }
+    );
+    expect(subagentEvent).toEqual({
+      childId: "child-subagent-1",
+      title: "图像生成智能体",
+      updateType: "tool_call",
+    });
+  });
 });

@@ -45,4 +45,6 @@ export interface Message {
   thoughtTiming?: { startedAt?: number; completedAt?: number };
   /** Grounded citations or reference sources. */
   citations?: Array<{ id: string; title: string; domain?: string; url?: string; icon?: any }>;
+  /** Background subagent or runtime status hint (e.g. "子智能体协同生成中", "深度推理与计算中"). */
+  statusHint?: string;
 }

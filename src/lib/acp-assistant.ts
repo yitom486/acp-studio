@@ -63,6 +63,7 @@ export interface AcpCustomMetadata {
   mode?: string;
   timestamp?: string;
   isStreaming?: boolean;
+  statusHint?: string;
   originalRole?: Message["role"];
   startedAt?: number;
   completedAt?: number;
@@ -174,6 +175,7 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
         mode: msg.mode,
         timestamp: msg.timestamp,
         isStreaming: msg.isStreaming,
+        statusHint: msg.statusHint,
         originalRole: "assistant",
         startedAt: msg.startedAt,
         completedAt: msg.completedAt,
