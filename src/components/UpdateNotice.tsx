@@ -43,7 +43,7 @@ export const UpdateNotice: React.FC = () => {
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
           <div className="flex-1">
             <div className="font-medium">已是最新版本</div>
-            <div className="text-muted-foreground">ACP Studio {state.version} 是当前最新的正式版。</div>
+            <div className="text-muted-foreground">AutumnFlow {state.version} 是当前最新的正式版。</div>
           </div>
           {close}
         </div>,

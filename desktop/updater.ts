@@ -140,12 +140,12 @@ export function initUpdater() {
       notes: typeof u.releaseNotes === "string" ? u.releaseNotes : undefined,
       canAutoInstall: autoInstall,
     });
-    notifyIfBackground("ACP Studio 有新版本", `${u.version} 可以更新了`);
+    notifyIfBackground("AutumnFlow 有新版本", `${u.version} 可以更新了`);
   });
   autoUpdater.on("download-progress", (p) => broadcast({ type: "progress", percent: p.percent }));
   autoUpdater.on("update-downloaded", (u) => {
     broadcast({ type: "downloaded", version: u.version });
-    notifyIfBackground("ACP Studio 更新已就绪", `${u.version} 已下载，重启即可完成更新`);
+    notifyIfBackground("AutumnFlow 更新已就绪", `${u.version} 已下载，重启即可完成更新`);
   });
   autoUpdater.on("error", (e) => broadcast({ type: "error", message: String(e?.message || e), manual: manualCheck }));
 

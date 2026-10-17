@@ -80,11 +80,11 @@ export const TitleBar: React.FC = () => {
       <div className="flex items-center gap-2 app-no-drag shrink-0">
         <img
           src="/icons/icon-64.png"
-          alt="ACP Studio"
+          alt="AutumnFlow"
           className="w-4 h-4 object-contain shrink-0"
         />
         <span className="font-medium text-[12px] text-foreground/80">
-          ACP Studio
+          AutumnFlow
         </span>
         {!isMac && <AppMenuBar />}
       </div>

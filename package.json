@@ -1,7 +1,7 @@
 {
   "name": "acp-studio",
   "version": "0.1.9",
-  "description": "ACP Studio — universal ACP agent workbench",
+  "description": "AutumnFlow — universal ACP agent workbench",
   "author": {
     "name": "yitom486",
     "email": "yitom486@gmail.com"
@@ -10,7 +10,7 @@
   "main": "electron-dist/main.cjs",
   "build": {
     "appId": "studio.acp.app",
-    "productName": "ACP Studio",
+    "productName": "AutumnFlow",
     "files": [
       "electron-dist/**/*",
       "dist/**/*",
@@ -80,7 +80,7 @@
       "artifactName": "ACP-Studio-Setup-${version}.${ext}",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ACP Studio",
+      "shortcutName": "AutumnFlow",
       "runAfterFinish": true,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
@@ -89,7 +89,7 @@
       "uninstallerSidebar": "build/uninstallerSidebar.bmp",
       "installerHeader": "build/installerHeader.bmp",
       "menuCategory": false,
-      "uninstallDisplayName": "ACP Studio"
+      "uninstallDisplayName": "AutumnFlow"
     },
     "dmg": {
       "artifactName": "ACP-Studio-${version}-${arch}.${ext}"

@@ -220,7 +220,7 @@ async function createWindow(cwd?: string) {
     autoHideMenuBar: true,
     // 首帧底色跟随上次保存的主题标题栏色，避免启动时闪一下旧的蓝黑底
     backgroundColor: initialOverlay.color,
-    title: "ACP Studio",
+    title: "AutumnFlow",
     show: false,
     icon: appIcon,
     titleBarStyle: "hidden",
@@ -280,7 +280,7 @@ async function createWindow(cwd?: string) {
     }
   } catch (error) {
     if (!w.isDestroyed()) w.destroy();
-    throw new Error(`无法打开 ACP Studio 页面 (${windowUrl(cwd)})。请检查服务是否成功启动后重试。`, { cause: error });
+    throw new Error(`无法打开 AutumnFlow 页面 (${windowUrl(cwd)})。请检查服务是否成功启动后重试。`, { cause: error });
   }
 
   // 外链（target=_blank / window.open）一律交给系统浏览器，不在应用里开新窗口
@@ -332,7 +332,7 @@ async function createWindow(cwd?: string) {
 
 function reportStartupFailure(error: unknown) {
   console.error("[Electron] 启动或页面加载失败:", error);
-  dialog.showErrorBox("ACP Studio 启动失败", error instanceof Error ? error.message : String(error));
+  dialog.showErrorBox("AutumnFlow 启动失败", error instanceof Error ? error.message : String(error));
   if (windows.size === 0) app.quit();
 }
 

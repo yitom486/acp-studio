@@ -31,18 +31,18 @@ export function buildAppMenu(actions: MenuActions, opts: { isDev: boolean }) {
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
       ? [{
-          label: "ACP Studio",
+          label: "AutumnFlow",
           submenu: [
-            { label: "关于 ACP Studio", click: cmd("settings.about") },
+            { label: "关于 AutumnFlow", click: cmd("settings.about") },
             { label: "检查更新…", click: actions.checkForUpdates },
             { type: "separator" },
             { label: "设置…", accelerator: "Cmd+,", click: cmd("settings.open") },
             { type: "separator" },
-            { role: "hide", label: "隐藏 ACP Studio" },
+            { role: "hide", label: "隐藏 AutumnFlow" },
             { role: "hideOthers", label: "隐藏其他" },
             { role: "unhide", label: "全部显示" },
             { type: "separator" },
-            { role: "quit", label: "退出 ACP Studio" },
+            { role: "quit", label: "退出 AutumnFlow" },
           ],
         } as MenuItemConstructorOptions]
       : []),
@@ -111,7 +111,7 @@ export function buildAppMenu(actions: MenuActions, opts: { isDev: boolean }) {
         { label: "更新日志", click: () => void shell.openExternal(CHANGELOG_URL) },
         { label: "所有版本", click: () => void shell.openExternal(RELEASES_URL) },
         { label: "报告问题", click: () => void shell.openExternal(ISSUES_URL) },
-        ...(!isMac ? [{ type: "separator" } as MenuItemConstructorOptions, { label: "关于 ACP Studio", click: cmd("settings.about") } as MenuItemConstructorOptions] : []),
+        ...(!isMac ? [{ type: "separator" } as MenuItemConstructorOptions, { label: "关于 AutumnFlow", click: cmd("settings.about") } as MenuItemConstructorOptions] : []),
       ],
     },
   ];

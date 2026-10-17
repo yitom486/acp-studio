@@ -612,7 +612,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
                         {c.hint && <span className="font-mono text-muted-foreground/70 shrink-0">&lt;{c.hint}&gt;</span>}
                         <span className="truncate flex-1 min-w-0">{c.description || ""}</span>
                         {c.local && (
-                          <span title="由 ACP Studio 本地处理，不发送给智能体" className="shrink-0 rounded border border-border px-1 py-px text-[10px] text-muted-foreground">本地</span>
+                          <span title="由 AutumnFlow 本地处理，不发送给智能体" className="shrink-0 rounded border border-border px-1 py-px text-[10px] text-muted-foreground">本地</span>
                         )}
                       </div>
                     ))}

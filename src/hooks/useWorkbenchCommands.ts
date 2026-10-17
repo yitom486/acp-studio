@@ -74,7 +74,7 @@ export function useWorkbenchCommands(opts: { onNewSession: (targetCwd?: string) 
       { id: "view.toggleTerminal", title: "切换终端", group: "视图", keybinding: "Ctrl+`", run: () => studio().setTerminalOpen(!studio().terminalOpen) },
       { id: "view.toggleTheme", title: "切换深色 / 浅色", group: "视图", run: () => { const t = useThemeStore.getState(); t.setTheme(t.theme === "light" ? "dark" : "light"); } },
       { id: "settings.open", title: "设置", group: "偏好", keybinding: "Ctrl+,", run: () => wb().openSettings("general") },
-      { id: "settings.about", title: "关于 ACP Studio", group: "帮助", run: () => wb().openSettings("about") },
+      { id: "settings.about", title: "关于 AutumnFlow", group: "帮助", run: () => wb().openSettings("about") },
       { id: "update.check", title: "检查更新…", group: "帮助", run: () => { wb().openSettings("about"); void useUpdateStore.getState().check(); } },
       { id: "help.changelog", title: "更新日志", group: "帮助", run: () => void window.open(CHANGELOG_URL, "_blank") },
       { id: "help.issues", title: "报告问题", group: "帮助", run: () => void window.open(ISSUES_URL, "_blank") },

@@ -270,11 +270,11 @@ export const AboutPanel: React.FC = () => {
       <div className="flex items-center gap-4 pb-5 border-b border-border/70">
         <img src="/icon.png" alt="" className="h-14 w-14 rounded-xl border border-border bg-muted p-2" />
         <div>
-          <div className="text-lg font-semibold tracking-tight">ACP Studio</div>
+          <div className="text-lg font-semibold tracking-tight">AutumnFlow</div>
           <div className="text-xs text-muted-foreground font-mono">
             版本 {info?.version ?? "…"} · {info?.platform ?? ""}{dev ? " · 开发版" : ""}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">通用 ACP 智能体工作台</div>
+          <div className="mt-1 text-xs text-muted-foreground">通用 ACP 智能体工作台 · 秋水时至，百川灌河</div>
         </div>
       </div>
 

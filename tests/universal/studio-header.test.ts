@@ -45,7 +45,7 @@ describe("StudioHeader modern UI", () => {
       })
     );
 
-    expect(html).toContain("ACP Studio");
+    expect(html).toContain("AutumnFlow");
     expect(html).toContain("Codex (OpenAI)");
     expect(html).toContain("自我介绍请求");
     // pid / auth details live in the agent chip popover; the chip itself stays one line.

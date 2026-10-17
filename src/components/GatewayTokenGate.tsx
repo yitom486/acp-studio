@@ -51,7 +51,7 @@ export function GatewayTokenGate({ reason, detail, onAuthorized }: Props) {
             <KeyRound className="w-4 h-4 text-primary" /> 需要网关访问令牌
           </CardTitle>
           <CardDescription>
-            ACP Studio 的本地网关要求每个请求都带令牌，防止本机其他程序或网页冒用它执行命令。
+            AutumnFlow 的本地网关要求每个请求都带令牌，防止本机其他程序或网页冒用它执行命令。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">

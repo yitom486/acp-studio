@@ -334,7 +334,7 @@ export const StudioHeader: React.FC<StudioHeaderProps> = ({
     <header className="@container h-12 border-b border-border bg-background px-3 flex items-center justify-between gap-2 shrink-0 z-20 select-none whitespace-nowrap overflow-visible">
       {/* LEFT: compact agent status chip (agent / connection / pid / auth in a popover) + workspace */}
       <div className="flex items-center gap-2 min-w-0 shrink">
-        <span className="sr-only">ACP Studio</span>
+        <span className="sr-only">AutumnFlow</span>
         <AgentStatusChip
           agents={agents}
           activeAgentId={activeAgentId}

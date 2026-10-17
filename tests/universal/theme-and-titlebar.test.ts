@@ -54,7 +54,7 @@ describe("Theme Store & Window TitleBar & StudioHeader", () => {
   it("renders pure window TitleBar without application action buttons", () => {
     const html = renderToString(React.createElement(TitleBar));
 
-    expect(html).toContain("ACP Studio");
+    expect(html).toContain("AutumnFlow");
     expect(html).toContain("深色");
     // Ensure application action buttons are NOT in the window title bar
     expect(html).not.toContain("变更");

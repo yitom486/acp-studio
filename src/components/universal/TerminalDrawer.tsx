@@ -345,7 +345,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({ isOpen, onClose,
       fitAddonRef.current = fit;
 
       // Welcome header
-      term.writeln("\x1b[90mACP Studio 终端\x1b[0m");
+      term.writeln("\x1b[90mAutumnFlow 终端\x1b[0m");
       if (hasCwd) {
         term.writeln(`\x1b[90m工作目录\x1b[0m ${activeCwd}`);
       } else {
