@@ -11,7 +11,7 @@ import {
 } from "@/lib/universal-api";
 
 export interface UseAgentConfigOptions {
-  agentsRef: React.MutableRefObject<AgentSummary[]>;
+  agentsRef: React.RefObject<AgentSummary[]>;
   ensureSession: (agentId?: string, force?: boolean) => Promise<string | null>;
 }
 

@@ -21,9 +21,9 @@ import type { SessionSettings } from "@/components/universal/SessionSettingsModa
 export interface UseSessionLifecycleOptions {
   qc: QueryClient;
   agents: AgentSummary[];
-  agentsRef: React.MutableRefObject<AgentSummary[]>;
+  agentsRef: React.RefObject<AgentSummary[]>;
   applyDefaultConfigOptions: (agentId: string, sessionId: string) => Promise<void>;
-  abortRef?: React.MutableRefObject<AbortController | null>;
+  abortRef?: React.RefObject<AbortController | null>;
   appendActivity?: (a: ActivityEvent) => void;
   now?: () => string;
 }

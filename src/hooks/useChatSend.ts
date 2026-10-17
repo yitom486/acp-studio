@@ -26,7 +26,7 @@ import {
 
 export interface UseChatSendOptions {
   qc: QueryClient;
-  agentsRef: React.MutableRefObject<AgentSummary[]>;
+  agentsRef: React.RefObject<AgentSummary[]>;
   resolveSession: (agentId: string) => Promise<string | null>;
   now?: () => string;
   /**

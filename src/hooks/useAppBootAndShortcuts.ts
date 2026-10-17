@@ -6,7 +6,7 @@ import { validateWorkspace, type AgentSummary } from "@/lib/universal-api";
 
 export interface UseAppBootAndShortcutsOptions {
   agents: AgentSummary[];
-  agentsRef: React.MutableRefObject<AgentSummary[]>;
+  agentsRef: React.RefObject<AgentSummary[]>;
   activeAgentId: string;
   sessionId?: string | null;
   activeThreadId?: string | null;
