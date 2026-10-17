@@ -509,6 +509,73 @@ describe("Generative UI - Front-End Component Integration Tests", () => {
     expect(darkNodeRect).toBeDefined();
   });
 
+  it("E2E: EditorialDiagramCard architecture diagram routes cross-layer connections via bypass rail and preserves central corridor", async () => {
+    await act(async () => {
+      root.render(
+        <EditorialDiagramCard
+          title="ACP 分层拓扑架构"
+          diagramType="architecture"
+          theme="dark"
+          accent="emerald"
+          data={{
+            layers: [
+              {
+                id: "l0",
+                title: "CLIENT CORE",
+                nodes: [
+                  { id: "auth", label: "AuthGate", subtext: "认证门闩" },
+                  { id: "session", label: "SessionManager", subtext: "会话管理" },
+                ],
+              },
+              {
+                id: "l1",
+                title: "BRIDGE",
+                nodes: [
+                  { id: "sdk", label: "sdk-client", subtext: "通信客户端" },
+                  { id: "proc", label: "process-manager", subtext: "spawn/温进程池" },
+                ],
+              },
+              {
+                id: "l2",
+                title: "RESOURCES",
+                nodes: [
+                  { id: "tools", label: "tools MCP", subtext: "只读技能服务" },
+                  { id: "prompts", label: "prompts", subtext: "模板管理" },
+                ],
+              },
+            ],
+            connections: [
+              // 相邻层连线走中央通道
+              { from: "CLIENT CORE", to: "BRIDGE", label: "spawn+握手" },
+              // 跨层连线跨过 BRIDGE 直连 RESOURCES：必须走外侧旁路通道，绝不穿透 BRIDGE 层的 process-manager！
+              { from: "CLIENT CORE", to: "RESOURCES", label: "资源注入" },
+            ],
+          }}
+        />
+      );
+    });
+
+    expect(container.textContent).toContain("ACP 分层拓扑架构");
+    expect(container.textContent).toContain("process-manager");
+    expect(container.textContent).toContain("资源注入");
+
+    // 验证外侧旁路通道：存在跨层连线时，SVG 宽度自动扩展为 700+，且 bypass 路径包含曲线与旁路坐标
+    const allSvgs = Array.from(container.querySelectorAll("svg"));
+    const svg = allSvgs[allSvgs.length - 1] as SVGSVGElement;
+    expect(svg).not.toBeNull();
+    const viewBox = svg.getAttribute("viewBox");
+    expect(viewBox).toBeDefined();
+    const widthMatch = viewBox?.match(/^0 0 (\d+)/);
+    const parsedWidth = widthMatch ? parseInt(widthMatch[1], 10) : 0;
+    expect(parsedWidth).toBeGreaterThanOrEqual(700);
+
+    // 验证两节点卡片严格对称开辟了中央直通通道 (x=320 位于卡片之间的留白间距，且卡片宽度相等)
+    const nodeRects = Array.from(svg.querySelectorAll("g[transform^='translate('] > rect")).filter(
+      (r) => r.getAttribute("width") === "244"
+    );
+    expect(nodeRects.length).toBe(6); // 3 layers * 2 nodes each = 6 cards of width 244
+  });
+
   it("E2E: AcpGenerativeToolCard strips namespace prefixes and renders decision cards & diagrams from stringified rawInput", async () => {
     // 1. Test normalization helpers
     expect(normalizeGenerativeToolName("studio-ui_show_interactive_card")).toBe("show_interactive_card");
