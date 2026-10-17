@@ -1,0 +1,325 @@
+"use client";
+
+import { ChevronDown } from "lucide-react";
+import {
+  type HTMLMotionProps,
+  motion,
+  useReducedMotion,
+} from "framer-motion";
+import {
+  type ComponentPropsWithRef,
+  createContext,
+  type ReactElement,
+  type ReactNode,
+  type Ref,
+  useCallback,
+  useContext,
+  useState,
+} from "react";
+import { EASE_OUT, SPRING_LAYOUT } from "@/lib/motion-primitives";
+import { cn } from "@/lib/utils";
+import { MessageSideContext } from "@/components/agents/message-context";
+
+export type MessageBubbleVariant =
+  | "solid"
+  | "soft"
+  | "tint"
+  | "outline"
+  | "ghost"
+  | "danger";
+export type MessageBubbleAlign = "start" | "end";
+
+interface MessageBubbleContextValue {
+  align?: MessageBubbleAlign;
+  animateIn: boolean;
+  variant: MessageBubbleVariant;
+}
+
+const MessageBubbleContext = createContext<MessageBubbleContextValue>({
+  animateIn: true,
+  variant: "soft",
+});
+const MessageBubbleLayoutContext = createContext<() => void>(() => {});
+
+export interface MessageBubbleProps
+  extends Omit<HTMLMotionProps<"div">, "children"> {
+  variant?: MessageBubbleVariant;
+  /** Defaults to the surrounding Message alignment when omitted. */
+  align?: MessageBubbleAlign;
+  /** Plays the bubble entrance once when this component mounts. */
+  animateIn?: boolean;
+  children?: ReactNode;
+}
+
+export interface MessageBubbleContentProps
+  extends ComponentPropsWithRef<"div"> {
+  /** Replaces the content element while preserving bubble styling. */
+  render?: ReactElement;
+}
+
+export interface MessageBubbleGroupProps extends ComponentPropsWithRef<"div"> {
+  spacing?: "compact" | "default";
+}
+
+export interface MessageBubbleCollapsibleProps
+  extends ComponentPropsWithRef<"div"> {
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  collapsedLines?: 2 | 3 | 4 | 5 | 6;
+  moreLabel?: ReactNode;
+  lessLabel?: ReactNode;
+  contentClassName?: string;
+  triggerClassName?: string;
+  children?: ReactNode;
+}
+
+const BUBBLE_CONTENT_REVEAL = {
+  duration: 0.12,
+  ease: EASE_OUT,
+  delay: 0.04,
+} as const;
+
+// Sent bubbles pop into place quickly with restrained overshoot.
+const BUBBLE_POP = {
+  type: "spring",
+  stiffness: 520,
+  damping: 27,
+  mass: 0.52,
+} as const;
+
+export function MessageBubble({
+  variant = "soft",
+  align,
+  animateIn = false,
+  className,
+  children,
+  initial,
+  animate,
+  exit,
+  transition,
+  layout,
+  ...props
+}: MessageBubbleProps) {
+  const reduce = useReducedMotion() ?? false;
+  const messageSide = useContext(MessageSideContext);
+  const resolvedAlign = align ?? messageSide ?? "start";
+
+  return (
+    <MessageBubbleContext.Provider
+      value={{ align: resolvedAlign, animateIn, variant }}
+    >
+      <motion.div
+        data-slot="message-bubble"
+        data-align={resolvedAlign}
+        data-variant={variant}
+        layout={layout}
+        initial={initial ?? false}
+        animate={animate}
+        exit={
+          exit ??
+          (reduce ? { opacity: 0 } : { opacity: 0, y: -3, scale: 0.99 })
+        }
+        transition={transition ?? (reduce ? { duration: 0.12 } : SPRING_LAYOUT)}
+        className={cn(
+          "group/bubble flex w-full flex-col",
+          resolvedAlign === "end" ? "items-end" : "items-start",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </motion.div>
+    </MessageBubbleContext.Provider>
+  );
+}
+
+function bubbleContentClass(
+  variant: MessageBubbleVariant,
+  interactive: boolean,
+) {
+  return cn(
+    "relative z-0 min-w-9 max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-6 text-foreground",
+    "[&_a]:font-medium [&_a]:underline [&_a]:underline-offset-4 [&_code]:rounded [&_code]:bg-background/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.9em] [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p+p]:mt-2 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-background/60 [&_pre]:p-3 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5",
+    variant === "solid" && "text-background",
+    variant === "ghost" && "w-full max-w-none rounded-none px-0 py-0",
+    variant === "danger" && "text-destructive",
+    interactive &&
+      "cursor-pointer text-left outline-none transition-[background-color,color,transform] duration-150 hover:brightness-[0.98] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.99]",
+  );
+}
+
+function bubbleSurfaceClass(
+  variant: MessageBubbleVariant,
+  align: MessageBubbleAlign,
+) {
+  return cn(
+    "pointer-events-none absolute inset-0 -z-10 rounded-[inherit]",
+    align === "end" ? "origin-bottom-right" : "origin-bottom-left",
+    variant === "solid" && "bg-foreground",
+    variant === "soft" && "bg-muted",
+    variant === "tint" && "bg-muted/80",
+    variant === "outline" && "border border-border/70 bg-card",
+    variant === "danger" && "bg-destructive/10",
+  );
+}
+
+export function MessageBubbleContent({
+  render,
+  className,
+  children,
+  ...props
+}: MessageBubbleContentProps) {
+  const reduce = useReducedMotion() ?? false;
+  const { align = "start", animateIn, variant } =
+    useContext(MessageBubbleContext);
+  const [layoutVersion, setLayoutVersion] = useState(0);
+  const notifyLayout = useCallback(
+    () => setLayoutVersion((version) => version + 1),
+    [],
+  );
+  const interactive =
+    render?.type === "button" || render?.type === "a";
+  const classes = cn(bubbleContentClass(variant, interactive), className);
+
+  return (
+    <div
+      data-slot="message-bubble-content"
+      className={classes}
+      {...props}
+    >
+      {variant !== "ghost" ? (
+        <motion.span
+          aria-hidden="true"
+          layout={reduce ? false : "size"}
+          layoutDependency={layoutVersion}
+          initial={
+            animateIn && !reduce
+              ? {
+                  opacity: 0,
+                  scale: 0.92,
+                }
+              : false
+          }
+          animate={{ opacity: 1, scale: 1 }}
+          transition={
+            reduce
+              ? { duration: 0 }
+              : {
+                  opacity: { duration: 0.12, ease: EASE_OUT },
+                  scale: BUBBLE_POP,
+                  layout: SPRING_LAYOUT,
+                }
+          }
+          className={bubbleSurfaceClass(variant, align)}
+        />
+      ) : null}
+      <MessageBubbleLayoutContext.Provider value={notifyLayout}>
+        <motion.div
+          initial={
+            animateIn
+              ? reduce
+                ? { opacity: 0 }
+                : { opacity: 0 }
+              : false
+          }
+          animate={{ opacity: 1 }}
+          transition={
+            reduce ? { duration: 0.12, ease: EASE_OUT } : BUBBLE_CONTENT_REVEAL
+          }
+          className="relative"
+        >
+          {children}
+        </motion.div>
+      </MessageBubbleLayoutContext.Provider>
+    </div>
+  );
+}
+
+export function MessageBubbleGroup({
+  spacing = "compact",
+  className,
+  ...props
+}: MessageBubbleGroupProps) {
+  return (
+    <div
+      data-slot="message-bubble-group"
+      className={cn(
+        "flex w-full flex-col",
+        spacing === "compact" ? "gap-1" : "gap-2",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export function MessageBubbleCollapsible({
+  open,
+  defaultOpen = false,
+  onOpenChange,
+  collapsedLines = 3,
+  moreLabel = "展开更多",
+  lessLabel = "收起",
+  contentClassName,
+  triggerClassName,
+  className,
+  children,
+  ...props
+}: MessageBubbleCollapsibleProps) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const isControlled = open !== undefined;
+  const isOpen = isControlled ? open : internalOpen;
+  const notifyLayout = useContext(MessageBubbleLayoutContext);
+
+  const toggle = () => {
+    const next = !isOpen;
+    if (!isControlled) setInternalOpen(next);
+    onOpenChange?.(next);
+    notifyLayout();
+  };
+
+  const lineClampClasses = {
+    2: "line-clamp-2",
+    3: "line-clamp-3",
+    4: "line-clamp-4",
+    5: "line-clamp-5",
+    6: "line-clamp-6",
+  }[collapsedLines];
+
+  return (
+    <div
+      data-slot="message-bubble-collapsible"
+      data-open={isOpen ? "true" : "false"}
+      className={cn("flex flex-col gap-1.5", className)}
+      {...props}
+    >
+      <div
+        className={cn(
+          "transition-[max-height] duration-200",
+          !isOpen && lineClampClasses,
+          contentClassName,
+        )}
+      >
+        {children}
+      </div>
+      <button
+        type="button"
+        onClick={toggle}
+        className={cn(
+          "inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none",
+          triggerClassName,
+        )}
+      >
+        <span>{isOpen ? lessLabel : moreLabel}</span>
+        <ChevronDown
+          className={cn(
+            "size-3 transition-transform duration-200",
+            isOpen && "rotate-180",
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+

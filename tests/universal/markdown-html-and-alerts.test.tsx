@@ -158,5 +158,23 @@ describe("Markdown HTML and GitHub Alert Callouts", () => {
     expect(smooth240.maxCharIntervalMs).toBeLessThanOrEqual(1.0);
     expect(smooth60.maxCharIntervalMs).toBeGreaterThan(smooth180.maxCharIntervalMs);
   });
+
+  it("renders block math even when $$ is followed by inline prose or not on its own line", async () => {
+    const { loadMathPlugins } = await import("@/components/assistant/math-plugins");
+    await loadMathPlugins();
+    const raw = `三、给软件/前端开发者的“单帧预算警示”
+帧率越高，留给前端代码的执行时间窗口就越窄：
+
+$$\\begin{aligned}
+60\\,\\text{Hz} &\\implies \\mathbf{16.6\\,\\text{ms}} \\text{ (JS 逻辑最好不超过 10ms，留 6ms 给渲染引擎)} \\\\
+120\\,\\text{Hz} &\\implies \\mathbf{8.3\\,\\text{ms}} \\text{ (JS 逻辑最好在 4ms 内完成)} \\\\
+144\\,\\text{Hz} &\\implies \\mathbf{6.9\\,\\text{ms}} \\text{ (几乎容不下任何长任务)}
+\\end{aligned}$$ 这也是为什么在高刷屏上，**不良的 JavaScript 长任务（Long Task）会比在 60Hz 屏幕上更明显地被肉眼捕捉到掉帧**。`;
+
+    const html = renderToString(React.createElement(AcpStandaloneMarkdown, { content: raw }));
+    expect(html).not.toContain("katex-error");
+    expect(html).toContain("katex-display");
+    expect(html).toContain("不良的 JavaScript 长任务");
+  });
 });
 

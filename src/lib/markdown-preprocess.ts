@@ -66,8 +66,64 @@ export function normalizeLooseEmphasis(text: string): string {
 }
 
 /**
- * 综合预处理：闭合流式截断的代码块围栏 + 规范化松散 Markdown 强调标记。
+ * 规范化块级数学公式定界符（$$...$$）：
+ * remark-math 要求 display math 的 $$ 必须独占一行，
+ * 否则当模型输出 `$$\begin{aligned}` 或 `\end{aligned}$$ 后续正文` 时：
+ * 1) 开头的 `\begin{aligned}` 会被 remark-math 误认作代码块语言 meta 从而被剥离；
+ * 2) 结尾的 `$$` 无法匹配闭合围栏，导致后续整段中文与粗体被直接吞入公式块，引发 KaTeX 语法报错并在页面标红；
+ * 本函数在保护代码块的前提下，将成对的 $$ 及其内部公式体规范格式化为带独占空行与换行的标准块，
+ * 并将闭合 $$ 之后的正文平滑还给常规 Markdown 流。
+ */
+export function normalizeDisplayMath(text: string): string {
+  if (!text || !text.includes("$$")) return text;
+  // 1. 处理完整闭合的 $$...$$ 块（消除行内紧贴与后置正文吞入问题）
+  let result = text.replace(
+    /(```[\s\S]*?```|`[^`\n]*`)|(\$\$([\s\S]+?)\$\$)/g,
+    (match, code, _math, mathBody) => {
+      if (code) return code;
+      if (mathBody) {
+        const trimmed = mathBody.trim();
+        if (!trimmed) return "";
+        return `\n\n$$\n${trimmed}\n$$\n\n`;
+      }
+      return match;
+    }
+  );
+
+  // 2. 处理流式输出过程中尚未闭合的起始 $$（如 `$$\begin{aligned}`），确保内容换行防止被解析为 meta
+  result = result.replace(
+    /(```[\s\S]*?```|`[^`\n]*`)|(^|\n)([ \t]*)\$\$([^\n$]+)$/g,
+    (match, code, pre, indent, content) => {
+      if (code) return code;
+      return `${pre}${indent}$$\n${indent}${content}`;
+    }
+  );
+
+  return result;
+}
+
+/**
+ * 稳定流式输出期间尚未闭合的 Markdown 表格行：
+ * GFM 表格在流式打字期间如果最后一行只有 `| col1 | col2` 缺少收尾 `|`，
+ * 可能会导致 GFM 临时回退为段落 `<p>` 引发高度剧烈抖动；在行尾安全补上 ` |`，防止抖动。
+ */
+export function stabilizeStreamingTable(text: string): string {
+  if (!text || !text.includes("|")) return text;
+  const lines = text.split("\n");
+  const lastLine = lines[lines.length - 1];
+  if (lastLine && /^\s*\|.*[^|\s]\s*$/.test(lastLine)) {
+    const hasTableContext = lines.some((l) => /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(l));
+    if (hasTableContext) {
+      lines[lines.length - 1] = `${lastLine} |`;
+      return lines.join("\n");
+    }
+  }
+  return text;
+}
+
+/**
+ * 综合预处理：闭合流式截断的代码块围栏 + 稳定表格流式行 + 规范化数学公式定界符 + 规范化松散 Markdown 强调标记。
  */
 export function preprocessMarkdown(text: string): string {
-  return normalizeLooseEmphasis(closeOpenFences(text));
+  return normalizeLooseEmphasis(normalizeDisplayMath(stabilizeStreamingTable(closeOpenFences(text))));
 }

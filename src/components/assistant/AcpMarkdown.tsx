@@ -304,17 +304,17 @@ const acpComponents = memoizeMarkdownComponents({
   hr: ({ className, ...props }: any) => <hr className={cn("my-3 border-border", className)} {...props} />,
   table: ({ className, ...props }: any) => (
     <div className="my-2 overflow-x-auto rounded-lg border border-border">
-      <table className={cn("w-full text-xs", className)} {...props} />
+      <table className={cn("w-full text-xs border-collapse sm:table-fixed", className)} {...props} />
     </div>
   ),
   thead: ({ className, ...props }: any) => (
     <thead className={cn("bg-muted/60", className)} {...props} />
   ),
   th: ({ className, ...props }: any) => (
-    <th className={cn("px-2.5 py-1.5 text-left font-semibold text-foreground border-b border-border", className)} {...props} />
+    <th className={cn("px-2.5 py-1.5 text-left font-semibold text-foreground border-b border-border break-words [overflow-wrap:anywhere]", className)} {...props} />
   ),
   td: ({ className, ...props }: any) => (
-    <td className={cn("px-2.5 py-1.5 border-b border-border/60 align-top", className)} {...props} />
+    <td className={cn("px-2.5 py-1.5 border-b border-border/60 align-top break-words [overflow-wrap:anywhere]", className)} {...props} />
   ),
   pre: ({ className, ...props }: any) => (
     <pre className={cn("overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground", className)} {...props} />

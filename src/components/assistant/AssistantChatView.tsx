@@ -39,6 +39,12 @@ import { AcpImagePart } from "@/components/assistant/AcpMedia";
 import { TurnChanges } from "@/components/assistant/TurnChanges";
 import { TurnDiffViewer } from "@/components/assistant/TurnDiffViewer";
 import {
+  MessageAvatar,
+  MessageBubble,
+  MessageBubbleContent,
+  MessageContent,
+} from "@/components/agents/message";
+import {
   DiffButton,
   FileEditCard,
   FileReadCard,
@@ -925,50 +931,51 @@ const UserMessageView: React.FC = () => {
       data-from="user"
       className="flex gap-3 justify-end items-start group animate-fade-slide-in"
     >
-      <div className="relative max-w-[80%]">
-        <div
-          data-slot="message-bubble-content"
-          className="rounded-lg bg-secondary text-secondary-foreground px-3.5 py-2 break-words whitespace-pre-wrap text-sm leading-relaxed font-sans"
-        >
-          <MessagePrimitive.Parts components={USER_MESSAGE_PARTS} />
-          {/* 底部 meta 单行：常驻挂载，只换透明度，宽高恒定不挤布局 */}
-          <div className="flex items-center justify-end gap-0.5 pt-1.5">
-            {acp?.timestamp && (
-              <span className="text-[10px] font-mono text-muted-foreground/80 select-none mr-1">{acp.timestamp}</span>
-            )}
-            <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-sm:opacity-100 transition-opacity">
-              <MagneticButton
-                strength={0.2}
-                onClick={copy}
-                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-                title="复制内容"
-              >
-                <ActionSwap stateKey={copied ? "copied" : "idle"}>
-                  {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
-                </ActionSwap>
-              </MagneticButton>
-              <ActionBarPrimitive.Root className="flex items-center">
-                <ActionBarPrimitive.Edit asChild>
-                  <MagneticButton
-                    strength={0.2}
-                    disabled={threadRunning}
-                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors disabled:opacity-40"
-                    title="编辑后重发"
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </MagneticButton>
-                </ActionBarPrimitive.Edit>
-              </ActionBarPrimitive.Root>
-            </span>
-          </div>
-        </div>
+      <MessageContent className="items-end max-w-[80%]">
+        <MessageBubble variant="soft" align="end" className="w-full">
+          <MessageBubbleContent
+            className="rounded-2xl bg-secondary text-secondary-foreground px-3.5 py-2 break-words whitespace-pre-wrap text-sm leading-relaxed font-sans shadow-xs border border-border/40"
+          >
+            <MessagePrimitive.Parts components={USER_MESSAGE_PARTS} />
+            {/* 底部 meta 单行：常驻挂载，只换透明度，宽高恒定不挤布局 */}
+            <div className="flex items-center justify-end gap-0.5 pt-1.5">
+              {acp?.timestamp && (
+                <span className="text-[10px] font-mono text-muted-foreground/80 select-none mr-1">{acp.timestamp}</span>
+              )}
+              <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-sm:opacity-100 transition-opacity">
+                <MagneticButton
+                  strength={0.2}
+                  onClick={copy}
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                  title="复制内容"
+                >
+                  <ActionSwap stateKey={copied ? "copied" : "idle"}>
+                    {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
+                  </ActionSwap>
+                </MagneticButton>
+                <ActionBarPrimitive.Root className="flex items-center">
+                  <ActionBarPrimitive.Edit asChild>
+                    <MagneticButton
+                      strength={0.2}
+                      disabled={threadRunning}
+                      className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors disabled:opacity-40"
+                      title="编辑后重发"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </MagneticButton>
+                  </ActionBarPrimitive.Edit>
+                </ActionBarPrimitive.Root>
+              </span>
+            </div>
+          </MessageBubbleContent>
+        </MessageBubble>
         <div className="flex justify-end">
           <BranchPickerView className="justify-end" />
         </div>
-      </div>
-      <div className="shrink-0 w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center text-muted-foreground shadow-xs mt-0.5">
+      </MessageContent>
+      <MessageAvatar>
         <User className="w-4 h-4" />
-      </div>
+      </MessageAvatar>
     </MessagePrimitive.Root>
   );
 };
@@ -1119,10 +1126,12 @@ const AssistantMessageView: React.FC<{
         data-from="assistant"
         className="flex gap-3 justify-start items-start group animate-fade-slide-in"
       >
-        <div className="shrink-0 w-7 h-7 rounded-lg bg-muted border border-border flex items-center justify-center text-foreground mt-0.5 shadow-xs">
+        <MessageAvatar>
           <Bot className="w-4 h-4 text-primary" />
-        </div>
-        <ThinkingStateCapsule startedAt={acp?.startedAt} statusHint={acp?.statusHint} />
+        </MessageAvatar>
+        <MessageContent>
+          <ThinkingStateCapsule startedAt={acp?.startedAt} statusHint={acp?.statusHint} />
+        </MessageContent>
       </MessagePrimitive.Root>
     );
   }
@@ -1150,18 +1159,25 @@ const AssistantMessageView: React.FC<{
       data-from="assistant"
       className="flex gap-3 justify-start items-start group animate-fade-slide-in"
     >
-      <div className={cn(
-        "shrink-0 w-7 h-7 rounded-lg border border-border flex items-center justify-center mt-0.5 shadow-xs transition-colors",
-        running ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+      <MessageAvatar className={cn(
+        "transition-colors",
+        running ? "bg-primary text-primary-foreground border-primary/40 shadow-sm" : "bg-muted text-foreground"
       )}>
         <Bot className="w-4 h-4" />
-      </div>
-      <div
-        data-streaming={running ? "true" : "false"}
-        className="acp-stream-ring relative flex-1 min-w-0 max-w-full rounded-lg"
-      >
-      <div className="relative overflow-hidden rounded-lg p-4 sm:p-5 space-y-3 shadow-xs bg-card border border-border text-foreground">
-        <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">
+      </MessageAvatar>
+      <MessageContent className="min-w-0 max-w-full">
+        <div
+          data-streaming={running ? "true" : "false"}
+          className="acp-stream-ring relative w-full rounded-2xl"
+        >
+          <MessageBubble
+            variant="outline"
+            className="w-full max-w-full"
+          >
+            <MessageBubbleContent
+              className="w-full max-w-full rounded-2xl p-4 sm:p-5 space-y-3 bg-card border border-border text-foreground shadow-xs"
+            >
+              <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-foreground">
               {isSystem ? "System" : agentName}
@@ -1323,8 +1339,10 @@ const AssistantMessageView: React.FC<{
             </ActionBarPrimitive.Reload>
           </ActionBarPrimitive.Root>
         </div>
-      </div>
-      </div>
+            </MessageBubbleContent>
+          </MessageBubble>
+        </div>
+      </MessageContent>
       <TurnChanges
         open={turnChangesOpen}
         onClose={() => setTurnChangesOpen(false)}

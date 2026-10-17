@@ -23,6 +23,7 @@ import {
   appendGenerativeToolPlaceholder,
   hasGenerativeToolPlaceholder,
 } from "@/components/assistant/toolkit";
+import { resolveToolDisplayTitle } from "@/components/assistant/tool-widget-utils";
 
 export interface UseChatSendOptions {
   qc: QueryClient;
@@ -189,10 +190,15 @@ export function useChatSend({
         .map((a) => ({ src: `data:${(a.block as any).mimeType || a.mimeType};base64,${(a.block as any).data}`, mimeType: String((a.block as any).mimeType || a.mimeType) }))
         .slice(-8);
       let turnStarted = false;
-      const beginTurn = () => {
-        if (turnStarted) return;
-        turnStarted = true;
+      const beginTurn = (initialHint?: string) => {
         const current = useStudioStore.getState();
+        if (turnStarted && current.messages.some((m) => m.id === assistantId)) {
+          if (initialHint) {
+            current.patchMessage(assistantId, (m) => ({ ...m, statusHint: initialHint }));
+          }
+          return;
+        }
+        turnStarted = true;
         current.appendMessage({ id: "user-" + Date.now(), role: "user", content: display, timestamp: now(), ...(sentImages.length ? { images: sentImages } : {}) });
         current.appendMessage({
           id: assistantId,
@@ -204,6 +210,7 @@ export function useChatSend({
           timestamp: now(),
           isStreaming: true,
           startedAt: Date.now(),
+          statusHint: initialHint,
         });
       };
       abortRef.current = new AbortController();
@@ -227,20 +234,24 @@ export function useChatSend({
 
       try {
         const known = agentsRef.current.find((a) => a.id === agentId)?.status?.connected;
-        if (!known) await connectAgent(agentId);
-        // Always chat on a known session so model/thinking/permission state
-        // stays in sync (backend auto-create would leave config unknown).
+        if (!known) {
+          beginTurn("正在启动智能体进程…");
+          st.setStreaming(true);
+          await connectAgent(agentId);
+        }
         let sid = useStudioStore.getState().sessionId;
         if (!sid) {
-          // No binding: resume-first (usually news here), never blind force-new
-          // over a session the UI is already showing.
+          beginTurn("正在建立会话通道…");
+          st.setStreaming(true);
           sid = await resolveSession(agentId);
           if (!sid) throw new Error("无法创建会话");
         }
-        // Session resolution may replace the draft thread. Insert this turn only
-        // after that transition so streamed updates retain their message target.
-        beginTurn();
+        beginTurn("正在连接模型思考…");
         st.setStreaming(true);
+        useStudioStore.getState().patchMessage(assistantId, (m) => ({
+          ...m,
+          statusHint: m.statusHint || "正在连接模型思考…",
+        }));
         const cur = useStudioStore.getState();
         // Transient transport failures (dropped SSE, gateway hiccup) resend
         // automatically with backoff; the retry note is stripped on success.
@@ -283,11 +294,12 @@ export function useChatSend({
               {
             onSessionId: (id) => cur.setSessionId(id),
             onTextChunk: (chunk) =>
-              cur.patchMessage(assistantId, (m) => ({ ...m, content: m.content + chunk })),
+              cur.patchMessage(assistantId, (m) => ({ ...m, content: m.content + chunk, statusHint: undefined })),
             onThoughtChunk: (chunk) =>
               cur.patchMessage(assistantId, (m) => ({
                 ...m,
                 thought: (m.thought || "") + chunk,
+                statusHint: "正在思考分析…",
                 thoughtTiming: m.thoughtTiming ?? { startedAt: Date.now() },
               })),
             onImageChunk: (img) =>
@@ -301,6 +313,7 @@ export function useChatSend({
             onToolCall: (c) =>
               cur.patchMessage(assistantId, (m) => {
                 const isGen = isGenerativeTool(c);
+                const displayTitle = resolveToolDisplayTitle(c);
                 const existingText = m.content?.trim();
                 let updatedProgress = m.progressContent;
                 let newContent = m.content;
@@ -321,6 +334,7 @@ export function useChatSend({
                   ...m,
                   content: newContent,
                   progressContent: updatedProgress,
+                  statusHint: `正在调用 ${displayTitle}…`,
                   toolCalls: [
                     ...(m.toolCalls || []),
                     {
@@ -368,7 +382,18 @@ export function useChatSend({
                   newContent = appendGenerativeToolPlaceholder(newContent, targetCall.id);
                 }
 
-                return { ...m, content: newContent, progressContent: updatedProgress, toolCalls: calls };
+                const displayTitle = resolveToolDisplayTitle(targetCall);
+                const hint = terminal
+                  ? (targetCall.status === "completed" ? `${displayTitle} 执行完成` : `${displayTitle} 执行失败`)
+                  : `正在执行 ${displayTitle}…`;
+
+                return {
+                  ...m,
+                  content: newContent,
+                  progressContent: updatedProgress,
+                  statusHint: hint,
+                  toolCalls: calls,
+                };
               }),
             onPlan: (entries) => cur.patchMessage(assistantId, { plan: entries }),
             onAvailableCommands: (cmds) => useStudioStore.getState().setAvailableCommands(cmds, sid),
