@@ -590,9 +590,11 @@ export interface AcpStandaloneMarkdownProps {
   className?: string;
 }
 
+const InPreContext = React.createContext(false);
+
 /**
- * 独立 Markdown 渲染器（用于阶段推进记录折叠区、独立弹窗等无需 assistant-ui PartContext 的场景）。
- * 完整支持 GFM 表格、Shiki 高亮代码块、GitHub Alert 呼出框及安全 HTML 标签。
+ * 独立 Markdown 渲染器（用于工作台 Markdown 文件高亮预览、阶段推进记录折叠区、独立弹窗等无需 assistant-ui PartContext 的场景）。
+ * 完整支持 GFM 表格、Shiki 高亮代码块、Mermaid 流程图、GitHub Alert 呼出框及安全 HTML 标签。
  */
 export const AcpStandaloneMarkdown: React.FC<AcpStandaloneMarkdownProps> = memo(({ content, className }) => {
   const math = useSyncExternalStore(subscribeMath, getMathPlugins, getMathPlugins);
@@ -612,14 +614,22 @@ export const AcpStandaloneMarkdown: React.FC<AcpStandaloneMarkdownProps> = memo(
         rehypePlugins={rehypePlugins}
         components={{
           ...(acpComponents as any),
-          pre: ({ children }: any) => <div className="my-1.5">{children}</div>,
+          pre: ({ children }: any) => (
+            <InPreContext.Provider value={true}>
+              {children}
+            </InPreContext.Provider>
+          ),
           code: function StandaloneCode({ className: codeClassName, children, ...props }: any) {
-            const match = /language-(\w+)/.exec(codeClassName || "");
+            const inPre = React.useContext(InPreContext);
+            const match = /language-([-\w]+)/.exec(codeClassName || "");
             const codeString = String(children || "").replace(/\n$/, "");
-            if (match) {
-              const lang = match[1];
+            if (inPre || match) {
+              const lang = match ? match[1] : "";
+              if (lang.toLowerCase() === "mermaid") {
+                return <MermaidBlock code={codeString} />;
+              }
               return (
-                <div className="my-1.5 overflow-hidden rounded-lg border border-border">
+                <div className="my-1.5 select-text">
                   <AcpCodeHeader language={lang} code={codeString} />
                   <AcpSyntaxHighlighter language={lang} code={codeString} />
                 </div>

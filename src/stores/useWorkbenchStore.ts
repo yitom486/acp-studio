@@ -21,8 +21,8 @@ export interface EditorTab {
   /** AI / 外部修改后自动重载时，新增或修改的行（1-based），短暂高亮 */
   flashLines?: number[];
   flashAt?: number;
-  /** 视图：源码（默认）/ Markdown 所见即所得 / 笔记本预览（.ipynb 默认） */
-  view?: "source" | "wysiwyg" | "notebook";
+  /** 视图：Markdown 高亮预览（.md 默认）/ 源码 / 所见即所得 / 笔记本预览（.ipynb 默认） */
+  view?: "preview" | "wysiwyg" | "source" | "notebook";
   /** 磁盘文件的行尾换行符（Windows 为 \r\n，Linux/macOS 为 \n），保存时恢复原样以防 Git 产生全局 diff */
   eol?: "\r\n" | "\n";
   /** 保存请求在途（RTT 内 UI 转“保存中”，同 tab 并发保存合并，不静默吞） */

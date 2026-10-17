@@ -3,6 +3,7 @@ import { relativeToWorkspace, classifyOutsideFile, collectFolderFiles, decodeDra
 import { closeOpenFences, hasMath } from "../../src/lib/markdown-preprocess";
 import { parseNotebook, pickOutput } from "../../src/lib/notebook";
 import { splitBlocks, normalizeMarkdown, preserveUnchangedBlocks } from "../../src/lib/markdown-roundtrip";
+import { viewOf, isMarkdown, isNotebook } from "../../src/components/workbench/EditorPane";
 
 describe("composer drop", () => {
   it("maps absolute paths inside the workspace to relative refs (posix + windows)", () => {
@@ -115,5 +116,44 @@ describe("markdown round-trip guard", () => {
     expect(preserveUnchangedBlocks(original, baseline, edited).text).toContain("New paragraph.\n\n* one");
     const r = preserveUnchangedBlocks("a\nb", "a\n\nb", "a\n\nb\n\nc");
     expect(r.reformatted).toBe(true);
+  });
+});
+
+describe("workbench editor view mode", () => {
+  const baseTab = {
+    id: "test",
+    path: "README.md",
+    kind: "file" as const,
+    text: "# Hello\n```ts\nconst x = 1;\n```",
+    savedText: "# Hello\n```ts\nconst x = 1;\n```",
+    mtimeMs: 12345,
+    preview: true,
+  };
+
+  it("identifies markdown and notebook files by path extension", () => {
+    expect(isMarkdown("README.md")).toBe(true);
+    expect(isMarkdown("docs/guide.markdown")).toBe(true);
+    expect(isMarkdown("src/index.ts")).toBe(false);
+    expect(isNotebook("analysis.ipynb")).toBe(true);
+    expect(isNotebook("analysis.py")).toBe(false);
+  });
+
+  it("defaults markdown files to 'preview' mode with syntax highlighted rendering", () => {
+    expect(viewOf(baseTab)).toBe("preview");
+  });
+
+  it("defaults notebook files to 'notebook' mode", () => {
+    expect(viewOf({ ...baseTab, path: "experiment.ipynb" })).toBe("notebook");
+  });
+
+  it("defaults regular code files to 'source' mode", () => {
+    expect(viewOf({ ...baseTab, path: "src/main.ts" })).toBe("source");
+    expect(viewOf({ ...baseTab, path: "styles.css" })).toBe("source");
+  });
+
+  it("respects explicit view preference over default", () => {
+    expect(viewOf({ ...baseTab, path: "README.md", view: "wysiwyg" })).toBe("wysiwyg");
+    expect(viewOf({ ...baseTab, path: "README.md", view: "source" })).toBe("source");
+    expect(viewOf({ ...baseTab, path: "experiment.ipynb", view: "source" })).toBe("source");
   });
 });

@@ -128,6 +128,14 @@ describe("Markdown HTML and GitHub Alert Callouts", () => {
     expect(html).toContain("const ready = true;");
   });
 
+  it("renders untagged code blocks with header and distinguishes inline code", () => {
+    const markdown = "Here is `inline_code()` in text.\n\n```\nplain text block\nline 2\n```";
+    const html = renderToString(React.createElement(AcpStandaloneMarkdown, { content: markdown }));
+    expect(html).toContain("inline_code()");
+    expect(html).toContain("plain text block\nline 2");
+    expect(html).toContain("复制");
+  });
+
   it("normalizes loose bold delimiters with trailing/leading spaces (anti-fingerprinting case)", () => {
     const raw = "出于**防止用户硬件指纹追踪 (Anti-Fingerprinting) **的隐私机制";
     const normalized = preprocessMarkdown(raw);

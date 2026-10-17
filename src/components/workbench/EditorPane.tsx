@@ -11,15 +11,18 @@ import { useWorkbenchStore, isDirty, type EditorTab } from "@/stores/useWorkbenc
 import { saveTab, acceptDisk, openDiff } from "@/lib/workbench-actions";
 import { baseExtensions, languageFor, setFlashLines } from "./codemirror-setup";
 import { cn } from "@/lib/utils";
+import { AcpStandaloneMarkdown } from "@/components/assistant/AcpMarkdown";
 
 const NotebookViewer = lazy(() => import("./NotebookViewer"));
 const MarkdownWysiwyg = lazy(() => import("./MarkdownWysiwyg"));
 
 export const isNotebook = (p: string) => /\.ipynb$/i.test(p);
 export const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
-export function viewOf(t: EditorTab): "source" | "wysiwyg" | "notebook" {
+export function viewOf(t: EditorTab): "preview" | "wysiwyg" | "source" | "notebook" {
   if (t.view) return t.view;
-  return isNotebook(t.path) ? "notebook" : "source";
+  if (isNotebook(t.path)) return "notebook";
+  if (isMarkdown(t.path)) return "preview";
+  return "source";
 }
 
 const states = new Map<string, EditorState>();
@@ -200,13 +203,13 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
         )}
         {active?.kind === "file" && (isMarkdown(active.path) || isNotebook(active.path)) && (
           <div className="mr-1 flex h-6 items-center rounded-md border border-border p-0.5 text-[11px]" role="group" aria-label="视图">
-            {(isNotebook(active.path) ? (["notebook", "source"] as const) : (["source", "wysiwyg"] as const)).map((v) => (
+            {(isNotebook(active.path) ? (["notebook", "source"] as const) : (["preview", "wysiwyg", "source"] as const)).map((v) => (
               <button
                 key={v}
                 onClick={() => useWorkbenchStore.getState().patchTab(active.id, { view: v })}
                 className={cn("rounded px-2 py-0.5", viewOf(active) === v ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}
               >
-                {v === "source" ? "源码" : v === "wysiwyg" ? "所见即所得" : "预览"}
+                {v === "preview" ? "预览" : v === "wysiwyg" ? "所见即所得" : v === "notebook" ? "笔记本" : "源码"}
               </button>
             ))}
           </div>
@@ -243,6 +246,12 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
           <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">正在加载笔记本查看器…</div>}>
             <NotebookViewer text={active.text} />
           </Suspense>
+        ) : viewOf(active) === "preview" ? (
+          <div className="h-full overflow-y-auto px-8 py-6 select-text">
+            <div className="max-w-[760px] mx-auto">
+              <AcpStandaloneMarkdown content={active.text} className="text-sm leading-relaxed" />
+            </div>
+          </div>
         ) : viewOf(active) === "wysiwyg" ? (
           <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">正在加载所见即所得编辑器…</div>}>
             <MarkdownWysiwyg
