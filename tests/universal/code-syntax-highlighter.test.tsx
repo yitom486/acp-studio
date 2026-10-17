@@ -28,3 +28,4 @@ describe("AcpSyntaxHighlighter", () => {
     expect(htmlLight).toContain('class="shiki github-light-high-contrast"');
   });
 });
+
