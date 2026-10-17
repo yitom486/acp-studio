@@ -15,7 +15,11 @@ import {
   Grid,
   Calendar,
   Sparkles,
+  SunMedium,
+  Moon,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useThemeStore, THEMES } from "@/stores/useThemeStore";
 
 export type DiagramType =
   | "architecture"
@@ -127,6 +131,7 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
   title,
   diagramType,
   description,
+  theme: preferredTheme,
   accent = "emerald",
   data,
 }) => {
@@ -135,6 +140,20 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
   const [copied, setCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+
+  const appTheme = useThemeStore((s) => s.theme);
+  const isAppDark = THEMES[appTheme]?.isDark ?? true;
+  const [cardTheme, setCardTheme] = useState<"auto" | "light" | "dark">(
+    preferredTheme === "light" ? "light" : preferredTheme === "dark" ? "dark" : "auto"
+  );
+  const effectiveIsDark = cardTheme === "auto" ? isAppDark : cardTheme === "dark";
+
+  const handleToggleTheme = () => {
+    setCardTheme((prev) => {
+      const currentDark = prev === "auto" ? isAppDark : prev === "dark";
+      return currentDark ? "light" : "dark";
+    });
+  };
 
   useEffect(() => {
     if (!isFullscreen) return;
@@ -197,11 +216,13 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
       role={isFullscreen ? "dialog" : undefined}
       aria-modal={isFullscreen ? true : undefined}
       aria-label={isFullscreen ? `${title} 全屏预览` : undefined}
-      className={`my-3.5 rounded-xl border border-border/70 bg-card/90 overflow-hidden shadow-sm transition-all duration-200 ${
+      className={cn(
+        "my-3.5 rounded-xl border border-border/70 overflow-hidden shadow-sm transition-all duration-200",
+        effectiveIsDark ? "dark bg-card/95 text-card-foreground" : "light bg-card text-card-foreground shadow-xs",
         isFullscreen
           ? "fixed inset-4 z-[100] flex flex-col bg-background/95 backdrop-blur-md shadow-2xl border-border"
           : ""
-      }`}
+      )}
     >
       {/* 顶部 Editorial Header */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b border-border/50 text-xs">
@@ -221,6 +242,20 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
 
         {/* 交互工具条 */}
         <div className="flex items-center gap-1 text-muted-foreground">
+          <button
+            type="button"
+            onClick={handleToggleTheme}
+            className="p-1 rounded hover:text-foreground hover:bg-muted/80 transition-colors"
+            title={effectiveIsDark ? "切换为浅色主题 (当前: 深色)" : "切换为深色主题 (当前: 浅色)"}
+            aria-label={effectiveIsDark ? "切换为浅色主题" : "切换为深色主题"}
+          >
+            {effectiveIsDark ? (
+              <SunMedium className="w-3.5 h-3.5 text-amber-400" />
+            ) : (
+              <Moon className="w-3.5 h-3.5 text-indigo-500" />
+            )}
+          </button>
+          <div className="w-[1px] h-3 bg-border/60 mx-1" />
           <button
             type="button"
             onClick={() => setZoom((z) => Math.min(z + 0.15, 2.0))}
@@ -299,9 +334,11 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
       {/* SVG 矢量图表画布区域 */}
       <div
         ref={containerRef}
-        className={`relative overflow-auto p-4 flex items-center justify-center bg-card select-none ${
+        className={cn(
+          "relative overflow-auto p-4 flex items-center justify-center select-none transition-colors",
+          effectiveIsDark ? "bg-[#0b0f17]" : "bg-slate-50/80",
           isFullscreen ? "flex-1 min-h-[500px]" : "min-h-[280px]"
-        }`}
+        )}
       >
         <div
           style={{
@@ -312,19 +349,19 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
           className="w-full flex justify-center"
         >
           {diagramType === "architecture" && (
-            <ArchitectureDiagramSvg data={data} accent={accent} />
+            <ArchitectureDiagramSvg data={data} accent={accent} isDark={effectiveIsDark} />
           )}
           {diagramType === "sequence" && (
-            <SequenceDiagramSvg data={data} accent={accent} />
+            <SequenceDiagramSvg data={data} accent={accent} isDark={effectiveIsDark} />
           )}
           {diagramType === "flowchart" && (
-            <FlowchartDiagramSvg data={data} accent={accent} />
+            <FlowchartDiagramSvg data={data} accent={accent} isDark={effectiveIsDark} />
           )}
           {diagramType === "quadrant" && (
-            <QuadrantDiagramSvg data={data} accent={accent} />
+            <QuadrantDiagramSvg data={data} accent={accent} isDark={effectiveIsDark} />
           )}
           {diagramType === "timeline" && (
-            <TimelineDiagramSvg data={data} accent={accent} />
+            <TimelineDiagramSvg data={data} accent={accent} isDark={effectiveIsDark} />
           )}
         </div>
       </div>
@@ -341,9 +378,11 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
 function ArchitectureDiagramSvg({
   data,
   accent,
+  isDark = true,
 }: {
   data: Record<string, any>;
   accent: AccentColor;
+  isDark?: boolean;
 }) {
   const accentStyles = ACCENT_MAP[accent] || ACCENT_MAP.emerald;
   const layers = Array.isArray(data.layers) ? data.layers : [];
@@ -448,7 +487,7 @@ function ArchitectureDiagramSvg({
           markerHeight="6"
           orient="auto-start-reverse"
         >
-          <path d="M 0 1 L 8 5 L 0 9 z" fill="#888888" />
+          <path d="M 0 1 L 8 5 L 0 9 z" fill={isDark ? "#64748b" : "#94a3b8"} />
         </marker>
       </defs>
 
@@ -460,15 +499,15 @@ function ArchitectureDiagramSvg({
 
         return (
           <g key={layer.id || layerIdx} transform={`translate(0, ${y})`}>
-            {/* 分层容器底框：采用清晰可见的边框与微底色，确保深色模式下结构一目了然 */}
+            {/* 分层容器底框 */}
             <rect
               x="20"
               y="0"
               width={width - 40}
               height={layerHeight}
               rx="10"
-              fill="var(--surface-1, rgba(255, 255, 255, 0.02))"
-              stroke="var(--line, rgba(255, 255, 255, 0.12))"
+              fill={isDark ? "rgba(255, 255, 255, 0.02)" : "rgba(0, 0, 0, 0.02)"}
+              stroke={isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.12)"}
               strokeDasharray="4 4"
               strokeWidth="1"
             />
@@ -476,7 +515,8 @@ function ArchitectureDiagramSvg({
             <text
               x="34"
               y="20"
-              className="text-[11px] font-mono font-semibold uppercase tracking-wider fill-foreground/75 select-none"
+              fill={isDark ? "#94a3b8" : "#475569"}
+              className="text-[11px] font-mono font-semibold uppercase tracking-wider select-none"
             >
               {layer.title || layer.name || `Layer ${layerIdx + 1}`}
             </text>
@@ -495,8 +535,8 @@ function ArchitectureDiagramSvg({
                     width={nodeWidth}
                     height="50"
                     rx="7"
-                    fill="var(--card, #1c1c1f)"
-                    stroke={isHighlighted ? accentStyles.stroke : "var(--line, #38383f)"}
+                    fill={isDark ? "#181e28" : "#ffffff"}
+                    stroke={isHighlighted ? accentStyles.stroke : isDark ? "rgba(255, 255, 255, 0.12)" : "#cbd5e1"}
                     strokeWidth={isHighlighted ? 1.5 : 1}
                   />
                   {/* 使用 foreignObject 承载自适应排版，带 ellipsis 截断与悬停气泡 */}
@@ -506,7 +546,12 @@ function ArchitectureDiagramSvg({
                       title={`${node.label || node.title || ""}${node.subtext ? ` — ${node.subtext}` : ""}`}
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[12px] font-semibold text-foreground truncate leading-snug">
+                        <span
+                          className={cn(
+                            "text-[12px] font-semibold truncate leading-snug",
+                            isDark ? "text-slate-100" : "text-slate-900"
+                          )}
+                        >
                           {node.label || node.title}
                         </span>
                         {isHighlighted && (
@@ -517,7 +562,12 @@ function ArchitectureDiagramSvg({
                         )}
                       </div>
                       {(node.subtext || node.type || node.badge) && (
-                        <div className="text-[10px] font-mono text-muted-foreground truncate leading-snug mt-0.5">
+                        <div
+                          className={cn(
+                            "text-[10px] font-mono truncate leading-snug mt-0.5",
+                            isDark ? "text-slate-400" : "text-slate-500"
+                          )}
+                        >
                           {node.subtext || node.type || node.badge}
                         </div>
                       )}
@@ -581,7 +631,7 @@ function ArchitectureDiagramSvg({
         }
 
         const isHighlighted = Boolean(conn.highlighted);
-        const strokeColor = isHighlighted ? accentStyles.stroke : "var(--line-strong, #666666)";
+        const strokeColor = isHighlighted ? accentStyles.stroke : isDark ? "#64748b" : "#94a3b8";
         const midX = (startX + endX) / 2;
         const midY = (startY + endY) / 2;
         const isStraight = Math.abs(startX - endX) < 4;
@@ -610,17 +660,16 @@ function ArchitectureDiagramSvg({
                   width={labelWidth}
                   height={18}
                   rx="4"
-                  fill="var(--card, #1c1c1f)"
-                  stroke={isHighlighted ? accentStyles.stroke : "var(--line, #38383f)"}
+                  fill={isDark ? "#1e293b" : "#ffffff"}
+                  stroke={isHighlighted ? accentStyles.stroke : isDark ? "rgba(255, 255, 255, 0.15)" : "#cbd5e1"}
                   strokeWidth="0.8"
                 />
                 <text
                   x="0"
                   y="3.5"
                   textAnchor="middle"
-                  className={`text-[10px] font-mono select-none ${
-                    isHighlighted ? accentStyles.text : "fill-muted-foreground"
-                  }`}
+                  fill={isHighlighted ? accentStyles.stroke : isDark ? "#e2e8f0" : "#334155"}
+                  className="text-[10px] font-mono select-none"
                 >
                   {labelText}
                 </text>
@@ -639,9 +688,11 @@ function ArchitectureDiagramSvg({
 function SequenceDiagramSvg({
   data,
   accent,
+  isDark = true,
 }: {
   data: Record<string, any>;
   accent: AccentColor;
+  isDark?: boolean;
 }) {
   const accentStyles = ACCENT_MAP[accent] || ACCENT_MAP.emerald;
   const messages: any[] = Array.isArray(data.messages)
@@ -722,7 +773,7 @@ function SequenceDiagramSvg({
           markerHeight="6"
           orient="auto-start-reverse"
         >
-          <path d="M 0 1 L 8 5 L 0 9 z" fill="#888888" />
+          <path d="M 0 1 L 8 5 L 0 9 z" fill={isDark ? "#64748b" : "#94a3b8"} />
         </marker>
       </defs>
 
@@ -739,10 +790,9 @@ function SequenceDiagramSvg({
               y1={headerHeight}
               x2={x}
               y2={totalHeight - 20}
-              stroke="currentColor"
+              stroke={isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.15)"}
               strokeDasharray="4 4"
               strokeWidth="1"
-              strokeOpacity="0.25"
             />
             {/* 顶栏卡片 */}
             <rect
@@ -751,17 +801,16 @@ function SequenceDiagramSvg({
               width={boxWidth}
               height="30"
               rx="6"
-              fill="currentColor"
-              className="text-card"
-              stroke="currentColor"
+              fill={isDark ? "#181e28" : "#ffffff"}
+              stroke={isDark ? "rgba(255, 255, 255, 0.15)" : "#cbd5e1"}
               strokeWidth="1"
-              strokeOpacity="0.4"
             />
             <text
               x={x}
               y="27"
               textAnchor="middle"
-              className="text-[12px] font-semibold fill-foreground"
+              fill={isDark ? "#f8fafc" : "#0f172a"}
+              className="text-[12px] font-semibold"
             >
               {p.label || p.name || `Actor ${idx + 1}`}
             </text>
@@ -786,7 +835,7 @@ function SequenceDiagramSvg({
               <path
                 d={`M ${x1} ${y - 6} C ${x1 + 40} ${y - 12}, ${x1 + 40} ${y + 12}, ${x1 + 4} ${y + 6}`}
                 fill="none"
-                stroke={isHighlighted ? accentStyles.stroke : "#888888"}
+                stroke={isHighlighted ? accentStyles.stroke : isDark ? "#64748b" : "#94a3b8"}
                 strokeWidth={isHighlighted ? 1.5 : 1}
                 markerEnd={
                   isHighlighted
@@ -800,7 +849,7 @@ function SequenceDiagramSvg({
                 y1={y}
                 x2={x2}
                 y2={y}
-                stroke={isHighlighted ? accentStyles.stroke : "#888888"}
+                stroke={isHighlighted ? accentStyles.stroke : isDark ? "#64748b" : "#94a3b8"}
                 strokeWidth={isHighlighted ? 1.5 : 1}
                 strokeDasharray={isReply ? "3 3" : undefined}
                 markerEnd={
@@ -815,11 +864,8 @@ function SequenceDiagramSvg({
               x={(x1 + x2) / 2 + (isSelf ? 28 : 0)}
               y={y - 6}
               textAnchor="middle"
-              className={`text-[11px] font-mono ${
-                isHighlighted
-                  ? `font-semibold ${accentStyles.text}`
-                  : "fill-foreground"
-              }`}
+              fill={isHighlighted ? accentStyles.stroke : isDark ? "#e2e8f0" : "#1e293b"}
+              className={`text-[11px] font-mono ${isHighlighted ? "font-semibold" : ""}`}
             >
               {m.label || m.text || m.name || m.title || `Step ${mIdx + 1}`}
             </text>
@@ -836,9 +882,11 @@ function SequenceDiagramSvg({
 function FlowchartDiagramSvg({
   data,
   accent,
+  isDark = true,
 }: {
   data: Record<string, any>;
   accent: AccentColor;
+  isDark?: boolean;
 }) {
   const accentStyles = ACCENT_MAP[accent] || ACCENT_MAP.emerald;
   const steps: any[] = Array.isArray(data.steps)
@@ -920,7 +968,7 @@ function FlowchartDiagramSvg({
               y1={y1}
               x2={x2}
               y2={y2}
-              stroke="#888888"
+              stroke={isDark ? "#64748b" : "#94a3b8"}
               strokeWidth="1"
               markerEnd={`url(#flow-arrow-${accent})`}
             />
@@ -942,27 +990,31 @@ function FlowchartDiagramSvg({
               width={cardWidth}
               height={cardHeight}
               rx="8"
-              fill="currentColor"
-              className={
+              fill={
                 isCurrent
-                  ? `${accentStyles.bg} text-card`
-                  : "text-card"
+                  ? isDark
+                    ? "rgba(16, 185, 129, 0.15)"
+                    : "rgba(16, 185, 129, 0.1)"
+                  : isDark
+                    ? "#181e28"
+                    : "#ffffff"
               }
-              stroke={isCurrent ? accentStyles.stroke : "currentColor"}
+              stroke={isCurrent ? accentStyles.stroke : isDark ? "rgba(255, 255, 255, 0.15)" : "#cbd5e1"}
               strokeWidth={isCurrent ? 1.5 : 1}
-              strokeOpacity={isCurrent ? 1 : 0.4}
             />
             <text
               x="12"
               y="22"
-              className="text-[12px] font-semibold fill-foreground"
+              fill={isDark ? "#f8fafc" : "#0f172a"}
+              className="text-[12px] font-semibold"
             >
               {step.label || step.name || `Step ${idx + 1}`}
             </text>
             <text
               x="12"
               y="40"
-              className="text-[10px] font-mono fill-muted-foreground truncate"
+              fill={isDark ? "#94a3b8" : "#64748b"}
+              className="text-[10px] font-mono truncate"
             >
               {step.description || step.status || ""}
             </text>
@@ -987,9 +1039,11 @@ function FlowchartDiagramSvg({
 function QuadrantDiagramSvg({
   data,
   accent,
+  isDark = true,
 }: {
   data: Record<string, any>;
   accent: AccentColor;
+  isDark?: boolean;
 }) {
   const accentStyles = ACCENT_MAP[accent] || ACCENT_MAP.emerald;
   const xAxis = data.xAxis || { label: "Effort", low: "Low Effort", high: "High Effort" };
@@ -1014,7 +1068,7 @@ function QuadrantDiagramSvg({
         y="20"
         width={midX - 20}
         height={midY - 20}
-        className="fill-muted/10"
+        fill={isDark ? "rgba(255, 255, 255, 0.02)" : "rgba(0, 0, 0, 0.02)"}
       />
       {/* Q2: 左上 (Low X, High Y) -> 重点推荐聚焦象限 */}
       <rect
@@ -1022,7 +1076,7 @@ function QuadrantDiagramSvg({
         y="20"
         width={midX - 20}
         height={midY - 20}
-        className={`${accentStyles.bg} opacity-20`}
+        fill={isDark ? "rgba(16, 185, 129, 0.1)" : "rgba(16, 185, 129, 0.06)"}
       />
       {/* Q3: 左下 (Low X, Low Y) */}
       <rect
@@ -1030,7 +1084,7 @@ function QuadrantDiagramSvg({
         y={midY}
         width={midX - 20}
         height={midY - 20}
-        className="fill-muted/5"
+        fill={isDark ? "rgba(255, 255, 255, 0.01)" : "rgba(0, 0, 0, 0.01)"}
       />
       {/* Q4: 右下 (High X, Low Y) */}
       <rect
@@ -1038,7 +1092,7 @@ function QuadrantDiagramSvg({
         y={midY}
         width={midX - 20}
         height={midY - 20}
-        className="fill-muted/10"
+        fill={isDark ? "rgba(255, 255, 255, 0.02)" : "rgba(0, 0, 0, 0.02)"}
       />
 
       {/* 十字坐标轴 */}
@@ -1047,25 +1101,24 @@ function QuadrantDiagramSvg({
         y1={midY}
         x2={width - 20}
         y2={midY}
-        stroke="currentColor"
+        stroke={isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.15)"}
         strokeWidth="1.5"
-        strokeOpacity="0.3"
       />
       <line
         x1={midX}
         y1="20"
         x2={midX}
         y2={height - 20}
-        stroke="currentColor"
+        stroke={isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.15)"}
         strokeWidth="1.5"
-        strokeOpacity="0.3"
       />
 
       {/* 轴标签 */}
       <text
         x="30"
         y={midY - 6}
-        className="text-[10px] font-mono fill-muted-foreground uppercase"
+        fill={isDark ? "#94a3b8" : "#64748b"}
+        className="text-[10px] font-mono uppercase"
       >
         ← {xAxis.low || "Low"}
       </text>
@@ -1073,21 +1126,24 @@ function QuadrantDiagramSvg({
         x={width - 30}
         y={midY - 6}
         textAnchor="end"
-        className="text-[10px] font-mono fill-muted-foreground uppercase"
+        fill={isDark ? "#94a3b8" : "#64748b"}
+        className="text-[10px] font-mono uppercase"
       >
         {xAxis.high || "High"} →
       </text>
       <text
         x={midX + 6}
         y="32"
-        className="text-[10px] font-mono fill-muted-foreground uppercase"
+        fill={isDark ? "#94a3b8" : "#64748b"}
+        className="text-[10px] font-mono uppercase"
       >
         ↑ {yAxis.high || "High"}
       </text>
       <text
         x={midX + 6}
         y={height - 26}
-        className="text-[10px] font-mono fill-muted-foreground uppercase"
+        fill={isDark ? "#94a3b8" : "#64748b"}
+        className="text-[10px] font-mono uppercase"
       >
         ↓ {yAxis.low || "Low"}
       </text>
@@ -1111,27 +1167,31 @@ function QuadrantDiagramSvg({
               width="110"
               height="38"
               rx="6"
-              fill="currentColor"
-              className={
+              fill={
                 isHighlighted
-                  ? `${accentStyles.bg} text-card`
-                  : "text-card"
+                  ? isDark
+                    ? "rgba(16, 185, 129, 0.15)"
+                    : "rgba(16, 185, 129, 0.1)"
+                  : isDark
+                    ? "#181e28"
+                    : "#ffffff"
               }
-              stroke={isHighlighted ? accentStyles.stroke : "currentColor"}
+              stroke={isHighlighted ? accentStyles.stroke : isDark ? "rgba(255, 255, 255, 0.15)" : "#cbd5e1"}
               strokeWidth={isHighlighted ? 1.5 : 1}
-              strokeOpacity={isHighlighted ? 1 : 0.4}
             />
             <text
               x="8"
               y="18"
-              className="text-[11px] font-semibold fill-foreground"
+              fill={isDark ? "#f8fafc" : "#0f172a"}
+              className="text-[11px] font-semibold"
             >
               {item.label}
             </text>
             <text
               x="8"
               y="30"
-              className="text-[9px] font-mono fill-muted-foreground"
+              fill={isDark ? "#94a3b8" : "#64748b"}
+              className="text-[9px] font-mono"
             >
               {item.subtext || (isHighlighted ? "推荐重点" : "")}
             </text>
@@ -1148,9 +1208,11 @@ function QuadrantDiagramSvg({
 function TimelineDiagramSvg({
   data,
   accent,
+  isDark = true,
 }: {
   data: Record<string, any>;
   accent: AccentColor;
+  isDark?: boolean;
 }) {
   const accentStyles = ACCENT_MAP[accent] || ACCENT_MAP.emerald;
   const milestones = Array.isArray(data.milestones) ? data.milestones : [];
@@ -1172,9 +1234,8 @@ function TimelineDiagramSvg({
         y1="90"
         x2={width - 40}
         y2="90"
-        stroke="currentColor"
+        stroke={isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.15)"}
         strokeWidth="2"
-        strokeOpacity="0.25"
       />
 
       {milestones.map((m: any, idx: number) => {
@@ -1189,9 +1250,8 @@ function TimelineDiagramSvg({
               cx={x}
               cy="90"
               r={isCurrent ? "7" : "5"}
-              fill={isCurrent ? accentStyles.fill : isCompleted ? "#888888" : "currentColor"}
-              className={!isCurrent && !isCompleted ? "text-muted" : ""}
-              stroke={isCurrent ? "currentColor" : undefined}
+              fill={isCurrent ? accentStyles.fill : isCompleted ? (isDark ? "#64748b" : "#94a3b8") : isDark ? "#334155" : "#cbd5e1"}
+              stroke={isCurrent ? (isDark ? "#ffffff" : "#0f172a") : undefined}
               strokeWidth={isCurrent ? 2 : 0}
             />
 
@@ -1200,9 +1260,8 @@ function TimelineDiagramSvg({
               x={x}
               y="70"
               textAnchor="middle"
-              className={`text-[10px] font-mono ${
-                isCurrent ? `font-semibold ${accentStyles.text}` : "fill-muted-foreground"
-              }`}
+              fill={isCurrent ? accentStyles.stroke : isDark ? "#94a3b8" : "#64748b"}
+              className={`text-[10px] font-mono ${isCurrent ? "font-semibold" : ""}`}
             >
               {m.date || m.phase || `P${idx + 1}`}
             </text>
@@ -1214,21 +1273,24 @@ function TimelineDiagramSvg({
               width={stepWidth - 16}
               height="80"
               rx="6"
-              fill="currentColor"
-              className={
+              fill={
                 isCurrent
-                  ? `${accentStyles.bg} text-card`
-                  : "text-card"
+                  ? isDark
+                    ? "rgba(16, 185, 129, 0.15)"
+                    : "rgba(16, 185, 129, 0.1)"
+                  : isDark
+                    ? "#181e28"
+                    : "#ffffff"
               }
-              stroke={isCurrent ? accentStyles.stroke : "currentColor"}
+              stroke={isCurrent ? accentStyles.stroke : isDark ? "rgba(255, 255, 255, 0.15)" : "#cbd5e1"}
               strokeWidth={isCurrent ? 1.5 : 1}
-              strokeOpacity={isCurrent ? 1 : 0.3}
             />
             <text
               x={x}
               y="132"
               textAnchor="middle"
-              className="text-[12px] font-semibold fill-foreground"
+              fill={isDark ? "#f8fafc" : "#0f172a"}
+              className="text-[12px] font-semibold"
             >
               {m.title}
             </text>
@@ -1236,7 +1298,8 @@ function TimelineDiagramSvg({
               x={x}
               y="150"
               textAnchor="middle"
-              className="text-[10px] font-mono fill-muted-foreground"
+              fill={isDark ? "#94a3b8" : "#64748b"}
+              className="text-[10px] font-mono"
             >
               {m.description || m.status || ""}
             </text>

@@ -266,6 +266,8 @@ describe("Generative UI - Front-End Component Integration Tests", () => {
     const srcDoc = iframe.srcdoc;
     expect(srcDoc).toContain("cdn.tailwindcss.com");
     expect(srcDoc).toContain("@babel/standalone");
+    expect(srcDoc).not.toContain("isTSX");
+    expect(srcDoc).not.toContain("allExtensions");
     expect(srcDoc).toContain("react@18");
     expect(srcDoc).toContain("react-dom@18");
     expect(srcDoc).toContain("function App()");
@@ -438,6 +440,73 @@ describe("Generative UI - Front-End Component Integration Tests", () => {
 
     expect(writeTextMock).toHaveBeenCalledTimes(1);
     expect(writeTextMock.mock.calls[0][0]).toContain("<svg");
+
+    // 5. Test Theme Toggle button
+    const themeBtn = container.querySelector(
+      'button[title*="切换为浅色主题"], button[title*="切换为深色主题"]'
+    ) as HTMLButtonElement;
+    expect(themeBtn).not.toBeNull();
+    const initialTitle = themeBtn.getAttribute("title");
+
+    await act(async () => {
+      themeBtn.click();
+    });
+
+    const toggledTitle = themeBtn.getAttribute("title");
+    expect(toggledTitle).not.toBe(initialTitle);
+  });
+
+  it("E2E: EditorialDiagramCard renders flowchart with high-contrast nodes in both light and dark themes", async () => {
+    await act(async () => {
+      root.render(
+        <EditorialDiagramCard
+          title="订单状态流转图"
+          diagramType="flowchart"
+          theme="light"
+          accent="emerald"
+          data={{
+            steps: [
+              { id: "pending", label: "待支付", description: "等待客户扣款" },
+              { id: "paid", label: "已支付", description: "款项已到账", active: true },
+              { id: "shipped", label: "已发货", description: "物流运输中" },
+            ],
+            connections: [
+              { from: "pending", to: "paid" },
+              { from: "paid", to: "shipped" },
+            ],
+          }}
+        />
+      );
+    });
+
+    // 1. Verify light mode classes and content
+    const cardEl = container.querySelector(".rounded-xl") as HTMLElement;
+    expect(cardEl.className).toContain("light");
+    expect(container.textContent).toContain("订单状态流转图");
+    expect(container.textContent).toContain("流程与状态机");
+    expect(container.textContent).toContain("待支付");
+    expect(container.textContent).toContain("已支付");
+    expect(container.textContent).toContain("已发货");
+
+    // 2. Node in light mode uses white fill (#ffffff), not pitch black #1c1c1f or #000000
+    const rects = Array.from(container.querySelectorAll("svg rect"));
+    const whiteNodeRect = rects.find((r) => r.getAttribute("fill") === "#ffffff");
+    expect(whiteNodeRect).toBeDefined();
+
+    // 3. Toggle to dark theme
+    const themeBtn = container.querySelector('button[title*="切换为深色主题"]') as HTMLButtonElement;
+    expect(themeBtn).not.toBeNull();
+
+    await act(async () => {
+      themeBtn.click();
+    });
+
+    // 4. Verify switched to dark mode
+    expect(cardEl.className).toContain("dark");
+    const darkNodeRect = Array.from(container.querySelectorAll("svg rect")).find(
+      (r) => r.getAttribute("fill") === "#181e28"
+    );
+    expect(darkNodeRect).toBeDefined();
   });
 
   it("E2E: AcpGenerativeToolCard strips namespace prefixes and renders decision cards & diagrams from stringified rawInput", async () => {

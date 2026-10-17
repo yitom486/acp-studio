@@ -2,8 +2,9 @@ import React, { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import mermaid from "mermaid";
 import { cn } from "@/lib/utils";
-import { Maximize2, ZoomIn, ZoomOut, RotateCcw, Copy, Check, X } from "lucide-react";
+import { Maximize2, ZoomIn, ZoomOut, RotateCcw, Copy, Check, X, SunMedium, Moon } from "lucide-react";
 import { useLightboxViewport } from "@/hooks/useLightboxViewport";
+import { useThemeStore, THEMES } from "@/stores/useThemeStore";
 
 /**
  * Mermaid diagram renderer — lives behind React.lazy so the ~MB
@@ -11,26 +12,35 @@ import { useLightboxViewport } from "@/hooks/useLightboxViewport";
  * Security: `securityLevel: "strict"` (DOMPurify-sanitized SVG, no scripts/
  * clicks); errors fall back to the classic code fence, never a blank box.
  */
-let initialized = false;
-function ensureInit() {
-  if (initialized) return;
+let lastMermaidTheme: string | null = null;
+function ensureInit(isDark: boolean) {
+  const targetTheme = isDark ? "dark" : "default";
+  if (lastMermaidTheme === targetTheme) return;
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
     suppressErrorRendering: true,
-    theme: "dark",
+    theme: targetTheme,
     fontFamily: "'Plus Jakarta Sans', sans-serif",
   });
-  initialized = true;
+  lastMermaidTheme = targetTheme;
 }
 
 interface MermaidLightboxProps {
   svg: string;
   code: string;
+  isDark: boolean;
+  onToggleTheme: () => void;
   onClose: () => void;
 }
 
-const MermaidLightbox: React.FC<MermaidLightboxProps> = ({ svg, code, onClose }) => {
+const MermaidLightbox: React.FC<MermaidLightboxProps> = ({
+  svg,
+  code,
+  isDark,
+  onToggleTheme,
+  onClose,
+}) => {
   const { canvasRef, scale, setScale, position, isDragging, reset, pointerHandlers } = useLightboxViewport(onClose);
   const [copied, setCopied] = useState(false);
 
@@ -62,6 +72,15 @@ const MermaidLightbox: React.FC<MermaidLightboxProps> = ({ svg, code, onClose })
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            title={isDark ? "切换为浅色主题 (当前: 深色)" : "切换为深色主题 (当前: 浅色)"}
+          >
+            {isDark ? <SunMedium className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-500" />}
+          </button>
+          <div className="w-[1px] h-4 bg-border mx-1" />
           <button
             type="button"
             onClick={() => setScale((s) => Math.max(0.25, +(s - 0.25).toFixed(2)))}
@@ -143,13 +162,27 @@ export default function AcpMermaidDiagram({ code }: { code: string }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const rawId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
-  const id = `aui-mmd-${rawId}`;
+
+  const appTheme = useThemeStore((s) => s.theme);
+  const isAppDark = THEMES[appTheme]?.isDark ?? true;
+  const [cardTheme, setCardTheme] = useState<"auto" | "light" | "dark">("auto");
+  const effectiveIsDark = cardTheme === "auto" ? isAppDark : cardTheme === "dark";
+
+  const handleToggleTheme = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setCardTheme((prev) => {
+      const currentDark = prev === "auto" ? isAppDark : prev === "dark";
+      return currentDark ? "light" : "dark";
+    });
+  };
+
+  const id = `aui-mmd-${rawId}-${effectiveIsDark ? "dark" : "light"}`;
 
   useEffect(() => {
     let cancelled = false;
     setSvg(null);
     setError(null);
-    ensureInit();
+    ensureInit(effectiveIsDark);
     mermaid
       .render(id, code)
       .then(({ svg }) => {
@@ -161,7 +194,7 @@ export default function AcpMermaidDiagram({ code }: { code: string }) {
     return () => {
       cancelled = true;
     };
-  }, [code, id]);
+  }, [code, id, effectiveIsDark]);
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -207,6 +240,18 @@ export default function AcpMermaidDiagram({ code }: { code: string }) {
         <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/mmd:opacity-100 transition-opacity bg-card/90 border border-border/80 rounded-md p-0.5 shadow-sm z-10 backdrop-blur-xs">
           <button
             type="button"
+            onClick={handleToggleTheme}
+            className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+            title={effectiveIsDark ? "切换为浅色主题 (当前: 深色)" : "切换为深色主题 (当前: 浅色)"}
+          >
+            {effectiveIsDark ? (
+              <SunMedium className="w-3.5 h-3.5 text-amber-400" />
+            ) : (
+              <Moon className="w-3.5 h-3.5 text-indigo-500" />
+            )}
+          </button>
+          <button
+            type="button"
             onClick={() => setLightboxOpen(true)}
             className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
             title="放大查看 / 全屏预览"
@@ -236,6 +281,8 @@ export default function AcpMermaidDiagram({ code }: { code: string }) {
         <MermaidLightbox
           svg={svg}
           code={code}
+          isDark={effectiveIsDark}
+          onToggleTheme={handleToggleTheme}
           onClose={() => setLightboxOpen(false)}
         />
       )}

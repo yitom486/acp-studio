@@ -144,7 +144,7 @@ function buildSandboxSrcDoc(code: string, template: "react" | "html"): string {
         transformed = Babel.transform(rawCode, {
           presets: [
             ['react', { runtime: 'classic' }],
-            ['typescript', { isTSX: true, allExtensions: true }]
+            'typescript'
           ],
           filename: 'Component.tsx'
         }).code;
