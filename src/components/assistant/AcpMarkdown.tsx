@@ -9,7 +9,7 @@ import "@assistant-ui/react-markdown/styles/dot.css";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import ReactMarkdown from "react-markdown";
-import { Check, Copy, Info, Lightbulb, AlertCircle, AlertTriangle, ShieldAlert } from "lucide-react";
+import { Check, Copy, CornerDownLeft, Info, Lightbulb, AlertCircle, AlertTriangle, ShieldAlert } from "lucide-react";
 import { useMessagePartText, type TextMessagePartComponent } from "@assistant-ui/react";
 import { closeOpenFences, hasMath, preprocessMarkdown } from "@/lib/markdown-preprocess";
 import { getMathPlugins, loadMathPlugins, subscribeMath } from "@/components/assistant/math-plugins";
@@ -24,11 +24,40 @@ const ReactArtifactCard = lazy(() =>
   import("./ReactArtifactCard").then((m) => ({ default: m.ReactArtifactCard }))
 );
 
-export const AcpCodeHeader: React.FC<CodeHeaderProps> = memo(({ language, code }) => {
+export interface ExtendedCodeHeaderProps extends CodeHeaderProps {
+  wrap?: boolean;
+  onToggleWrap?: () => void;
+}
+
+export function inferCodeLanguage(rawLang: string | undefined, codeStr: string): string {
+  const clean = (rawLang || "").split(/\s+/)[0]?.toLowerCase().trim();
+  if (clean === "tree") {
+    return "yaml";
+  }
+  if (clean && clean !== "plaintext" && clean !== "text" && clean !== "code") {
+    return clean;
+  }
+  // Directory tree characters (├, └, │, ─) or paths with comments (e.g. apps/desktop/... # comment)
+  if (
+    /[├└│─]/.test(codeStr) ||
+    /(?:^|\n)\s*[\w.-]+[/\\]\s*#/.test(codeStr) ||
+    /(?:^|\n)\s*#\s+/.test(codeStr)
+  ) {
+    return "yaml";
+  }
+  // Shell scripts / commands ($ bun, npm, git, etc.)
+  if (/(?:^|\n)\s*[$>]\s+\w+/.test(codeStr) || /(?:^|\n)\s*(?:npm|pnpm|bun|yarn|git|cargo|docker)\s+/.test(codeStr)) {
+    return "bash";
+  }
+  return "plaintext";
+}
+
+export const AcpCodeHeader: React.FC<ExtendedCodeHeaderProps> = memo(({ language, code, wrap, onToggleWrap }) => {
   const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const cleanLang = (language || "").toLowerCase().trim();
   const isPreviewable = cleanLang === "react" || cleanLang === "tsx" || cleanLang === "jsx" || cleanLang === "html";
+  const hasDisplayBadge = language && language !== "code" && language !== "plaintext" && language !== "text";
 
   const copy = () => {
     if (!code || copied) return;
@@ -41,7 +70,9 @@ export const AcpCodeHeader: React.FC<CodeHeaderProps> = memo(({ language, code }
     <div className="mt-2">
       <div className="flex items-center justify-between rounded-t-lg border border-b-0 border-border bg-background/80 px-3 py-1 text-[11px] font-mono text-muted-foreground">
         <div className="flex items-center gap-2">
-          <span>{language || "code"}</span>
+          {hasDisplayBadge ? (
+            <span className="font-semibold text-foreground/80">{language}</span>
+          ) : null}
           {isPreviewable && (
             <button
               type="button"
@@ -58,14 +89,32 @@ export const AcpCodeHeader: React.FC<CodeHeaderProps> = memo(({ language, code }
             </button>
           )}
         </div>
-        <button
-          onClick={copy}
-          className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
-          title="复制代码"
-        >
-          {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied ? "已复制" : "复制"}
-        </button>
+        <div className="flex items-center gap-2">
+          {onToggleWrap && (
+            <button
+              type="button"
+              onClick={onToggleWrap}
+              className={cn(
+                "flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors text-[10px] cursor-pointer",
+                wrap
+                  ? "bg-accent text-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              )}
+              title={wrap ? "关闭自动换行 (当前换行)" : "开启自动换行 (当前单行截断)"}
+            >
+              <CornerDownLeft className="w-3 h-3" />
+              <span>{wrap ? "已换行" : "换行"}</span>
+            </button>
+          )}
+          <button
+            onClick={copy}
+            className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
+            title="复制代码"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? "已复制" : "复制"}
+          </button>
+        </div>
       </div>
 
       {showPreview && isPreviewable && (
@@ -91,13 +140,14 @@ export const AcpCodeHeader: React.FC<CodeHeaderProps> = memo(({ language, code }
 export const AcpSyntaxHighlighter: React.FC<{
   language?: string;
   code: string;
-}> = memo(({ language, code }) => {
+  wrap?: boolean;
+}> = memo(({ language, code, wrap = false }) => {
   const theme = useThemeStore((s) => s.theme);
   const [highlighted, setHighlighted] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    const cleanLang = (language || "").split(/\s+/)[0]?.toLowerCase().trim() || "plaintext";
+    const cleanLang = inferCodeLanguage(language, code);
 
     // 节流防抖：在流式输出期间（高达 180~240 帧/秒），避免重度 Shiki 语法树在每一帧都阻塞主线程，
     // 75ms 节流窗口内由原生的 pre/code 无闪烁同帧渲染，停顿或完成后无缝过渡至完整高亮 HTML。
@@ -124,7 +174,12 @@ export const AcpSyntaxHighlighter: React.FC<{
 
   if (!highlighted) {
     return (
-      <pre className="overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground select-text">
+      <pre
+        className={cn(
+          "overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground select-text",
+          wrap && "whitespace-pre-wrap break-words"
+        )}
+      >
         <code>{code}</code>
       </pre>
     );
@@ -133,7 +188,10 @@ export const AcpSyntaxHighlighter: React.FC<{
   return (
     <div
       data-testid="acp-highlighted-code"
-      className="overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!m-0 [&_pre]:!border-0 [&_code]:!bg-transparent [&_code]:!p-0 select-text"
+      className={cn(
+        "overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!m-0 [&_pre]:!border-0 [&_code]:!bg-transparent [&_code]:!p-0 select-text",
+        wrap && "whitespace-pre-wrap break-words [&_pre]:!whitespace-pre-wrap [&_code]:!whitespace-pre-wrap"
+      )}
       dangerouslySetInnerHTML={{ __html: highlighted }}
     />
   );
@@ -592,6 +650,28 @@ export interface AcpStandaloneMarkdownProps {
 
 const InPreContext = React.createContext(false);
 
+const StandaloneCodeBlock: React.FC<{ language?: string; codeString: string }> = memo(({ language, codeString }) => {
+  const isTree = useMemo(
+    () => /([├└│─]|(?:^|\n)\s*[\w.-]+[/\\](\s*#|\s*$))/m.test(codeString),
+    [codeString]
+  );
+  const [wrap, setWrap] = useState(isTree);
+  const inferredLang = useMemo(() => inferCodeLanguage(language, codeString), [language, codeString]);
+  const displayLang = language || (isTree ? "tree" : "");
+
+  return (
+    <div className="my-1.5 select-text">
+      <AcpCodeHeader
+        language={displayLang}
+        code={codeString}
+        wrap={wrap}
+        onToggleWrap={() => setWrap((w) => !w)}
+      />
+      <AcpSyntaxHighlighter language={inferredLang} code={codeString} wrap={wrap} />
+    </div>
+  );
+});
+
 /**
  * 独立 Markdown 渲染器（用于工作台 Markdown 文件高亮预览、阶段推进记录折叠区、独立弹窗等无需 assistant-ui PartContext 的场景）。
  * 完整支持 GFM 表格、Shiki 高亮代码块、Mermaid 流程图、GitHub Alert 呼出框及安全 HTML 标签。
@@ -629,10 +709,7 @@ export const AcpStandaloneMarkdown: React.FC<AcpStandaloneMarkdownProps> = memo(
                 return <MermaidBlock code={codeString} />;
               }
               return (
-                <div className="my-1.5 select-text">
-                  <AcpCodeHeader language={lang} code={codeString} />
-                  <AcpSyntaxHighlighter language={lang} code={codeString} />
-                </div>
+                <StandaloneCodeBlock language={lang} codeString={codeString} />
               );
             }
             return (

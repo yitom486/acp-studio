@@ -384,7 +384,7 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
           </Suspense>
         ) : viewOf(active) === "preview" ? (
           <div className="h-full overflow-y-auto px-8 py-6 select-text">
-            <div className="max-w-[760px] mx-auto">
+            <div className="max-w-4xl mx-auto">
               <AcpStandaloneMarkdown content={active.text} className="text-sm leading-relaxed" />
             </div>
           </div>

@@ -4,7 +4,7 @@ import { renderToString } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { AcpBlockquote, AcpStandaloneMarkdown } from "@/components/assistant/AcpMarkdown";
+import { AcpBlockquote, AcpStandaloneMarkdown, inferCodeLanguage } from "@/components/assistant/AcpMarkdown";
 import { preprocessMarkdown } from "@/lib/markdown-preprocess";
 import { normalizeFPS, getAdaptiveSmoothOptions } from "@/lib/fps-adaptive";
 
@@ -187,6 +187,25 @@ $$\\begin{aligned}
     expect(html).not.toContain("katex-error");
     expect(html).toContain("katex-display");
     expect(html).toContain("不良的 JavaScript 长任务");
+  });
+
+  it("infers yaml syntax and tree display for directory structure snippets", () => {
+    const treeSnippet = `apps/desktop/electron/  # 主进程架构
+├── README.md           # 说明文档
+└── src/api/            # 渲染端 IPC`;
+    expect(inferCodeLanguage(undefined, treeSnippet)).toBe("yaml");
+    expect(inferCodeLanguage("tree", treeSnippet)).toBe("yaml");
+
+    const html = renderToString(React.createElement(AcpStandaloneMarkdown, { content: "```\n" + treeSnippet + "\n```" }));
+    // Shows "tree" badge instead of misleading "code"
+    expect(html).toContain(">tree<");
+    expect(html).not.toContain(">code<");
+    expect(html).toContain("已换行");
+  });
+
+  it("infers bash syntax for command-line snippets without language tag", () => {
+    const cmdSnippet = "$ bun run dev\n$ pnpm test";
+    expect(inferCodeLanguage(undefined, cmdSnippet)).toBe("bash");
   });
 });
 
