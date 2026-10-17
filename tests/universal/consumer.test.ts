@@ -200,4 +200,78 @@ describe("consumeUniversalChat (v1 full updates)", () => {
       updateType: "tool_call",
     });
   });
+
+  it("handles state_update, tool_call_content_chunk, agent_thought, and maps in_progress tool calls to running", async () => {
+    const frames = [
+      { type: "start", sessionId: "sess-2" },
+      { type: "update", update: { sessionUpdate: "state_update", state: "running" } },
+      { type: "update", update: { sessionUpdate: "notice", message: "Repository indexing completed", severity: "info" } },
+      { type: "update", update: { sessionUpdate: "agent_thought", content: "deep thinking step" } },
+      { type: "update", update: { sessionUpdate: "agent_message", content: [{ type: "text", text: "block 1 " }, { type: "text", text: "block 2" }] } },
+      // ACP mapAgyEvent emits status: "in_progress" for running tools
+      { type: "update", update: { sessionUpdate: "tool_call", toolCallId: "tc-cmd", title: "Run command", kind: "execute", status: "in_progress" } },
+      { type: "update", update: { sessionUpdate: "tool_call_content_chunk", toolCallId: "tc-cmd", content: "echo ok\n" } },
+      { type: "done", sessionId: "sess-2", stopReason: "end_turn" },
+    ];
+    globalThis.fetch = vi.fn(async () => sseResponse(frames)) as unknown as typeof fetch;
+
+    let receivedState = "";
+    let receivedNotice: any = null;
+    const seenTexts: string[] = [];
+    const seenThoughts: string[] = [];
+    let toolCallReceived: any = null;
+    let toolCallUpdateReceived: any = null;
+
+    await consumeUniversalChat(
+      { agentId: "codex", prompt: "test" },
+      {
+        onStateUpdate: (st) => { receivedState = st; },
+        onNotice: (n) => { receivedNotice = n; },
+        onTextChunk: (t) => { seenTexts.push(t); },
+        onThoughtChunk: (th) => { seenThoughts.push(th); },
+        onToolCall: (tc) => { toolCallReceived = tc; },
+        onToolCallUpdate: (upd) => { toolCallUpdateReceived = upd; },
+      }
+    );
+
+    expect(receivedState).toBe("running");
+    expect(receivedNotice).toEqual({ message: "Repository indexing completed", severity: "info" });
+    expect(seenThoughts).toContain("deep thinking step");
+    expect(seenTexts).toEqual(["block 1 block 2"]);
+    expect(toolCallReceived).toMatchObject({
+      id: "tc-cmd",
+      status: "running", // mapped from in_progress
+      title: "Run command",
+    });
+    expect(toolCallUpdateReceived).toMatchObject({
+      id: "tc-cmd",
+      status: "running",
+      _deltaChunk: "echo ok\n",
+    });
+  });
+
+  it("rebuilds transcript from ACP replay with tool content chunks and polymorphic content", () => {
+    const t = buildTranscriptFromReplay([
+      { sessionUpdate: "user_message", messageId: "u1", content: [{ type: "text", text: "write a file" }] },
+      { sessionUpdate: "agent_thought", messageId: "a1", content: { text: "planning file write" } },
+      { sessionUpdate: "tool_call", toolCallId: "tc-write", title: "write_to_file", status: "in_progress" },
+      { sessionUpdate: "tool_call_content_chunk", toolCallId: "tc-write", content: "Writing line 1\n" },
+      { sessionUpdate: "tool_call_content_chunk", toolCallId: "tc-write", content: "Writing line 2\n" },
+      { sessionUpdate: "tool_call_update", toolCallId: "tc-write", status: "completed" },
+      { sessionUpdate: "session_message", messageId: "a1", content: "File created successfully." },
+    ]);
+
+    expect(t.messages).toHaveLength(2);
+    expect(t.messages[0]).toMatchObject({ role: "user", content: "write a file" });
+    expect(t.messages[1]).toMatchObject({
+      role: "assistant",
+      thought: "planning file write",
+      content: "File created successfully.",
+    });
+    expect(t.messages[1].toolCalls?.[0]).toMatchObject({
+      id: "tc-write",
+      status: "completed",
+      rawOutput: "Writing line 1\nWriting line 2\n",
+    });
+  });
 });

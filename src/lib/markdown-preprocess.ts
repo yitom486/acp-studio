@@ -40,7 +40,26 @@ export function hasMath(text: string): boolean {
  */
 export function normalizeLooseEmphasis(text: string): string {
   if (!text) return text;
-  return text.replace(
+  // 1. 规范化不对称的 3星 vs 2星 强调（如 LLM 输出 ***“电量杀手”** 或 **“电量杀手”*** 导致漏解析并裸露单个星号）
+  let normalized = text.replace(
+    /(```[\s\S]*?```|`[^`\n]*`)|((?:^|[^*])\*{3}([^*\r\n]+?)\*{2}(?:[^*]|$))|((?:^|[^*])\*{2}([^*\r\n]+?)\*{3}(?:[^*]|$))/g,
+    (match, code, _asym1, inner1, _asym2, inner2) => {
+      if (code) return code;
+      if (inner1) {
+        const prefix = match.startsWith("*") ? "" : match[0];
+        const suffix = match.endsWith("*") ? "" : match[match.length - 1];
+        return `${prefix}**${inner1.trim()}**${suffix}`;
+      }
+      if (inner2) {
+        const prefix = match.startsWith("*") ? "" : match[0];
+        const suffix = match.endsWith("*") ? "" : match[match.length - 1];
+        return `${prefix}**${inner2.trim()}**${suffix}`;
+      }
+      return match;
+    }
+  );
+
+  return normalized.replace(
     /(```[\s\S]*?```|`[^`\n]*`)|(\*\*([^\*\r\n]+?)\*\*(\s*))|(__([^_\r\n]+?)__(\s*))/g,
     (match, code, _boldAsterisk, innerAsterisk, trailingSpaceAsterisk, _boldUnderscore, innerUnderscore, trailingSpaceUnderscore) => {
       if (code) return code;

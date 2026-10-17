@@ -72,6 +72,7 @@ import {
   toolText,
   firstLines,
   strField,
+  isToolActive,
 } from "@/components/assistant/tool-widget-utils";
 import type { Message } from "@/lib/message-types";
 import { partitionTurnContent } from "@/lib/threads";
@@ -120,14 +121,25 @@ const ThinkingStateCapsule: React.FC<{ startedAt?: number; statusHint?: string }
     return () => clearInterval(timer);
   }, [startedAt, hasPendingPermission, hasPendingElicitation]);
 
-  let label = `正在思考… (${elapsed.toFixed(1)}s)`;
+  let label: string;
+  const timeStr = `(${elapsed.toFixed(1)}s)`;
 
   if (hasPendingPermission) {
     label = "等待用户确认授权…";
   } else if (hasPendingElicitation) {
     label = "等待用户回应提问…";
-  } else if (statusHint) {
-    label = `${statusHint} (${elapsed.toFixed(1)}s)`;
+  } else if (statusHint && !statusHint.includes("连接") && !statusHint.includes("通道") && !statusHint.includes("思考")) {
+    label = `${statusHint} ${timeStr}`;
+  } else {
+    if (elapsed < 2.0) {
+      label = `${statusHint || "正在思考…"} ${timeStr}`;
+    } else if (elapsed < 6.0) {
+      label = `模型正在深入分析推导… ${timeStr}`;
+    } else if (elapsed < 12.0) {
+      label = `模型复杂推理中，即将生成… ${timeStr}`;
+    } else {
+      label = `模型深度长程思考中，正在组织回复… ${timeStr}`;
+    }
   }
 
   return (
@@ -595,7 +607,7 @@ const ToolWidget: React.FC<{ tc: AcpToolCall }> = ToolCallRow;
  */
 const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = React.memo(({ tools, running = false }) => {
   const activeTools = React.useMemo(
-    () => tools.filter((t) => t.status === "running" || t.status === "pending"),
+    () => tools.filter((t) => isToolActive(t.status)),
     [tools]
   );
   const failedTools = React.useMemo(
@@ -932,8 +944,9 @@ const UserMessageView: React.FC = () => {
       className="flex gap-3 justify-end items-start group animate-fade-slide-in"
     >
       <MessageContent className="items-end max-w-[80%]">
-        <MessageBubble variant="soft" align="end" className="w-full">
+        <MessageBubble variant="soft" align="end" className="w-full" layout={false}>
           <MessageBubbleContent
+            layout={false}
             className="rounded-2xl bg-secondary text-secondary-foreground px-3.5 py-2 break-words whitespace-pre-wrap text-sm leading-relaxed font-sans shadow-xs border border-border/40"
           >
             <MessagePrimitive.Parts components={USER_MESSAGE_PARTS} />
@@ -1173,8 +1186,10 @@ const AssistantMessageView: React.FC<{
           <MessageBubble
             variant="outline"
             className="w-full max-w-full"
+            layout={false}
           >
             <MessageBubbleContent
+              layout={false}
               className="w-full max-w-full rounded-2xl p-4 sm:p-5 space-y-3 bg-card border border-border text-foreground shadow-xs"
             >
               <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">

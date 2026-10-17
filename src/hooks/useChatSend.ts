@@ -292,18 +292,61 @@ export function useChatSend({
             await consumeUniversalChat(
               { agentId, sessionId: sid, prompt: blocks },
               {
-            onSessionId: (id) => cur.setSessionId(id),
+            onConnect: () =>
+              useStudioStore.getState().patchMessage(assistantId, (m) => ({
+                ...m,
+                statusHint: "已连接模型通道，正在深入思考…",
+              })),
+            onSessionId: (id) => {
+              useStudioStore.getState().setSessionId(id);
+              useStudioStore.getState().patchMessage(assistantId, (m) => ({
+                ...m,
+                statusHint:
+                  m.statusHint && !m.statusHint.includes("连接") && !m.statusHint.includes("通道")
+                    ? m.statusHint
+                    : "已连接会话，正在深入思考…",
+              }));
+            },
+            onStateUpdate: (state) => {
+              if (state === "running") {
+                useStudioStore.getState().patchMessage(assistantId, (m) => ({
+                  ...m,
+                  statusHint:
+                    m.statusHint && !m.statusHint.includes("连接") && !m.statusHint.includes("通道")
+                      ? m.statusHint
+                      : (m.thought ? "正在思考分析…" : "模型正在深入分析推导…"),
+                }));
+              } else if (state === "requires_action") {
+                useStudioStore.getState().patchMessage(assistantId, (m) => ({
+                  ...m,
+                  statusHint: "等待确认操作…",
+                }));
+              } else if (state === "idle") {
+                useStudioStore.getState().patchMessage(assistantId, (m) => ({
+                  ...m,
+                  statusHint: undefined,
+                }));
+              }
+            },
+            onNotice: (n) => {
+              if (n.message) {
+                useStudioStore.getState().patchMessage(assistantId, (m) => ({
+                  ...m,
+                  statusHint: n.message,
+                }));
+              }
+            },
             onTextChunk: (chunk) =>
-              cur.patchMessage(assistantId, (m) => ({ ...m, content: m.content + chunk, statusHint: undefined })),
+              useStudioStore.getState().patchMessage(assistantId, (m) => ({ ...m, content: m.content + chunk, statusHint: undefined })),
             onThoughtChunk: (chunk) =>
-              cur.patchMessage(assistantId, (m) => ({
+              useStudioStore.getState().patchMessage(assistantId, (m) => ({
                 ...m,
                 thought: (m.thought || "") + chunk,
                 statusHint: "正在思考分析…",
                 thoughtTiming: m.thoughtTiming ?? { startedAt: Date.now() },
               })),
             onImageChunk: (img) =>
-              cur.patchMessage(assistantId, (m) => {
+              useStudioStore.getState().patchMessage(assistantId, (m) => {
                 const images = [...(m.images || []), img];
                 if (images.length > 8) {
                   console.debug("[App] 图片附件超限，已丢弃旧图 (保留最新 8 张)");
@@ -311,74 +354,65 @@ export function useChatSend({
                 return { ...m, images: images.slice(-8) };
               }),
             onToolCall: (c) =>
-              cur.patchMessage(assistantId, (m) => {
+              useStudioStore.getState().patchMessage(assistantId, (m) => {
                 const isGen = isGenerativeTool(c);
                 const displayTitle = resolveToolDisplayTitle(c);
-                const existingText = m.content?.trim();
-                let updatedProgress = m.progressContent;
                 let newContent = m.content;
-                let stashedProgressChunk: string | undefined;
 
                 if (isGen) {
-                  // 生成式 UI 工具与前文属于同一完整阅读流，不抽离到阶段折叠区，直接在正文当前位置打入内联占位符
+                  // 生成式 UI 工具与前文属于同一完整阅读流，直接在正文当前位置打入内联占位符
                   newContent = appendGenerativeToolPlaceholder(newContent, c.id);
-                } else if (existingText && !hasGenerativeToolPlaceholder(newContent)) {
-                  stashedProgressChunk = existingText;
-                  updatedProgress = updatedProgress
-                    ? `${updatedProgress}\n\n${existingText}`
-                    : existingText;
-                  newContent = "";
                 }
 
                 return {
                   ...m,
                   content: newContent,
-                  progressContent: updatedProgress,
                   statusHint: `正在调用 ${displayTitle}…`,
                   toolCalls: [
                     ...(m.toolCalls || []),
                     {
                       ...c,
                       startedAt: Date.now(),
-                      ...(stashedProgressChunk ? { _stashedProgressChunk: stashedProgressChunk } : {}),
-                    } as any,
+                    },
                   ],
                 };
               }),
             onToolCallUpdate: (c) =>
-              cur.patchMessage(assistantId, (m) => {
+              useStudioStore.getState().patchMessage(assistantId, (m) => {
                 const calls = [...(m.toolCalls || [])];
                 const i = calls.findIndex((x) => x.id === c.id);
                 const terminal = TERMINAL_TOOL.has(c.status);
                 let targetCall: any;
                 if (i >= 0) {
+                  const prevCall = calls[i];
+                  let mergedOutput = c.rawOutput !== undefined ? c.rawOutput : prevCall.rawOutput;
+                  if ((c as any)._deltaChunk && typeof (c as any)._deltaChunk === "string") {
+                    const prevText = typeof prevCall.rawOutput === "string" ? prevCall.rawOutput : "";
+                    mergedOutput = prevText + (c as any)._deltaChunk;
+                  }
                   targetCall = {
-                    ...calls[i],
+                    ...prevCall,
                     ...c,
-                    title: c.title || calls[i].title,
-                    startedAt: calls[i].startedAt ?? Date.now(),
-                    completedAt: terminal ? (calls[i].completedAt ?? Date.now()) : calls[i].completedAt,
+                    title: c.title || prevCall.title,
+                    rawOutput: mergedOutput,
+                    startedAt: prevCall.startedAt ?? Date.now(),
+                    completedAt: terminal ? (prevCall.completedAt ?? Date.now()) : prevCall.completedAt,
                   };
+                  delete (targetCall as any)._deltaChunk;
                   calls[i] = targetCall;
                 } else {
-                  targetCall = { ...c, startedAt: Date.now(), completedAt: terminal ? Date.now() : undefined };
+                  targetCall = {
+                    ...c,
+                    rawOutput: (c as any)._deltaChunk || c.rawOutput,
+                    startedAt: Date.now(),
+                    completedAt: terminal ? Date.now() : undefined,
+                  };
+                  delete (targetCall as any)._deltaChunk;
                   calls.push(targetCall);
                 }
 
                 let newContent = m.content;
-                let updatedProgress = m.progressContent;
-
                 if (isGenerativeTool(targetCall) && !hasGenerativeToolPlaceholder(newContent, targetCall.id)) {
-                  const stashed = targetCall._stashedProgressChunk as string | undefined;
-                  if (stashed && updatedProgress) {
-                    if (updatedProgress === stashed) {
-                      updatedProgress = undefined;
-                    } else if (updatedProgress.endsWith(`\n\n${stashed}`)) {
-                      updatedProgress = updatedProgress.slice(0, -(`\n\n${stashed}`.length)) || undefined;
-                    }
-                    newContent = newContent ? `${stashed}\n\n${newContent}` : stashed;
-                    delete targetCall._stashedProgressChunk;
-                  }
                   newContent = appendGenerativeToolPlaceholder(newContent, targetCall.id);
                 }
 
@@ -390,12 +424,11 @@ export function useChatSend({
                 return {
                   ...m,
                   content: newContent,
-                  progressContent: updatedProgress,
                   statusHint: hint,
                   toolCalls: calls,
                 };
               }),
-            onPlan: (entries) => cur.patchMessage(assistantId, { plan: entries }),
+            onPlan: (entries) => useStudioStore.getState().patchMessage(assistantId, { plan: entries }),
             onAvailableCommands: (cmds) => useStudioStore.getState().setAvailableCommands(cmds, sid),
             onModeUpdate: (modeId) => {
               const stNow = useStudioStore.getState();
@@ -431,14 +464,14 @@ export function useChatSend({
               if (a.kind === "subagent_active") {
                 const d = (a.detail || {}) as { childId?: string; title?: string; updateType?: string };
                 const title = d.title || "子智能体";
-                cur.patchMessage(assistantId, (m) => ({
+                useStudioStore.getState().patchMessage(assistantId, (m) => ({
                   ...m,
                   statusHint: `${title} 协同处理中…`,
                 }));
                 return;
               }
               if (a.kind === "compaction_update" || a.kind === "compaction_summary_chunk") {
-                cur.patchMessage(assistantId, (m) => ({
+                useStudioStore.getState().patchMessage(assistantId, (m) => ({
                   ...m,
                   statusHint: "正在压缩历史上下文…",
                 }));
@@ -499,12 +532,12 @@ export function useChatSend({
         }
         if (!failedErr) {
           if (attempt > 0) {
-            cur.patchMessage(assistantId, (m) => ({ ...m, content: stripRetryNotes(m.content) }));
+            useStudioStore.getState().patchMessage(assistantId, (m) => ({ ...m, content: stripRetryNotes(m.content) }));
           }
           break;
         }
         attempt += 1;
-        cur.patchMessage(assistantId, (m) => ({
+        useStudioStore.getState().patchMessage(assistantId, (m) => ({
           // Trailing newline keeps the note self-delimiting: streamed text
           // lands on the next line so stripRetryNotes can never eat content.
           ...m,

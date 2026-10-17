@@ -70,6 +70,11 @@ export interface AdaptiveSmoothOptions {
   drainMs: number;
   maxCharIntervalMs: number;
   maxCharsPerFrame?: number;
+  /**
+   * 提交更新最小间隔 (ms)。动画逐帧 (rAF) 连续推进，但将 Markdown AST 重新解析与
+   * React 组件树重渲染的提交频率节流在安全阈值，彻底解决 180Hz/240Hz 屏因高频 AST 重算引发的 CPU 抖动与表格高度跳跃。
+   */
+  minCommitMs?: number;
 }
 
 /**
@@ -85,6 +90,7 @@ export function getAdaptiveSmoothOptions(fps: number): AdaptiveSmoothOptions {
       drainMs: 200,
       maxCharIntervalMs: 4,
       maxCharsPerFrame: 24,
+      minCommitMs: 16,
     };
   }
 
@@ -94,17 +100,20 @@ export function getAdaptiveSmoothOptions(fps: number): AdaptiveSmoothOptions {
       drainMs: 150,
       maxCharIntervalMs: 2.5,
       maxCharsPerFrame: 16,
+      minCommitMs: 12,
     };
   }
 
   // 144Hz~180Hz (电竞/高刷办公屏): 帧间隔 5.5~6.9ms
   // 注意：固定 6ms 在 180Hz (5.5ms) 下会因为 5.5 < 6 导致每隔一帧吐 0 字，造成明显的 90fps 频闪！
   // 必须将 maxCharIntervalMs 下调至 1.5ms 甚至更小，确保每一帧 rAF 均能顺畅推进。
+  // minCommitMs 设置为 10ms，保证 React 渲染与 Markdown AST 解析以约 100fps 稳妥提交，避免主线程过载。
   if (fps <= 180) {
     return {
       drainMs: 120,
       maxCharIntervalMs: 1.5,
       maxCharsPerFrame: 12,
+      minCommitMs: 10,
     };
   }
 
@@ -113,6 +122,7 @@ export function getAdaptiveSmoothOptions(fps: number): AdaptiveSmoothOptions {
     drainMs: 90,
     maxCharIntervalMs: 1.0,
     maxCharsPerFrame: 8,
+    minCommitMs: 8,
   };
 }
 

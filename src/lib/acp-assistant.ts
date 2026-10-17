@@ -136,13 +136,18 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
   }
 
   // Interleave text segments and generative UI tool calls at their inline placeholder positions.
-  const { conclusion } = partitionTurnContent(
-    msg.content,
-    (msg as any).progressContent,
-    allTools.length > 0
-  );
-  const rawBodyText = conclusion || msg.content || "";
-  const normalizedBody = preprocessMarkdown(rawBodyText);
+  // 保持流式期间文本单调递增：流式生成过程中（msg.isStreaming 为 true）绝不后验切分正文与进度，
+  // 否则 part.text 突然缩水会导致 useSmooth 触发 !text.startsWith(displayedText) 进而清空界面重头打字。
+  let rawBodyText = msg.content || "";
+  if (!msg.isStreaming) {
+    const { conclusion } = partitionTurnContent(
+      msg.content,
+      (msg as any).progressContent,
+      allTools.length > 0
+    );
+    rawBodyText = conclusion || msg.content || "";
+  }
+  const normalizedBody = msg.isStreaming ? rawBodyText : preprocessMarkdown(rawBodyText);
   const segments = splitInterleavedGenerativeContent(normalizedBody, generativeTools);
   let hasTextPart = false;
   for (const seg of segments) {

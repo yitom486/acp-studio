@@ -24,7 +24,7 @@ export interface Message {
     id: string;
     title: string;
     kind?: string;
-    status: "pending" | "running" | "completed" | "failed" | "cancelled";
+    status: "pending" | "in_progress" | "running" | "completed" | "failed" | "cancelled";
     /** Client-observed wall clock (epoch ms): first sighting / terminal update. */
     startedAt?: number;
     completedAt?: number;

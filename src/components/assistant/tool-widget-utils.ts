@@ -4,11 +4,13 @@
  * in AcpToolWidgets.tsx remains fully active without invalidation warnings.
  */
 
+export type ToolCallStatus = "pending" | "in_progress" | "running" | "completed" | "failed" | "cancelled";
+
 export interface WidgetTool {
   id: string;
   title: string;
   kind?: string;
-  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  status: ToolCallStatus;
   startedAt?: number;
   completedAt?: number;
   name?: string;
@@ -16,6 +18,14 @@ export interface WidgetTool {
   locations?: Array<{ path: string; line?: number }>;
   rawOutput?: unknown;
   rawError?: unknown;
+}
+
+export function isToolActive(status?: string): boolean {
+  return status === "in_progress" || status === "running" || status === "pending";
+}
+
+export function isToolTerminal(status?: string): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 export type WidgetKey = "terminal" | "file-read" | "file-edit" | "search";

@@ -55,6 +55,8 @@ export interface MessageBubbleContentProps
   extends ComponentPropsWithRef<"div"> {
   /** Replaces the content element while preserving bubble styling. */
   render?: ReactElement;
+  /** Whether to animate background surface size via spring physics. Defaults to false to prevent jitter during streaming. */
+  layout?: boolean | "size" | "position";
 }
 
 export interface MessageBubbleGroupProps extends ComponentPropsWithRef<"div"> {
@@ -166,6 +168,7 @@ function bubbleSurfaceClass(
 
 export function MessageBubbleContent({
   render,
+  layout = false,
   className,
   children,
   ...props
@@ -191,7 +194,7 @@ export function MessageBubbleContent({
       {variant !== "ghost" ? (
         <motion.span
           aria-hidden="true"
-          layout={reduce ? false : "size"}
+          layout={reduce || !layout ? false : layout}
           layoutDependency={layoutVersion}
           initial={
             animateIn && !reduce

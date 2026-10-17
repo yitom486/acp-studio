@@ -132,11 +132,13 @@ export interface AgentSummary {
   };
 }
 
+export type ToolCallStatus = "pending" | "in_progress" | "running" | "completed" | "failed" | "cancelled";
+
 export interface ToolCallItem {
   id: string;
   title: string;
   kind?: string;
-  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  status: ToolCallStatus;
   content?: unknown;
   /**
    * Rich payloads (agent 透传、有则收）：raw tool name / params / file
@@ -706,8 +708,53 @@ export function toChatImage(content: any): ChatImage | null {
   return null;
 }
 
+/**
+ * Extract all renderable images from an ACP content block or array of blocks.
+ */
+export function findChatImages(content: any): ChatImage[] {
+  if (!content) return [];
+  if (Array.isArray(content)) {
+    const list: ChatImage[] = [];
+    for (const item of content) {
+      if (item?.type === "image") {
+        const img = toChatImage(item);
+        if (img) list.push(img);
+      }
+    }
+    return list;
+  }
+  if (content.type === "image") {
+    const img = toChatImage(content);
+    return img ? [img] : [];
+  }
+  return [];
+}
+
+/**
+ * Polymorphic text extractor compatible with all ACP and vendor implementations:
+ * supports { text }, { type: "text", text }, raw strings, arrays, or nested { content }.
+ */
+export function extractText(val: any): string {
+  if (val === null || val === undefined) return "";
+  if (typeof val === "string") return val;
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  if (Array.isArray(val)) {
+    return val.map(extractText).join("");
+  }
+  if (typeof val === "object") {
+    if (typeof val.text === "string") return val.text;
+    if (val.content !== undefined) return extractText(val.content);
+    if (typeof val.value === "string") return val.value;
+    if (typeof val.delta === "string") return val.delta;
+  }
+  return "";
+}
+
 export interface UniversalHandlers {
+  onConnect?: () => void;
   onSessionId?: (sid: string) => void;
+  onStateUpdate?: (state: "running" | "idle" | "requires_action" | string) => void;
+  onNotice?: (notice: { message: string; severity?: "info" | "warning" | "error" }) => void;
   onTextChunk?: (chunk: string, messageId?: string) => void;
   onThoughtChunk?: (chunk: string) => void;
   onImageChunk?: (img: ChatImage, messageId?: string) => void;
@@ -941,6 +988,7 @@ export async function consumeUniversalChat(
     throwGatewayError(errJson, `Server ${res.status}: ${res.statusText}`, res.status);
   }
   if (!res.body) throw new Error("No response stream body");
+  handlers.onConnect?.();
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -976,6 +1024,7 @@ export async function consumeUniversalChat(
           const kind = u.sessionUpdate as string;
           const isThoughtChunk =
             kind === "agent_thought_chunk" ||
+            kind === "agent_thought" ||
             kind === "thought_chunk" ||
             kind === "reasoning_chunk" ||
             kind === "thought" ||
@@ -983,32 +1032,36 @@ export async function consumeUniversalChat(
             (kind === "agent_message_chunk" && (u.content?.type === "thought" || u.content?.type === "reasoning"));
 
           if (isThoughtChunk) {
-            const thoughtText =
-              typeof u.content?.text === "string"
-                ? u.content.text
-                : typeof u.text === "string"
-                  ? u.text
-                  : typeof u.thought === "string"
-                    ? u.thought
-                    : typeof u.content === "string"
-                      ? u.content
-                      : "";
+            const thoughtText = extractText(u.content || u.text || u.thought || u);
             if (thoughtText) handlers.onThoughtChunk?.(thoughtText);
-          } else if (kind === "agent_message_chunk" && u.content?.type === "text") {
-            handlers.onTextChunk?.(u.content.text, u.messageId);
-          } else if (kind === "agent_message_chunk" && u.content?.type === "image") {
-            const img = toChatImage(u.content);
-            if (img) handlers.onImageChunk?.(img, u.messageId);
-          } else if (kind === "user_message_chunk") {
-            // replayed history (session/load) — surface as text so UI can rebuild
-            if (u.content?.type === "text") handlers.onTextChunk?.(u.content.text, u.messageId);
+          } else if (
+            kind === "agent_message_chunk" ||
+            kind === "agent_message" ||
+            kind === "session_message_chunk" ||
+            kind === "session_message"
+          ) {
+            const text = extractText(u.content ?? u.text ?? u.delta);
+            if (text) {
+              handlers.onTextChunk?.(text, u.messageId);
+            }
+            const images = findChatImages(u.content);
+            for (const img of images) {
+              handlers.onImageChunk?.(img, u.messageId);
+            }
+          } else if (kind === "user_message_chunk" || kind === "user_message") {
+            const text = extractText(u.content ?? u.text);
+            if (text) handlers.onTextChunk?.(text, u.messageId);
+            const images = findChatImages(u.content);
+            for (const img of images) {
+              handlers.onImageChunk?.(img, u.messageId);
+            }
           } else if (kind === "tool_call") {
             const resolvedTitle = cleanToolTitle(u.title, u.toolCallId, u.name, u.rawInput) || "Tool call";
             handlers.onToolCall?.({
               id: u.toolCallId,
               title: resolvedTitle,
               kind: u.kind,
-              status: (u.status as ToolCallItem["status"]) || "pending",
+              status: mapToolStatus(u.status),
               content: u.content,
               ...pickToolExtras(u),
             });
@@ -1022,6 +1075,24 @@ export async function consumeUniversalChat(
               content: u.content,
               ...pickToolExtras(u),
             });
+          } else if (kind === "tool_call_content_chunk") {
+            const chunkText = extractText(u.content ?? u.text ?? u.delta ?? u);
+            handlers.onToolCallUpdate?.({
+              id: u.toolCallId,
+              title: "",
+              status: "running",
+              content: u.content,
+              _deltaChunk: chunkText,
+            } as any);
+          } else if (kind === "state_update") {
+            const st = typeof u.state === "string" ? u.state : "";
+            if (st) handlers.onStateUpdate?.(st);
+            handlers.onActivity?.({ kind: "state_update", detail: u });
+          } else if (kind === "notice") {
+            const message = typeof u.message === "string" ? u.message : extractText(u.content || u);
+            const severity = (u.severity as "info" | "warning" | "error") || "info";
+            if (message) handlers.onNotice?.({ message, severity });
+            handlers.onActivity?.({ kind: "notice", detail: u });
           } else if (kind === "plan") {
             handlers.onPlan?.((u.entries || []) as PlanEntry[]);
           } else if (kind === "available_commands_update") {
@@ -1141,25 +1212,6 @@ export interface RebuiltTranscript {
 }
 
 /**
- * Polymorphic text extractor compatible with all ACP and vendor implementations:
- * supports { text }, { type: "text", text }, raw strings, arrays, or nested { content }.
- */
-export function extractText(val: any): string {
-  if (val === null || val === undefined) return "";
-  if (typeof val === "string") return val;
-  if (typeof val === "number" || typeof val === "boolean") return String(val);
-  if (Array.isArray(val)) {
-    return val.map(extractText).join("");
-  }
-  if (typeof val === "object") {
-    if (typeof val.text === "string") return val.text;
-    if (val.content !== undefined) return extractText(val.content);
-    if (typeof val.value === "string") return val.value;
-  }
-  return "";
-}
-
-/**
  * Rebuild a readable transcript from session/load replayed updates.
  * Groups message chunks by messageId or conversational turn; aggregates
  * tool calls into the active assistant turn; folds plan/usage/commands/session_info
@@ -1207,7 +1259,7 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
   for (const u of replayed || []) {
     const kind = u?.sessionUpdate as string;
 
-    if (kind === "user_message_chunk") {
+    if (kind === "user_message_chunk" || kind === "user_message") {
       const k = u.messageId ? ensureMessage("user", u.messageId) : (lastUserKey || ensureMessage("user"));
       lastUserKey = k;
       lastAssistantKey = null; // Reset assistant turn
@@ -1215,17 +1267,22 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
       lastThoughtStepId = null;
       const m = byId.get(k)!;
       m.role = "user";
-      m.content += extractText(u);
-      // 回放里用户发过的图片（ACP image 块）
-      const uimg = u.content?.type === "image" ? toChatImage(u.content) : null;
-      if (uimg) m.images = [...(m.images || []), uimg].slice(-8);
-    } else if (kind === "agent_message_chunk") {
+      m.content += extractText(u.content ?? u.text ?? u);
+      // 回放里用户发过的图片（ACP image 块或数组）
+      const uimgs = findChatImages(u.content);
+      if (uimgs.length) m.images = [...(m.images || []), ...uimgs].slice(-8);
+    } else if (
+      kind === "agent_message_chunk" ||
+      kind === "agent_message" ||
+      kind === "session_message_chunk" ||
+      kind === "session_message"
+    ) {
       // Aggregate into current assistant turn so intermediate step messageIds don't fragment the bubble
       const k = lastAssistantKey || ensureMessage("assistant", u.messageId);
       lastAssistantKey = k;
       lastUserKey = null;
       const m = byId.get(k)!;
-      const newText = extractText(u);
+      const newText = extractText(u.content ?? u.text ?? u.delta ?? u);
       if (newText) {
         // If this text chunk belongs to a new step (different messageId) and follows previous text,
         // separate cleanly with double newline if previous text did not end with newline.
@@ -1239,15 +1296,20 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
           lastAssistantStepId = u.messageId;
         }
       }
-      const img = u.content?.type === "image" ? toChatImage(u.content) : null;
-      if (img) m.images = [...(m.images || []), img].slice(-8);
-    } else if (kind === "agent_thought_chunk") {
+      const imgs = findChatImages(u.content);
+      if (imgs.length) m.images = [...(m.images || []), ...imgs].slice(-8);
+    } else if (
+      kind === "agent_thought_chunk" ||
+      kind === "agent_thought" ||
+      kind === "thought_chunk" ||
+      kind === "thought"
+    ) {
       // Aggregate thoughts into current assistant turn
       const k = lastAssistantKey || ensureMessage("assistant", u.messageId);
       lastAssistantKey = k;
       lastUserKey = null;
       const m = byId.get(k)!;
-      const thoughtText = extractText(u);
+      const thoughtText = extractText(u.content ?? u.text ?? u.thought ?? u);
       if (thoughtText) {
         const isNewStep = Boolean(u.messageId && lastThoughtStepId && u.messageId !== lastThoughtStepId);
         if (isNewStep && m.thought && !m.thought.endsWith("\n") && !thoughtText.startsWith("\n")) {
@@ -1269,7 +1331,8 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
         id: u.toolCallId || `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         title: cleanToolTitle(u.title, u.toolCallId, u.name, u.rawInput) || "Tool call",
         kind: u.kind,
-        status: (u.status as ToolCallItem["status"]) || "pending",
+        status: mapToolStatus(u.status),
+        content: u.content,
         ...pickToolExtras(u),
       };
       const existing = m.toolCalls?.find((x) => x.id === newTool.id);
@@ -1290,10 +1353,23 @@ export function buildTranscriptFromReplay(replayed: any[]): RebuiltTranscript {
             title: updTitle || t.title,
             kind: u.kind ?? t.kind,
             status: mapToolStatus(u.status),
+            content: u.content !== undefined ? u.content : t.content,
             ...pickToolExtras(u),
           });
           if (isGenerativeTool(t)) {
             m.content = appendGenerativeToolPlaceholder(m.content, t.id);
+          }
+          break;
+        }
+      }
+    } else if (kind === "tool_call_content_chunk") {
+      for (const m of byId.values()) {
+        const t = m.toolCalls?.find((x) => x.id === u.toolCallId);
+        if (t) {
+          const chunkText = extractText(u.content ?? u.text ?? u.delta ?? u);
+          if (chunkText) {
+            const prevOutput = typeof t.rawOutput === "string" ? t.rawOutput : "";
+            t.rawOutput = prevOutput + chunkText;
           }
           break;
         }

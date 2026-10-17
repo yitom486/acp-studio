@@ -24,6 +24,8 @@ import { respondPermission, type PendingPermission } from "@/lib/universal-api";
 import {
   type WidgetTool,
   type WidgetKey,
+  isToolActive,
+  isToolTerminal,
   toolText,
   firstLines,
   lastLines,
@@ -61,7 +63,7 @@ export const LiveElapsed: React.FC<{ startedAt?: number; completedAt?: number }>
 // ---------- shared bits ----------
 
 export function StatusDot({ status }: { status: WidgetTool["status"] }) {
-  const active = status === "running" || status === "pending";
+  const active = isToolActive(status);
   return (
     <span
       className={cn(
@@ -293,7 +295,7 @@ export const FileReadCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
     >
       {output ? (
         <CodePreview text={output} />
-      ) : tc.status === "running" || tc.status === "pending" ? (
+      ) : isToolActive(tc.status) ? (
         <div className="mx-1.5 mb-1.5 px-2.5 py-2 font-mono text-[11px] text-muted-foreground animate-pulse">
           正在读取…
         </div>
@@ -329,7 +331,7 @@ export const FileEditCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
         <div className="mx-1.5 mb-1.5 px-2.5 py-2 rounded-md border border-destructive/40 bg-destructive/10 font-mono text-[11px] text-destructive break-words">
           {firstLines(err, 8).shown}
         </div>
-      ) : tc.status === "running" || tc.status === "pending" ? (
+      ) : isToolActive(tc.status) ? (
         <div className="mx-1.5 mb-1.5 px-2.5 py-2 font-mono text-[11px] text-muted-foreground animate-pulse">
           正在写入…
         </div>
@@ -376,7 +378,7 @@ export const TerminalCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
       }
       dot={<StatusDot status={tc.status} />}
     >
-      {output || err || tc.status === "running" || tc.status === "pending" ? (
+      {output || err || isToolActive(tc.status) ? (
         <div className="mx-1.5 mb-1.5 rounded-md border border-border/60 bg-muted/60 overflow-hidden">
           {output && (
             <pre className="px-2.5 py-2 overflow-x-auto text-[11px] leading-relaxed font-mono text-foreground/90 whitespace-pre-wrap break-words">
@@ -427,7 +429,7 @@ export const SearchCard: React.FC<{ tc: WidgetTool }> = ({ tc }) => {
     >
       {output ? (
         <CodePreview text={output} maxLines={8} />
-      ) : tc.status === "running" || tc.status === "pending" ? (
+      ) : isToolActive(tc.status) ? (
         <div className="mx-1.5 mb-1.5 px-2.5 py-2 font-mono text-[11px] text-muted-foreground animate-pulse">
           搜索中…
         </div>

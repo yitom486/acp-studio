@@ -24,7 +24,7 @@ const ReactArtifactCard = lazy(() =>
   import("./ReactArtifactCard").then((m) => ({ default: m.ReactArtifactCard }))
 );
 
-export const AcpCodeHeader: React.FC<CodeHeaderProps> = ({ language, code }) => {
+export const AcpCodeHeader: React.FC<CodeHeaderProps> = memo(({ language, code }) => {
   const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const cleanLang = (language || "").toLowerCase().trim();
@@ -86,12 +86,12 @@ export const AcpCodeHeader: React.FC<CodeHeaderProps> = ({ language, code }) => 
       )}
     </div>
   );
-};
+});
 
 export const AcpSyntaxHighlighter: React.FC<{
   language?: string;
   code: string;
-}> = ({ language, code }) => {
+}> = memo(({ language, code }) => {
   const theme = useThemeStore((s) => s.theme);
   const [highlighted, setHighlighted] = useState<string | null>(null);
 
@@ -137,7 +137,7 @@ export const AcpSyntaxHighlighter: React.FC<{
       dangerouslySetInnerHTML={{ __html: highlighted }}
     />
   );
-};
+});
 
 const ALERT_STYLES: Record<string, {
   border: string;
@@ -183,7 +183,7 @@ const ALERT_STYLES: Record<string, {
   },
 };
 
-export const AcpBlockquote: React.FC<{ className?: string; children?: React.ReactNode }> = ({ className, children, ...props }) => {
+export const AcpBlockquote: React.FC<{ className?: string; children?: React.ReactNode }> = memo(({ className, children, ...props }) => {
   const childArray = React.Children.toArray(children);
   const contentChildren = childArray.filter(
     (c) => typeof c !== "string" || c.trim().length > 0
@@ -236,10 +236,74 @@ export const AcpBlockquote: React.FC<{ className?: string; children?: React.Reac
       {children}
     </blockquote>
   );
-};
+});
 
-/** 与旧 Markdown.tsx 一致的 Tailwind 映射，经 memoize stable 化避免流式重渲染。 */
-const acpComponents = memoizeMarkdownComponents({
+/**
+ * 结构级 AST 语义比对器：
+ * 严格忽略 position（行、列、字符 offset 偏移量）与 data 等解析元数据，
+ * 仅深度比对节点类型、标签名、文本值、业务属性（className/href/src等）以及子节点语义树。
+ * 这彻底杜绝了尾部追加新 token 导致前序已渲染块（段落、表格、代码块）因 position 偏移而无谓重渲染的问题。
+ */
+export function areHastNodesSemanticallyEqual(prev: any, next: any, depth = 0): boolean {
+  if (Object.is(prev, next)) return true;
+  if (depth > 64) return false;
+  if (!prev || !next || typeof prev !== "object" || typeof next !== "object") return false;
+
+  if (Array.isArray(prev)) {
+    if (!Array.isArray(next) || prev.length !== next.length) return false;
+    for (let i = 0; i < prev.length; i++) {
+      if (!areHastNodesSemanticallyEqual(prev[i], next[i], depth + 1)) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(next)) return false;
+
+  if (prev.type !== next.type) return false;
+  if (prev.tagName !== next.tagName) return false;
+  if (prev.value !== next.value) return false;
+
+  // 比对 properties（className、href、src、alt、align 等）
+  const prevProps = prev.properties || {};
+  const nextProps = next.properties || {};
+  const prevPropKeys = Object.keys(prevProps);
+  const nextPropKeys = Object.keys(nextProps);
+  if (prevPropKeys.length !== nextPropKeys.length) return false;
+  for (const k of prevPropKeys) {
+    if (!areHastNodesSemanticallyEqual(prevProps[k], nextProps[k], depth + 1)) return false;
+  }
+
+  // 递归比对子节点语义，完全豁免 position/offset/data
+  const prevChildren = prev.children || [];
+  const nextChildren = next.children || [];
+  if (prevChildren.length !== nextChildren.length) return false;
+  for (let i = 0; i < prevChildren.length; i++) {
+    if (!areHastNodesSemanticallyEqual(prevChildren[i], nextChildren[i], depth + 1)) return false;
+  }
+
+  return true;
+}
+
+export function memoizeStableMarkdownComponents(components: Record<string, any> = {}) {
+  return Object.fromEntries(
+    Object.entries(components).map(([key, value]) => {
+      if (!value) return [key, value];
+      const Component = value;
+      const WithoutNode = ({ node, ...props }: any) => {
+        return <Component {...props} />;
+      };
+      WithoutNode.displayName = `StableMemo(${key})`;
+      return [
+        key,
+        memo(WithoutNode, (prev, next) => {
+          return areHastNodesSemanticallyEqual(prev.node, next.node);
+        }),
+      ];
+    })
+  );
+}
+
+/** 结构语义 Memoized 组件映射，完整覆盖所有 GFM 标签并为表格赋予高稳定性布局 */
+const acpComponents = memoizeStableMarkdownComponents({
   h1: ({ className, ...props }: any) => (
     <h1 className={cn("text-base font-bold text-foreground mt-3 mb-1.5", className)} {...props} />
   ),
@@ -251,6 +315,12 @@ const acpComponents = memoizeMarkdownComponents({
   ),
   h4: ({ className, ...props }: any) => (
     <h4 className={cn("text-[13px] font-bold text-foreground mt-2 mb-1", className)} {...props} />
+  ),
+  h5: ({ className, ...props }: any) => (
+    <h5 className={cn("text-[12px] font-bold text-foreground mt-2 mb-1", className)} {...props} />
+  ),
+  h6: ({ className, ...props }: any) => (
+    <h6 className={cn("text-[11px] font-bold text-foreground mt-1.5 mb-1 text-muted-foreground", className)} {...props} />
   ),
   p: ({ className, ...props }: any) => (
     <p className={cn("my-1.5 leading-relaxed", className)} {...props} />
@@ -301,20 +371,32 @@ const acpComponents = memoizeMarkdownComponents({
   b: ({ className, ...props }: any) => (
     <b className={cn("font-semibold", className)} {...props} />
   ),
+  em: ({ className, ...props }: any) => (
+    <em className={cn("italic", className)} {...props} />
+  ),
+  i: ({ className, ...props }: any) => (
+    <i className={cn("italic", className)} {...props} />
+  ),
   hr: ({ className, ...props }: any) => <hr className={cn("my-3 border-border", className)} {...props} />,
   table: ({ className, ...props }: any) => (
-    <div className="my-2 overflow-x-auto rounded-lg border border-border">
-      <table className={cn("w-full text-xs border-collapse sm:table-fixed", className)} {...props} />
+    <div className="my-2 overflow-x-auto rounded-lg border border-border bg-card/40 transition-[height] duration-75">
+      <table className={cn("w-full text-xs border-collapse table-auto sm:table-fixed [contain:inline-size]", className)} {...props} />
     </div>
   ),
   thead: ({ className, ...props }: any) => (
-    <thead className={cn("bg-muted/60", className)} {...props} />
+    <thead className={cn("bg-muted/70 sticky top-0 z-1", className)} {...props} />
+  ),
+  tbody: ({ className, ...props }: any) => (
+    <tbody className={cn("divide-y divide-border/40", className)} {...props} />
+  ),
+  tr: ({ className, ...props }: any) => (
+    <tr className={cn("transition-colors hover:bg-muted/30", className)} {...props} />
   ),
   th: ({ className, ...props }: any) => (
-    <th className={cn("px-2.5 py-1.5 text-left font-semibold text-foreground border-b border-border break-words [overflow-wrap:anywhere]", className)} {...props} />
+    <th className={cn("px-3 py-2 text-left font-semibold text-foreground border-b border-border break-words [overflow-wrap:anywhere] min-w-[70px]", className)} {...props} />
   ),
   td: ({ className, ...props }: any) => (
-    <td className={cn("px-2.5 py-1.5 border-b border-border/60 align-top break-words [overflow-wrap:anywhere]", className)} {...props} />
+    <td className={cn("px-3 py-2 border-b border-border/60 align-top break-words [overflow-wrap:anywhere] min-w-[70px] tabular-nums", className)} {...props} />
   ),
   pre: ({ className, ...props }: any) => (
     <pre className={cn("overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground", className)} {...props} />
@@ -480,6 +562,7 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   const preprocess = useMemo(() => (useMath ? (t: string) => preprocessMarkdown(math!.preprocess(t)) : preprocessMarkdown), [useMath, math]);
   return (
     <MarkdownTextPrimitive
+      defer={false}
       remarkPlugins={remarkPlugins}
       rehypePlugins={rehypePlugins}
       preprocess={preprocess}
