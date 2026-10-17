@@ -2,6 +2,7 @@ import type { ThreadMessageLike } from "@assistant-ui/react";
 import type { Message } from "@/lib/message-types";
 import type { PendingPermission } from "@/lib/universal-api";
 import { partitionTurnContent } from "@/lib/threads";
+import { preprocessMarkdown } from "@/lib/markdown-preprocess";
 import {
   isGenerativeTool,
   splitInterleavedGenerativeContent,
@@ -76,7 +77,7 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
       id: msg.id,
       role: "user",
       content: [
-        { type: "text", text: msg.content || "" },
+        { type: "text", text: preprocessMarkdown(msg.content || "") },
         ...(msg.images || []).filter((img) => img && typeof img.src === "string" && img.src).map((img) => ({ type: "image" as const, image: img.src })),
       ],
       metadata: {
@@ -141,7 +142,8 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
     allTools.length > 0
   );
   const rawBodyText = conclusion || msg.content || "";
-  const segments = splitInterleavedGenerativeContent(rawBodyText, generativeTools);
+  const normalizedBody = preprocessMarkdown(rawBodyText);
+  const segments = splitInterleavedGenerativeContent(normalizedBody, generativeTools);
   let hasTextPart = false;
   for (const seg of segments) {
     if (seg.type === "text") {

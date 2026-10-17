@@ -6,6 +6,7 @@ import { AcpAssistantProvider } from "@/components/assistant/AcpAssistantProvide
 import { AcpComposer } from "@/components/assistant/AcpComposer";
 import { AssistantChatView } from "@/components/assistant/AssistantChatView";
 import { useStudioStore } from "@/stores/useStudioStore";
+import { convertAcpMessage } from "@/lib/acp-assistant";
 
 const composerProps = {
   onSendAttachmentOnly: () => {},
@@ -708,5 +709,20 @@ describe("assistant-ui ACP thread (client smoke)", () => {
     root.unmount();
     el.remove();
   });
+
+  it("automatically heals loose bold syntax in historical messages via convertAcpMessage", () => {
+    const historicalMsg = {
+      id: "a-history",
+      role: "assistant" as const,
+      content: "出于**防止用户硬件指纹追踪 (Anti-Fingerprinting) **的隐私安全考虑，业界通常采取微采样测速法。",
+      timestamp: "10:00",
+      isStreaming: false,
+    };
+    const converted = convertAcpMessage(historicalMsg as any);
+    const textPart = converted.content.find((p) => p.type === "text") as { type: "text"; text: string };
+    expect(textPart).toBeDefined();
+    expect(textPart.text).toBe("出于**防止用户硬件指纹追踪 (Anti-Fingerprinting)** 的隐私安全考虑，业界通常采取微采样测速法。");
+  });
 });
+
 
