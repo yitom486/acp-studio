@@ -661,8 +661,8 @@ const AssistantMessageView: React.FC<{
         isFileTool && targetFile
           ? targetFile
           : isTerminal && cmd
-            ? cmd
-            : displayTitle;
+            ? (cmd.trim().split("\n")[0].length > 80 ? `${cmd.trim().split("\n")[0].slice(0, 77)}…` : cmd.trim().split("\n")[0])
+            : (displayTitle.length > 80 ? `${displayTitle.slice(0, 77)}…` : displayTitle);
 
       const openInTerminal = () => {
         if (!cmd) return;
@@ -820,6 +820,21 @@ const AssistantMessageView: React.FC<{
     }
     return items;
   }, [acp?.citations, acp?.content]);
+
+  const headerStatusHint = React.useMemo(() => {
+    const raw = acp?.statusHint?.trim();
+    if (!raw) return "生成中…";
+    // 工具执行流已有 AgentActivity 独立展示，顶栏不重复输出冗长命令与已完成文案，保持单行精简
+    if (raw.startsWith("正在调用") || raw.startsWith("正在执行")) {
+      return "正在执行工具…";
+    }
+    if (raw.includes("已完成") || raw.includes("已取消")) {
+      return "正在生成…";
+    }
+    // 强制单行上限截断（最多 24 个字符）
+    return raw.length > 24 ? `${raw.slice(0, 22)}…` : raw;
+  }, [acp?.statusHint]);
+
   // If this is an orphan/synthetic message id without backing in store, never render a phantom hanging capsule
   if (!acp && !running) {
     return null;
@@ -859,6 +874,7 @@ const AssistantMessageView: React.FC<{
     !acp.thought &&
     !(acp.toolCalls && acp.toolCalls.length > 0) &&
     !(acp.images && acp.images.length > 0);
+
   if (isEmptyTurn) {
     return null;
   }
@@ -892,35 +908,38 @@ const AssistantMessageView: React.FC<{
               className="w-full max-w-full rounded-2xl p-4 sm:p-5 space-y-3 text-foreground shadow-xs"
             >
               <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-foreground">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-semibold text-foreground shrink-0">
               {isSystem ? "System" : agentName}
             </span>
             {acp?.model && (
-              <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono">
+              <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-mono shrink-0">
                 {acp.model}
               </Badge>
             )}
             {acp?.mode && acp.mode !== "default" && (
-              <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono text-muted-foreground">
+              <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono text-muted-foreground shrink-0">
                 {acp.mode}
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
+          <div className="flex items-center gap-2 text-muted-foreground min-w-0 max-w-[50%] justify-end">
             {running ? (
-              <span className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                <span className="inline-flex items-center text-muted-foreground text-[11px]">
-                  {acp?.statusHint || "生成中…"}
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse shrink-0" />
+                <span
+                  className="inline-block text-muted-foreground text-[11px] truncate whitespace-nowrap max-w-[180px]"
+                  title={headerStatusHint}
+                >
+                  {headerStatusHint}
                 </span>
               </span>
             ) : (
               <>
                 {acp?.startedAt != null && acp?.completedAt != null && (
-                  <span className="font-mono tabular-nums">用时 {fmtElapsed(acp.completedAt - acp.startedAt)}</span>
+                  <span className="font-mono tabular-nums shrink-0">用时 {fmtElapsed(acp.completedAt - acp.startedAt)}</span>
                 )}
-                {acp?.timestamp && <span>{acp.timestamp}</span>}
+                {acp?.timestamp && <span className="shrink-0">{acp.timestamp}</span>}
               </>
             )}
           </div>

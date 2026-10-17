@@ -100,7 +100,7 @@ function main() {
 
   // 推导仓库链接前缀（沿用文件底部的 [Unreleased] 定义）
   const linkMatch = log.match(/\[Unreleased\]:\s*(\S+?)\/compare\/[^.\s]+\.\.\.HEAD/);
-  const repoBase = linkMatch ? linkMatch[1] : "https://github.com/yitom486/acp-studio";
+  const repoBase = linkMatch ? linkMatch[1] : "https://github.com/yitom486/autumnflow";
   const linkDef = `[${next}]: ${repoBase}/releases/tag/v${next}`;
   const newUnreleasedLink = `[Unreleased]: ${repoBase}/compare/v${next}...HEAD`;
 

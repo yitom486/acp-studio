@@ -10,8 +10,8 @@ import { useStudioStore } from "@/stores/useStudioStore";
 import { saveTab } from "@/lib/workbench-actions";
 import { validateWorkspace } from "@/lib/universal-api";
 
-const CHANGELOG_URL = "https://github.com/yitom486/acp-studio/blob/master/CHANGELOG.md";
-const ISSUES_URL = "https://github.com/yitom486/acp-studio/issues";
+const CHANGELOG_URL = "https://github.com/yitom486/autumnflow/blob/master/CHANGELOG.md";
+const ISSUES_URL = "https://github.com/yitom486/autumnflow/issues";
 
 export function useWorkbenchCommands(opts: { onNewSession: (targetCwd?: string) => void }) {
   const { onNewSession } = opts;

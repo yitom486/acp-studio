@@ -1,16 +1,14 @@
-# ACP Studio
+# AutumnFlow（秋水）
 
-> **English summary** — ACP Studio is a desktop (Electron) and web workbench for any coding agent that speaks the
+> **English summary** — AutumnFlow (秋水) is a modern, high-precision desktop (Electron) and web workbench for any coding agent that speaks the
 > [Agent Client Protocol (ACP)](https://agentclientprotocol.com) over stdio. It ships presets for Codex, Claude Code,
 > Gemini CLI, Cursor CLI, GitHub Copilot CLI, OpenCode, DeepSeek Harness and Google Antigravity, reuses each CLI's own
-> local login (no API keys stored), and gives you sessions & history, a permission-approval flow, tool-call/plan
-> visualisation, an integrated PTY terminal, @-file mentions and git diff review/undo for each agent turn.
-> Stack: React 19 + Vite + Tailwind v4 front end, Hono gateway (Bun or Node), Electron shell.
+> local login (no API keys stored), and features beUI agent activity feeds, real-time thinking trace, permission-approval flow,
+> publishing-grade editorial diagrams, an integrated PTY terminal, @-file mentions and git diff review/undo for each agent turn.
+> Stack: React 19 + Vite + Tailwind v4 + beUI front end, Hono gateway (Bun or Node), Electron shell.
 
-ACP Studio 是一个**通用 ACP 编码智能体工作台**：把任何支持 ACP（Agent Client Protocol）的命令行编码智能体接进同一个图形界面，
-在桌面端（Electron）或浏览器里和它们对话、审批它们的操作、查看它们改了哪些文件。
-
-<!-- 截图：仓库里目前没有界面截图。建议补一张主界面截图放到 docs/images/ 再在这里引用。 -->
+AutumnFlow（秋水）是一个**面向通用 ACP 编码智能体的全能桌面工作台**：把任何支持 ACP（Agent Client Protocol）的命令行编码智能体接进同一个高密度、高精度的现代图形界面，
+在桌面端（Electron）或浏览器里与它们对话、审批操作、查看文件变更及交互式矢量图表。
 
 ---
 
@@ -114,8 +112,8 @@ flowchart LR
 ### 开发
 
 ```bash
-git clone --recurse-submodules https://github.com/yitom486/acp-studio.git
-cd acp-studio
+git clone --recurse-submodules https://github.com/yitom486/autumnflow.git
+cd autumnflow
 bun install
 
 bun run dev            # 网关 http://127.0.0.1:3004 + 前端 http://localhost:5188
@@ -139,7 +137,7 @@ bun run package:win             # 或 package:mac / package:linux，产物在 re
 
 ### 安装包
 
-到 [Releases](https://github.com/yitom486/acp-studio/releases) 下载：Windows（NSIS `.exe`）、macOS（Apple Silicon `.dmg` / `.zip`）、Linux（`.AppImage` / `.deb`）。安装包目前未签名，Windows 可能出现 SmartScreen 提示，macOS 需要在“隐私与安全性”里允许打开。
+到 [Releases](https://github.com/yitom486/autumnflow/releases) 下载：Windows（NSIS `.exe`）、macOS（Apple Silicon `.dmg` / `.zip`）、Linux（`.AppImage` / `.deb`）。安装包目前未签名，Windows 可能出现 SmartScreen 提示，macOS 需要在“隐私与安全性”里允许打开。
 
 ## 配置
 
@@ -241,7 +239,7 @@ acp-studio/
 
 ## 自动更新与发版
 
-- 打包版启动后自动检查 [GitHub Releases](https://github.com/yitom486/acp-studio/releases)（启动 10 秒后一次，之后每 4 小时）。发现新版时右下角提示（窗口在后台则发系统通知），点 **更新** 在后台差分下载，下载完点 **重启并更新** 即静默安装；不点也会在退出或下次打开时自动装好，不走安装向导。
+- 打包版启动后自动检查 [GitHub Releases](https://github.com/yitom486/autumnflow/releases)（启动 10 秒后一次，之后每 4 小时）。发现新版时右下角提示（窗口在后台则发系统通知），点 **更新** 在后台差分下载，下载完点 **重启并更新** 即静默安装；不点也会在退出或下次打开时自动装好，不走安装向导。
 - Windows：首次安装走向导，可选择安装目录；之后的更新在后台静默安装到同一目录（安装器从注册表 `InstallLocation` 读回原目录）。若把它装到需要管理员权限的目录（如 `C:\Program Files`），更新时会弹一次 UAC 确认。
 - 平台支持：Windows ✅；Linux AppImage ✅；Linux deb 与 macOS（暂未签名）只提示新版并打开下载页。设置 `ACP_DISABLE_UPDATES=1` 可关闭检查，或在“设置 → 关于与更新”关掉自动检查；菜单“检查更新…”随时手动检查。
 - 发版：先在 `CHANGELOG.md` 的 `[Unreleased]` 写条目，然后 `bun run release:patch`（默认只升 patch，minor/major 需显式放行）→ 提交 → `git tag vX.Y.Z && git push --tags`。Release 工作流打包三平台，并用 `bun run release:notes X.Y.Z` 截取的 CHANGELOG 小节作为 Release 说明。

@@ -1,7 +1,15 @@
 {
-  "name": "acp-studio",
+  "name": "autumnflow",
   "version": "0.1.10",
-  "description": "AutumnFlow — universal ACP agent workbench",
+  "description": "AutumnFlow（秋水）— universal ACP agent workbench",
+  "homepage": "https://github.com/yitom486/autumnflow#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yitom486/autumnflow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yitom486/autumnflow/issues"
+  },
   "author": {
     "name": "yitom486",
     "email": "yitom486@gmail.com"
@@ -32,7 +40,7 @@
       ],
       "icon": "build/icon.ico",
       "signAndEditExecutable": true,
-      "artifactName": "ACP-Studio-Setup-${version}.${ext}"
+      "artifactName": "AutumnFlow-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [
@@ -40,7 +48,7 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "artifactName": "ACP-Studio-${version}-${arch}-mac.${ext}",
+      "artifactName": "AutumnFlow-${version}-${arch}-mac.${ext}",
       "icon": "build/icon.icns"
     },
     "linux": {
@@ -50,7 +58,7 @@
       ],
       "category": "Development",
       "icon": "build/icons",
-      "artifactName": "ACP-Studio-${version}.${ext}"
+      "artifactName": "AutumnFlow-${version}.${ext}"
     },
     "directories": {
       "app": ".acp-tmp/desktop-app",
@@ -67,7 +75,7 @@
       {
         "provider": "github",
         "owner": "yitom486",
-        "repo": "acp-studio",
+        "repo": "autumnflow",
         "releaseType": "release"
       }
     ],
@@ -77,7 +85,7 @@
       "allowToChangeInstallationDirectory": true,
       "differentialPackage": true,
       "deleteAppDataOnUninstall": false,
-      "artifactName": "ACP-Studio-Setup-${version}.${ext}",
+      "artifactName": "AutumnFlow-Setup-${version}.${ext}",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "AutumnFlow",
@@ -92,10 +100,10 @@
       "uninstallDisplayName": "AutumnFlow"
     },
     "dmg": {
-      "artifactName": "ACP-Studio-${version}-${arch}.${ext}"
+      "artifactName": "AutumnFlow-${version}-${arch}.${ext}"
     },
     "deb": {
-      "artifactName": "acp-studio_${version}_${arch}.${ext}"
+      "artifactName": "autumnflow_${version}_${arch}.${ext}"
     },
     "icon": "build/icon.png"
   },

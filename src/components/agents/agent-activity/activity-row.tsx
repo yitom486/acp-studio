@@ -178,9 +178,7 @@ function ActionIcon({ action }: { action: string }) {
 }
 
 function ToolRow({ item }: { item: AgentActivityTool }) {
-  const [expanded, setExpanded] = useState(
-    item.status === "pending" || item.status === "running",
-  );
+  const [expanded, setExpanded] = useState(false);
   const action = item.action.charAt(0).toUpperCase() + item.action.slice(1);
   const hasDetails = Boolean(item.expandedContent);
 
