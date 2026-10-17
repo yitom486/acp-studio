@@ -649,11 +649,11 @@ const AssistantMessageView: React.FC<{
       const displayTitle = resolveToolDisplayTitle(tc);
       const targetFile = extractFileFromTool(displayTitle) || toolPath(tc);
       const widgetKey = resolveWidgetKey(tc);
-      const isFileTool = widgetKey === "file-edit" || widgetKey === "file-read" || widgetKey === "diff" || !!targetFile;
+      const isFileTool = widgetKey === "file-edit" || widgetKey === "file-read" || !!targetFile;
       const cmd = toolCommand(tc);
       const isTerminal = widgetKey === "terminal" || !!cmd;
-      const output = toolText(tc.rawOutput) || (tc.output ?? tc.result);
-      const err = toolText(tc.rawError) || tc.error;
+      const output = toolText(tc.rawOutput) || toolText((tc as any).output ?? (tc as any).result);
+      const err = toolText(tc.rawError) || toolText((tc as any).error);
       const hasDetails = Boolean((output && output.trim()) || (err && err.trim()));
       const shortId = tc.id ? (tc.id.length > 12 ? `${tc.id.slice(0, 8)}…` : tc.id) : null;
 
