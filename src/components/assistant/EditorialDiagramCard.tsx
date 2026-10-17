@@ -226,15 +226,17 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
     >
       {/* 顶部 Editorial Header */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b border-border/50 text-xs">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className={`p-1 rounded-md ${accentStyles.bg}`}>
-            <Icon className={`w-3.5 h-3.5 ${accentStyles.text}`} />
+        <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
+          <div className={cn("p-1 rounded-md shrink-0", accentStyles.bg)}>
+            <Icon className={cn("w-3.5 h-3.5", accentStyles.text)} />
           </div>
-          <span className="font-semibold text-foreground truncate">{title}</span>
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono tracking-tight bg-secondary/80 text-muted-foreground border border-border/40">
+          <span className="font-semibold text-foreground truncate min-w-0" title={title}>
+            {title}
+          </span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono tracking-tight bg-secondary/80 text-muted-foreground border border-border/40 shrink-0 whitespace-nowrap">
             {meta.label}
           </span>
-          <span className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono">
+          <span className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono shrink-0 whitespace-nowrap">
             <Sparkles className="w-2.5 h-2.5 text-muted-foreground/70" />
             editorial
           </span>
@@ -336,7 +338,7 @@ export const EditorialDiagramCard: React.FC<EditorialDiagramCardProps> = ({
         ref={containerRef}
         className={cn(
           "relative overflow-auto p-4 select-none transition-colors",
-          effectiveIsDark ? "bg-[#0b0f17]" : "bg-slate-50/80",
+          effectiveIsDark ? "bg-background/95" : "bg-muted/15",
           isFullscreen ? "flex-1 min-h-[500px]" : "min-h-[280px]"
         )}
       >
@@ -882,9 +884,15 @@ function SequenceDiagramSvg({
     ];
   }, [data.participants, messages]);
 
-  const width = 640;
   const pCount = Math.max(participants.length, 2);
-  const colWidth = (width - 80) / pCount;
+  // 根据参与者名称长度自适应列宽与卡片宽度，避免固定 120px 导致较长角色文本溢出
+  const maxLabelLen = Math.max(
+    ...participants.map((p: any) => String(p.label || p.name || p.id || "").length),
+    6
+  );
+  const neededBoxWidth = Math.max(maxLabelLen * 8.5 + 24, 110);
+  const colWidth = Math.max(neededBoxWidth + 24, 160);
+  const width = Math.max(pCount * colWidth + 80, 640);
   const rowHeight = 44;
   const headerHeight = 46;
   const totalHeight = headerHeight + Math.max(messages.length, 1) * rowHeight + 40;
@@ -910,7 +918,8 @@ function SequenceDiagramSvg({
   return (
     <svg
       viewBox={`0 0 ${width} ${totalHeight}`}
-      className="w-full max-w-[640px] h-auto font-sans"
+      style={{ maxWidth: `${width}px` }}
+      className="w-full h-auto font-sans"
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
@@ -941,7 +950,8 @@ function SequenceDiagramSvg({
       {/* 参与者顶栏及垂直虚线生命线 */}
       {participants.map((p: any, idx: number) => {
         const x = getColX(idx);
-        const boxWidth = Math.min(colWidth - 16, 120);
+        const labelStr = String(p.label || p.name || `Actor ${idx + 1}`);
+        const itemBoxWidth = Math.min(colWidth - 16, Math.max(labelStr.length * 8.5 + 24, 100));
 
         return (
           <g key={p.id || idx}>
@@ -957,9 +967,9 @@ function SequenceDiagramSvg({
             />
             {/* 顶栏卡片 */}
             <rect
-              x={x - boxWidth / 2}
+              x={x - itemBoxWidth / 2}
               y="8"
-              width={boxWidth}
+              width={itemBoxWidth}
               height="30"
               rx="6"
               fill={isDark ? "#181e28" : "#ffffff"}
@@ -971,9 +981,9 @@ function SequenceDiagramSvg({
               y="27"
               textAnchor="middle"
               fill={isDark ? "#f8fafc" : "#0f172a"}
-              className="text-[12px] font-semibold"
+              className="text-[12px] font-semibold select-none"
             >
-              {p.label || p.name || `Actor ${idx + 1}`}
+              {labelStr}
             </text>
           </g>
         );

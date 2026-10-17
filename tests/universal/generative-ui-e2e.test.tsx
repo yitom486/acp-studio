@@ -576,6 +576,55 @@ describe("Generative UI - Front-End Component Integration Tests", () => {
     expect(nodeRects.length).toBe(6); // 3 layers * 2 nodes each = 6 cards of width 244
   });
 
+  it("E2E: EditorialDiagramCard sequence diagram prevents badge wrapping and adapts actor width dynamically", async () => {
+    await act(async () => {
+      root.render(
+        <EditorialDiagramCard
+          title="Sidecar 调用链路: 宿主到 Agent 子进程的长标题测试用例"
+          diagramType="sequence"
+          theme="dark"
+          accent="emerald"
+          data={{
+            participants: [
+              { id: "host", label: "宿主 (Electron / TypeScript)" },
+              { id: "sidecar", label: "acp-engine Sidecar (Node)" },
+              { id: "agent", label: "Agent 子进程 (codex/claude...)" },
+            ],
+            messages: [
+              { from: "host", to: "sidecar", label: "spawn 二进制 + stdio 管道", highlighted: true },
+              { from: "sidecar", to: "host", label: "ready 通知 {version, pid}", type: "reply" },
+            ],
+          }}
+        />
+      );
+    });
+
+    // 1. 验证标题、角色名和消息文本渲染
+    expect(container.textContent).toContain("Sidecar 调用链路: 宿主到 Agent 子进程的长标题测试用例");
+    expect(container.textContent).toContain("交互时序图");
+    expect(container.textContent).toContain("宿主 (Electron / TypeScript)");
+    expect(container.textContent).toContain("spawn 二进制 + stdio 管道");
+
+    // 2. 验证 Header badge 带有 shrink-0 和 whitespace-nowrap，杜绝垂直挤压成多行
+    const metaBadge = container.querySelector(".bg-secondary\\/80");
+    expect(metaBadge).not.toBeNull();
+    expect(metaBadge?.className).toContain("shrink-0");
+    expect(metaBadge?.className).toContain("whitespace-nowrap");
+
+    // 3. 验证时序图参与者卡片宽度自适应长文本，不再写死上限 120px
+    const allSvgs = Array.from(container.querySelectorAll("svg"));
+    const svg = allSvgs[allSvgs.length - 1] as SVGSVGElement;
+    expect(svg).not.toBeNull();
+    const actorRects = Array.from(svg.querySelectorAll("rect")).filter(
+      (r) => r.getAttribute("height") === "30"
+    );
+    expect(actorRects.length).toBe(3);
+    for (const r of actorRects) {
+      const width = parseFloat(r.getAttribute("width") || "0");
+      expect(width).toBeGreaterThanOrEqual(160);
+    }
+  });
+
   it("E2E: AcpGenerativeToolCard strips namespace prefixes and renders decision cards & diagrams from stringified rawInput", async () => {
     // 1. Test normalization helpers
     expect(normalizeGenerativeToolName("studio-ui_show_interactive_card")).toBe("show_interactive_card");
