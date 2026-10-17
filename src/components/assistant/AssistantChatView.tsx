@@ -83,7 +83,12 @@ import { cn } from "@/lib/utils";
 import { MessageScroller } from "@/components/primitives/MessageScroller";
 import { ActionSwap, MagneticButton } from "@/components/atoms/MotionButtons";
 import { Citations, type CitationItem } from "@/components/primitives/Citations";
-import { Loader } from "@/components/motion/Loader";
+import { Loader } from "@/components/motion/loader";
+import { AgentActivity, type AgentActivityItem } from "@/components/agents/agent-activity";
+import { ThinkingShimmer } from "@/components/agents/loading-states/thinking-shimmer";
+import { ReasoningText } from "@/components/agents/loading-states/reasoning-text";
+import { TextScramble } from "@/components/motion/text-scramble";
+import { TextShimmer } from "@/components/motion/text-shimmer";
 
 export interface AssistantChatViewProps {
   agentName?: string;
@@ -104,7 +109,7 @@ export interface AssistantChatViewProps {
 
 // ---------- part renderers (Text 由 AcpMarkdownText 直供 primitive) ----------
 
-/** 智能体首 Token 到达前的思考/等待指示器 (真实状态驱动，多阶段自适应推进) */
+/** 智能体首 Token 到达前的思考/等待指示器 (beUI ReasoningText 驱动，平滑字符级梯级渐变与状态推进) */
 const ThinkingStateCapsule: React.FC<{ startedAt?: number; statusHint?: string }> = ({ startedAt, statusHint }) => {
   const [elapsed, setElapsed] = React.useState(() =>
     startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 100) / 10) : 0
@@ -121,37 +126,47 @@ const ThinkingStateCapsule: React.FC<{ startedAt?: number; statusHint?: string }
     return () => clearInterval(timer);
   }, [startedAt, hasPendingPermission, hasPendingElicitation]);
 
-  let label: string;
   const timeStr = `(${elapsed.toFixed(1)}s)`;
 
-  if (hasPendingPermission) {
-    label = "等待用户确认授权…";
-  } else if (hasPendingElicitation) {
-    label = "等待用户回应提问…";
-  } else if (statusHint && !statusHint.includes("连接") && !statusHint.includes("通道") && !statusHint.includes("思考")) {
-    label = `${statusHint} ${timeStr}`;
-  } else {
-    if (elapsed < 2.0) {
-      label = `${statusHint || "正在思考…"} ${timeStr}`;
-    } else if (elapsed < 6.0) {
-      label = `模型正在深入分析推导… ${timeStr}`;
-    } else if (elapsed < 12.0) {
-      label = `模型复杂推理中，即将生成… ${timeStr}`;
-    } else {
-      label = `模型深度长程思考中，正在组织回复… ${timeStr}`;
+  const phrases = React.useMemo(() => {
+    if (statusHint && !statusHint.includes("连接") && !statusHint.includes("通道")) {
+      return [statusHint, "正在思考与深度分析", "正在检索上下文", "正在组织回复"];
     }
-  }
+    return [
+      statusHint || "正在思考…",
+      "正在深入分析推导",
+      "正在检索上下文",
+      "正在规划执行策略",
+      "模型深度推理中，正在组织回复",
+    ];
+  }, [statusHint]);
 
   return (
-    <div className="rounded-card border border-line bg-surface/90 px-3 py-1.5 shadow-card backdrop-blur-xs transition-all duration-300 w-fit max-w-sm flex items-center gap-2.5 text-[12px] text-ink-2 font-medium select-none">
+    <div className="rounded-card border border-line bg-surface/90 px-3.5 py-1.5 shadow-card backdrop-blur-xs transition-all duration-300 w-fit max-w-md flex items-center gap-2.5 text-[12px] text-ink-2 font-medium select-none">
       {hasPendingPermission ? (
-        <span className="size-2 rounded-full shrink-0 bg-amber-500 animate-ping" />
+        <>
+          <span className="size-2 rounded-full shrink-0 bg-amber-500 animate-ping" />
+          <span className="text-amber-500 font-medium">等待用户确认授权…</span>
+        </>
       ) : hasPendingElicitation ? (
-        <span className="size-2 rounded-full shrink-0 bg-blue-500 animate-ping" />
+        <>
+          <span className="size-2 rounded-full shrink-0 bg-blue-500 animate-ping" />
+          <span className="text-blue-500 font-medium">等待用户回应提问…</span>
+        </>
       ) : (
-        <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
+        <ReasoningText
+          variant="cascade"
+          phrases={phrases}
+          interval={2000}
+          shimmerDuration={2}
+          indicator={
+            <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
+          }
+        />
       )}
-      <span className="tabular-nums font-sans">{label}</span>
+      <span className="tabular-nums font-mono text-[10px] text-muted-foreground ml-auto pl-1">
+        {timeStr}
+      </span>
     </div>
   );
 };
@@ -223,8 +238,14 @@ const UsagePanel: React.FC<{ msg: Message }> = ({ msg }) => {
           )}
           {u.inputTokens != null || u.outputTokens != null ? (
             <div className={cn(row, "col-span-2")}>
-              <span>输入 / 输出</span>
+              <span>本轮消耗 (输入 / 输出)</span>
               <span className="tabular-nums">{(u.inputTokens ?? 0).toLocaleString()} / {(u.outputTokens ?? 0).toLocaleString()}</span>
+            </div>
+          ) : null}
+          {(u as any).sessionTotalTokens != null ? (
+            <div className={cn(row, "col-span-2 text-muted-foreground/80")}>
+              <span>会话累计</span>
+              <span className="tabular-nums">{((u as any).sessionTotalTokens).toLocaleString()} tokens</span>
             </div>
           ) : null}
         </div>
@@ -232,540 +253,15 @@ const UsagePanel: React.FC<{ msg: Message }> = ({ msg }) => {
     </div>
   );
 };
-/**
- * 思维链 · 思考过程折叠卡（Beautiful UI 风格思维链）。
- * 运行时默认展开，完成后自动收起；用户手动切换后不再自动干预。
- */
-const AcpReasoningView: React.FC<{
-  thought: string;
-  running: boolean;
-  timing?: { startedAt?: number; completedAt?: number };
-}> = ({ thought, running, timing }) => {
-  const [open, setOpen] = React.useState(running);
-  const manual = React.useRef(false);
-  React.useEffect(() => {
-    if (!manual.current) setOpen(running);
-  }, [running]);
-  if (!thought) return null;
-  const doneMs =
-    timing?.startedAt != null && timing.completedAt != null
-      ? timing.completedAt - timing.startedAt
-      : null;
-  return (
-    <div className="rounded-card bg-surface/85 border border-line text-xs text-ink-2 overflow-hidden shadow-xs transition-colors">
-      <button
-        type="button"
-        onClick={() => {
-          manual.current = true;
-          setOpen((o) => !o);
-        }}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-hover-2 transition-colors cursor-pointer select-none"
-      >
-        <span className="flex shrink-0 text-ink-3">
-          {running ? (
-            <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
-          ) : (
-            <Brain className="w-3.5 h-3.5" />
-          )}
-        </span>
-        {running ? (
-          <span
-            className="bg-clip-text text-[13px] font-medium whitespace-nowrap text-transparent"
-            style={{
-              backgroundImage:
-                "linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%)",
-              backgroundSize: "200% 100%",
-              animation: "shimmer-text 1.4s linear infinite",
-            }}
-          >
-            思考中…
-          </span>
-        ) : (
-          <span className="font-medium text-[13px] text-ink">
-            思考过程
-          </span>
-        )}
-        <span className="font-mono text-[10px] text-ink-3">({thought.length} 字)</span>
-        {!running && doneMs != null && (
-          <span className="font-mono text-[10px] text-ink-3">用时 {fmtElapsed(doneMs)}</span>
-        )}
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="var(--ink-3)"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={cn("w-3.5 h-3.5 ml-auto transition-transform duration-300", open && "rotate-180")}
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
-      <div
-        className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
-          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-        )}
-        style={{ transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)" }}
-      >
-        <div className="overflow-hidden">
-          <div className="relative mt-0.5 ml-3 pl-3.5 pb-2.5 pt-0.5 border-l border-line text-[12.5px] leading-relaxed text-ink-2 font-sans break-words whitespace-pre-wrap">
-            {thought}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
-/**
- * 阶段推进记录折叠组件（各时期中间态会话内容收拢容器）：
- * 流式推进期间可动态跟踪；运行完成或取消后自动收拢折叠，
- * 绝不与最终结论混杂，保证底部正文纯净，快速查看核心结论。
- */
-const AgentProgressAccordion: React.FC<{
-  progress: string;
-  running?: boolean;
-}> = React.memo(({ progress, running = false }) => {
-  const [open, setOpen] = React.useState(running);
-  const manual = React.useRef(false);
-  const prevRunning = React.useRef(running);
-  const [copied, setCopied] = React.useState(false);
 
-  React.useEffect(() => {
-    // 运行状态从非运行变为运行：自动展开
-    if (running && !prevRunning.current) {
-      manual.current = false;
-      setOpen(true);
-    }
-    // 运行结束或取消：自动折叠收拢
-    else if (!running && prevRunning.current) {
-      if (!manual.current) {
-        setOpen(false);
-      }
-    }
-    prevRunning.current = running;
-  }, [running]);
 
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(progress).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
-  if (!progress || !progress.trim()) return null;
-  const charCount = progress.trim().length;
-
-  return (
-    <div className="rounded-card bg-surface/85 border border-line text-xs text-ink-2 overflow-hidden shadow-xs transition-colors">
-      <div className="w-full flex items-center justify-between px-3 py-2 hover:bg-hover-2 transition-colors">
-        <button
-          type="button"
-          onClick={() => {
-            manual.current = true;
-            setOpen((o) => !o);
-          }}
-          className="flex-1 flex items-center gap-2 cursor-pointer select-none text-left min-w-0"
-        >
-          <span className="flex shrink-0 text-ink-3">
-            {running ? (
-              <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
-            ) : (
-              <PencilLine className="w-3.5 h-3.5 text-primary" />
-            )}
-          </span>
-          <span className="font-semibold text-ink text-[12.5px]">
-            阶段推进记录 · {charCount} 字
-          </span>
-          {running ? (
-            <span className="font-mono text-[10px] text-amber-500 font-medium flex items-center gap-1 ml-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              正在推进…
-            </span>
-          ) : (
-            <span className="font-mono text-[10px] text-muted-foreground ml-1">
-              (已收拢)
-            </span>
-          )}
-        </button>
-        <div className="flex items-center gap-1.5 ml-2 shrink-0">
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="复制阶段过程记录"
-          >
-            {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              manual.current = true;
-              setOpen((o) => !o);
-            }}
-            className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title={open ? "收起" : "展开"}
-          >
-            <ChevronDown
-              className={cn("w-3.5 h-3.5 text-ink-3 transition-transform duration-300 shrink-0", open && "rotate-180")}
-            />
-          </button>
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
-          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-        )}
-        style={{ transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)" }}
-      >
-        <div className="overflow-hidden">
-          <div className="px-3 pb-3 pt-1">
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-3 max-h-[260px] overflow-y-auto overscroll-contain text-xs text-muted-foreground leading-relaxed break-words font-sans">
-              <AcpStandaloneMarkdown content={progress} />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
 
 type AcpToolCall = WidgetTool;
 
-/** 单条工具行（含种类图标、Diff、终端打开、耗时、审批与折叠明细）。Memoized 避免无关流式更新时重复刷新。 */
-const ToolCallRow: React.FC<{ tc: AcpToolCall }> = React.memo(({ tc }) => {
-  const { kind = "", status } = tc;
-  const displayTitle = resolveToolDisplayTitle(tc);
-  const targetFile = extractFileFromTool(displayTitle) || toolPath(tc);
-  const isFileTool =
-    kind === "edit" || kind === "file" || kind === "diff" || !!targetFile;
-  const active = status === "running" || status === "pending";
-  const shortId = tc.id ? (tc.id.length > 12 ? `${tc.id.slice(0, 8)}…` : tc.id) : null;
-  const widgetKey = resolveWidgetKey(tc);
-  const cmd = toolCommand(tc);
-  const isTerminal = widgetKey === "terminal" || !!cmd;
 
-  const [expanded, setExpanded] = React.useState(false);
-  const output = toolText(tc.rawOutput);
-  const err = toolText(tc.rawError);
-  const hasDetails = Boolean(output || err);
 
-  const openInTerminal = () => {
-    if (!cmd) return;
-    const st = useStudioStore.getState();
-    const toolCwd =
-      strField(tc.rawInput, ["cwd", "workdir", "workDir", "dir", "directory"]) || null;
-    st.setTerminalCwd(toolCwd);
-    st.setTerminalPrefill(cmd);
-    st.setTerminalOpen(true);
-  };
 
-  const cleanTitle =
-    isFileTool && targetFile
-      ? targetFile
-      : isTerminal && cmd
-        ? cmd
-        : displayTitle;
-
-  const toolVerb =
-    widgetKey === "terminal"
-      ? "执行"
-      : widgetKey === "file-read"
-        ? "读取"
-        : widgetKey === "file-edit"
-          ? "编辑"
-          : widgetKey === "search"
-            ? "检索"
-            : "调用";
-
-  return (
-    <div className="rounded-control bg-surface border border-line text-xs text-ink-2 animate-fade-slide-in transition-colors">
-      <div
-        onClick={() => hasDetails && setExpanded((e) => !e)}
-        className={cn(
-          "flex items-center gap-2 px-2.5 h-[34px] select-none",
-          hasDetails && "cursor-pointer hover:bg-hover-2",
-        )}
-      >
-        <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
-          {widgetKey === "terminal" ? (
-            <Terminal className="w-3.5 h-3.5 text-accent" />
-          ) : widgetKey === "file-read" ? (
-            <FileText className="w-3.5 h-3.5 text-accent" />
-          ) : widgetKey === "file-edit" ? (
-            <PencilLine className="w-3.5 h-3.5 text-amber-500" />
-          ) : widgetKey === "search" ? (
-            <Search className="w-3.5 h-3.5 text-accent" />
-          ) : (
-            <Wrench className="w-3.5 h-3.5 text-accent" />
-          )}
-        </span>
-
-        <span className="shrink-0 text-[11.5px] font-medium text-ink">
-          {toolVerb}
-        </span>
-
-        {/* Beautiful UI styled inline chip */}
-        <span
-          className={cn(
-            "inline-flex h-5.5 min-w-0 flex-1 items-center truncate rounded-chip bg-field px-2 font-mono text-[11px] text-ink-2 shadow-hairline transition-colors hover:bg-hover-2",
-            active && "animate-pulse"
-          )}
-          title={kind ? `${cleanTitle} [${kind}] (ID: ${tc.id})` : `${cleanTitle} (ID: ${tc.id})`}
-        >
-          {cleanTitle}
-        </span>
-
-        {shortId && (
-          <span
-            className="text-[10px] text-ink-3/60 hover:text-ink font-mono shrink-0 select-all cursor-default"
-            title={`调用 ID: ${tc.id}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {shortId}
-          </span>
-        )}
-
-        <LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />
-
-        {isFileTool && (
-          <span onClick={(e) => e.stopPropagation()}>
-            <DiffButton file={targetFile} />
-          </span>
-        )}
-
-        {isTerminal && cmd && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openInTerminal();
-            }}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded-chip bg-field border border-line-strong hover:bg-hover-2 text-ink-2 text-[10px] font-sans transition-colors shrink-0 cursor-pointer"
-            title="在终端中打开（只填入、不自动执行）"
-          >
-            <Terminal className="w-3 h-3" />
-            <span>终端打开</span>
-          </button>
-        )}
-
-        <StatusDot status={status} />
-
-        {hasDetails && (
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--ink-3)"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={cn(
-              "w-3 h-3 text-ink-3 transition-transform duration-200 shrink-0",
-              expanded && "rotate-180",
-            )}
-          >
-            <path d="M6 9l6 6 6-6" />
-          </svg>
-        )}
-      </div>
-
-      {expanded && (output || err) && (
-        <div className="mx-1.5 mb-1.5 rounded-control border border-line bg-inset/70 overflow-hidden font-mono text-[11px] animate-fade-slide-in">
-          {output && (
-            <pre className="px-2.5 py-2 overflow-x-auto text-ink whitespace-pre-wrap break-words max-h-[160px]">
-              <code>{firstLines(output, 10).shown}</code>
-            </pre>
-          )}
-          {err && (
-            <pre className="px-2.5 py-2 overflow-x-auto text-red whitespace-pre-wrap break-words max-h-[120px] border-t border-red/30">
-              <code>{firstLines(err, 8).shown}</code>
-            </pre>
-          )}
-        </div>
-      )}
-      <InlineApproval tc={tc} />
-    </div>
-  );
-});
-
-/** 统一使用规范单行工具组件，杜绝各卡片高度膨胀破坏 5 项视口滚动 */
-const ToolWidget: React.FC<{ tc: AcpToolCall }> = ToolCallRow;
-
-/**
- * 工具折叠组（Beautiful UI ToolChips 灵感与防布局扰动容器）：
- * 流式输出期间始终保持展开，绝不忽开忽关；流式结束或取消时自动折叠收起。
- * 内部滚动容器高度严格限制为 5 个工具项高度（max-h-[196px]），超出时在专门容器内向上平滑滚动，
- * 始终露出最新 5 个活跃工具，早期工具向上翻滚，杜绝破坏外部聊天正文排版，避免卡片剧烈忽大忽小；
- * 状态文案展示成功比例（如 67/68 成功），杜绝少量失败/重试引发恐慌。
- */
-const AcpToolGroup: React.FC<{ tools: AcpToolCall[]; running?: boolean }> = React.memo(({ tools, running = false }) => {
-  const activeTools = React.useMemo(
-    () => tools.filter((t) => isToolActive(t.status)),
-    [tools]
-  );
-  const failedTools = React.useMemo(
-    () => tools.filter((t) => t.status === "failed"),
-    [tools]
-  );
-  const anyActive = activeTools.length > 0;
-  const total = tools.length;
-  const failedCount = failedTools.length;
-  const successCount = Math.max(0, total - failedCount);
-
-  // 流式输出期间组件始终保持打开；若取消或流式结束再折叠
-  const [open, setOpen] = React.useState(running);
-  const manual = React.useRef(false);
-  const prevRunning = React.useRef(running);
-
-  // 内部滚动容器：限制最大高度为 5 个工具项（约 196px），新工具到达时自适应向上滚动
-  const scrollRef = React.useRef<HTMLDivElement>(null);
-  const userScrolledUp = React.useRef(false);
-
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 36;
-    userScrolledUp.current = !isNearBottom;
-  };
-
-  React.useEffect(() => {
-    // 状态从非运行跃迁到运行（新一轮流式开始）：重置手动干预与用户滚动标记，自动展开
-    if (running && !prevRunning.current) {
-      manual.current = false;
-      userScrolledUp.current = false;
-      if (tools.length > 0) {
-        setOpen(true);
-      }
-    }
-    // 流式输出期间：只要存在工具调用且用户未手动折叠，始终保持展开状态，绝不在单工具完成间歇期折叠
-    else if (running && tools.length > 0) {
-      if (!manual.current) {
-        setOpen(true);
-      }
-    }
-    // 流式输出结束或被用户取消（running 从 true 变为 false）：自动折叠收起
-    else if (!running && prevRunning.current) {
-      if (!manual.current) {
-        setOpen(false);
-      }
-    }
-
-    prevRunning.current = running;
-  }, [running, tools.length]);
-
-  // 工具列表更新或状态变化时，容器内平滑向上滚动，保持最新的 5 个工具可见
-  React.useEffect(() => {
-    if (open && scrollRef.current && !userScrolledUp.current) {
-      requestAnimationFrame(() => {
-        const el = scrollRef.current;
-        if (!el || userScrolledUp.current) return;
-        const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-        el.scrollTo({
-          top: el.scrollHeight,
-          behavior: distance > 250 ? "auto" : "smooth",
-        });
-      });
-    }
-  }, [tools.length, anyActive, open]);
-
-  const latest = activeTools.length > 0 ? activeTools[activeTools.length - 1] : null;
-  if (!tools || tools.length === 0) return null;
-
-  return (
-    <div className="rounded-card bg-surface/85 border border-line overflow-hidden shadow-xs transition-colors">
-      <button
-        type="button"
-        onClick={() => {
-          manual.current = true;
-          setOpen((o) => !o);
-        }}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-ink-2 hover:bg-hover-2 transition-colors cursor-pointer select-none"
-      >
-        <span className="flex size-4 shrink-0 items-center justify-center text-ink-3">
-          <Wrench className="w-3.5 h-3.5 text-accent" />
-        </span>
-        <span className="font-semibold text-ink text-[12.5px]">
-          工具调用 · {total}
-        </span>
-        {latest ? (
-          <span className="inline-flex items-center text-ink-2 text-[11px] truncate min-w-0 flex-1">
-            正在调用 {resolveToolDisplayTitle(latest)}…
-          </span>
-        ) : failedCount > 0 ? (
-          <span className="font-mono text-[10px] text-ink-3 flex items-center gap-1.5 ml-1">
-            <span className={cn(successCount > 0 ? "text-amber-500 font-semibold" : "text-red font-semibold")}>
-              {successCount}/{total} 成功
-            </span>
-            <span className="opacity-70">({failedCount} 次失败/重试)</span>
-          </span>
-        ) : (
-          <span className="font-mono text-[10px] text-green font-medium ml-1">
-            全部成功 ({total}/{total})
-          </span>
-        )}
-        <span
-          className={cn(
-            "w-2 h-2 rounded-full shrink-0 ml-auto",
-            anyActive
-              ? "bg-amber-500 animate-pulse"
-              : failedCount === 0
-                ? "bg-green"
-                : successCount > 0
-                  ? "bg-amber-500"
-                  : "bg-red",
-          )}
-          title={
-            anyActive
-              ? "正在执行工具"
-              : failedCount === 0
-                ? "全部工具调用成功"
-                : `${total} 次调用中 ${successCount} 次成功，${failedCount} 次失败/重试`
-          }
-        />
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="var(--ink-3)"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={cn("w-3.5 h-3.5 transition-transform duration-300 shrink-0", open && "rotate-180")}
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
-
-      {/* 展开内容：高度严格限定为 5 个工具项（max-h-[196px]），在专门容器内向上平滑滚动 */}
-      <div
-        className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
-          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
-        )}
-        style={{ transitionTimingFunction: "cubic-bezier(0.23, 1, 0.32, 1)" }}
-      >
-        <div className="overflow-hidden">
-          <div
-            ref={scrollRef}
-            onScroll={handleScroll}
-            className="px-2 pb-2 pt-0.5 space-y-1.5 max-h-[196px] overflow-y-auto overscroll-contain"
-          >
-            {tools.map((tc) => (
-              <ToolWidget key={tc.id} tc={tc} />
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
 
 // ---------- messages ----------
 
@@ -1083,6 +579,201 @@ const AssistantMessageView: React.FC<{
     return (acp?.toolCalls || []).filter((tc) => !isGenerativeTool(tc));
   }, [acp?.toolCalls]);
 
+  const activeTools = React.useMemo(
+    () => regularTools.filter((t) => isToolActive(t.status)),
+    [regularTools]
+  );
+  const latestTool = activeTools.length > 0 ? activeTools[activeTools.length - 1] : null;
+  const liveLabel = latestTool
+    ? `正在调用 ${resolveToolDisplayTitle(latestTool)}…`
+    : (acp?.statusHint || "模型思考与工具执行推进中…");
+
+  const activityItems = React.useMemo<AgentActivityItem[]>(() => {
+    const items: AgentActivityItem[] = [];
+
+    // 1. 思考过程 (Thinking Trace)
+    if (acp?.thought) {
+      const doneMs =
+        acp.thoughtTiming?.startedAt != null && acp.thoughtTiming.completedAt != null
+          ? acp.thoughtTiming.completedAt - acp.thoughtTiming.startedAt
+          : null;
+      items.push({
+        id: `${messageId}-thought`,
+        type: "trace",
+        kind: "thinking",
+        label: "思考过程",
+        detail: (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            ({acp.thought.length} 字
+            {doneMs != null ? ` · 用时 ${fmtElapsed(doneMs)}` : ""})
+          </span>
+        ),
+        fullContent: (
+          <div className="relative mt-1 pl-3 border-l border-line text-[12.5px] leading-relaxed text-ink-2 font-sans break-words whitespace-pre-wrap">
+            {acp.thought}
+          </div>
+        ),
+      });
+    }
+
+    // 2. 阶段推进记录 (Progress Trace)
+    if (progress && progress.trim()) {
+      items.push({
+        id: `${messageId}-progress`,
+        type: "trace",
+        kind: "write",
+        label: "阶段推进记录",
+        detail: (
+          <span className="font-mono text-[10px] text-muted-foreground">
+            ({progress.trim().length} 字 · {running ? "正在推进…" : "(已收拢)"})
+          </span>
+        ),
+        fullContent: (
+          <div className="mt-1 rounded-lg border border-border/60 bg-muted/20 p-2.5 max-h-[220px] overflow-y-auto overscroll-contain text-xs text-muted-foreground leading-relaxed break-words font-sans">
+            <AcpStandaloneMarkdown content={progress} />
+          </div>
+        ),
+      });
+    }
+
+    // 3. 常规工具调用 (Regular Tools)
+    for (const tc of regularTools) {
+      const displayTitle = resolveToolDisplayTitle(tc);
+      const targetFile = extractFileFromTool(displayTitle) || toolPath(tc);
+      const widgetKey = resolveWidgetKey(tc);
+      const isFileTool = widgetKey === "file-edit" || widgetKey === "file-read" || widgetKey === "diff" || !!targetFile;
+      const cmd = toolCommand(tc);
+      const isTerminal = widgetKey === "terminal" || !!cmd;
+      const output = toolText(tc.rawOutput) || (tc.output ?? tc.result);
+      const err = toolText(tc.rawError) || tc.error;
+      const hasDetails = Boolean((output && output.trim()) || (err && err.trim()));
+      const shortId = tc.id ? (tc.id.length > 12 ? `${tc.id.slice(0, 8)}…` : tc.id) : null;
+
+      const cleanTitle =
+        isFileTool && targetFile
+          ? targetFile
+          : isTerminal && cmd
+            ? cmd
+            : displayTitle;
+
+      const openInTerminal = () => {
+        if (!cmd) return;
+        const st = useStudioStore.getState();
+        const toolCwd =
+          strField(tc.rawInput, ["cwd", "workdir", "workDir", "dir", "directory"]) || null;
+        st.setTerminalCwd(toolCwd);
+        st.setTerminalPrefill(cmd);
+        st.setTerminalOpen(true);
+      };
+
+      const actionKind =
+        widgetKey === "terminal"
+          ? "run"
+          : widgetKey === "file-read"
+            ? "read"
+            : widgetKey === "file-edit"
+              ? "edit"
+              : widgetKey === "search"
+                ? "search"
+                : (tc.kind || "run");
+
+      items.push({
+        id: tc.id || `tc-${items.length}`,
+        type: "tool",
+        action: actionKind as any,
+        target: cleanTitle,
+        status: tc.status,
+        extra: (
+          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            {shortId && (
+              <span
+                className="text-[10px] text-ink-3/60 font-mono select-all cursor-default"
+                title={`调用 ID: ${tc.id}`}
+              >
+                {shortId}
+              </span>
+            )}
+            <LiveElapsed startedAt={tc.startedAt} completedAt={tc.completedAt} />
+            {isFileTool && targetFile && <DiffButton file={targetFile} />}
+            {isTerminal && cmd && (
+              <button
+                type="button"
+                onClick={openInTerminal}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-chip bg-field border border-line-strong hover:bg-hover-2 text-ink-2 text-[10px] font-sans transition-colors shrink-0 cursor-pointer"
+                title="在终端中打开（只填入、不自动执行）"
+              >
+                <Terminal className="w-3 h-3" />
+                <span>终端打开</span>
+              </button>
+            )}
+            <StatusDot status={tc.status} />
+          </div>
+        ),
+        expandedContent:
+          hasDetails || isToolActive(tc.status) || tc.status === "failed" ? (
+            <div className="space-y-1 mt-1">
+              {(output || err) && (
+                <div className="rounded-control border border-line bg-inset/70 overflow-hidden font-mono text-[11px]">
+                  {output && (
+                    <pre className="px-2.5 py-2 overflow-x-auto text-ink whitespace-pre-wrap break-words max-h-[160px]">
+                      <code>{firstLines(output, 10).shown}</code>
+                    </pre>
+                  )}
+                  {err && (
+                    <pre className="px-2.5 py-2 overflow-x-auto text-red whitespace-pre-wrap break-words max-h-[120px] border-t border-red/30">
+                      <code>{firstLines(err, 8).shown}</code>
+                    </pre>
+                  )}
+                </div>
+              )}
+              <InlineApproval tc={tc} />
+            </div>
+          ) : undefined,
+      });
+    }
+
+    return items;
+  }, [acp?.thought, acp?.thoughtTiming, progress, regularTools, running, messageId]);
+
+  const activitySummary = React.useMemo(() => {
+    const total = regularTools.length;
+    const failedCount = regularTools.filter((t) => t.status === "failed").length;
+    const successCount = Math.max(0, total - failedCount);
+    const thoughtMs =
+      acp?.thoughtTiming?.startedAt != null && acp.thoughtTiming.completedAt != null
+        ? acp.thoughtTiming.completedAt - acp.thoughtTiming.startedAt
+        : null;
+
+    if (total > 0) {
+      return (
+        <span className="flex items-center gap-1.5 flex-wrap">
+          <span>工具调用 · {total}</span>
+          {failedCount > 0 ? (
+            <span className="font-mono text-[10px] text-ink-3">
+              <span className={cn(successCount > 0 ? "text-amber-500 font-semibold" : "text-red font-semibold")}>
+                {successCount}/{total} 成功
+              </span>
+              <span className="opacity-70">({failedCount} 次失败/重试)</span>
+            </span>
+          ) : (
+            <span className="font-mono text-[10px] text-muted-foreground">
+              （全部成功 {total}/{total}）
+            </span>
+          )}
+          {thoughtMs != null && (
+            <span className="text-[10px] text-muted-foreground font-mono">
+              · 思考用时 {fmtElapsed(thoughtMs)}
+            </span>
+          )}
+        </span>
+      );
+    }
+    if (acp?.thought) {
+      return <span>思考过程{thoughtMs != null ? ` · 用时 ${fmtElapsed(thoughtMs)}` : ""}</span>;
+    }
+    return undefined;
+  }, [regularTools, acp?.thought, acp?.thoughtTiming]);
+
   const citations: CitationItem[] = React.useMemo(() => {
     if (acp?.citations && Array.isArray(acp.citations) && acp.citations.length > 0) {
       return acp.citations;
@@ -1255,24 +946,53 @@ const AssistantMessageView: React.FC<{
 
         {/* 等待态已提前 return 胶囊；此处只有到达过 token 的消息 */}
         <>
-          {/* 过程区：思考链 + 阶段推进记录 + 工具组收拢 + 协同状态徽章，正文保持干净 */}
-          {(!!acp?.thought || !!progress || regularTools.length > 0 || (running && !!acp?.statusHint)) && (
-            <div className="space-y-1.5">
-              {running && !!acp?.statusHint && (
-                <div className="rounded-card bg-surface/85 border border-primary/30 px-3 py-2 text-xs text-ink flex items-center gap-2 shadow-xs animate-fade-slide-in">
-                  <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
-                  <span className="font-medium text-primary">{acp.statusHint}</span>
-                </div>
-              )}
-              {!!acp?.thought && (
-                <AcpReasoningView thought={acp.thought} running={running} timing={acp.thoughtTiming} />
-              )}
-              {!!progress && (
-                <AgentProgressAccordion progress={progress} running={running} />
-              )}
-              {regularTools.length > 0 && (
-                <AcpToolGroup tools={regularTools} running={running} />
-              )}
+          {/* 过程区：AgentActivity 统一自适应执行流 (思考链 + 阶段推进记录 + 工具调用流) */}
+          {(activityItems.length > 0 || (running && !!acp?.statusHint)) && (
+            <div className="rounded-xl border border-line/70 bg-surface/80 p-2.5 shadow-xs transition-colors">
+              <AgentActivity
+                items={activityItems}
+                status={running ? "working" : "complete"}
+                duration={
+                  acp?.startedAt != null && acp?.completedAt != null
+                    ? (acp.completedAt - acp.startedAt) / 1000
+                    : 0
+                }
+                collapseOnComplete={true}
+                contentClassName="max-h-[196px]"
+                activeLabel={
+                  <ThinkingShimmer duration={1.8} className="font-medium text-foreground">
+                    {liveLabel}
+                  </ThinkingShimmer>
+                }
+                summary={activitySummary}
+                renderWorkingStatus={({ label, duration }) => (
+                  <div className="flex items-center gap-2 text-xs">
+                    <Loader
+                      variant="ascii-braille"
+                      size={13}
+                      speed={0.8}
+                      className="text-primary font-bold shrink-0"
+                    />
+                    {typeof label === "string" ? (
+                      <ThinkingShimmer duration={1.8} className="font-medium text-foreground">
+                        {label}
+                      </ThinkingShimmer>
+                    ) : (
+                      label
+                    )}
+                    {regularTools.length > 0 && (
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        · 工具调用 · {regularTools.length}
+                      </span>
+                    )}
+                    {duration > 0 && (
+                      <span className="font-mono text-[10px] tabular-nums text-muted-foreground ml-auto">
+                        {Math.round(duration)}s
+                      </span>
+                    )}
+                  </div>
+                )}
+              />
             </div>
           )}
           {editedFiles.length > 0 && !running && (

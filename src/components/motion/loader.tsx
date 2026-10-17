@@ -1,9 +1,8 @@
 "use client";
-// beui.dev/components/motion/loader
 
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useId, useState } from "react";
-import { EASE_IN_OUT } from "@/lib/motion-primitives";
+import { EASE_IN_OUT } from "@/lib/ease";
 import { cn } from "@/lib/utils";
 
 export type LoaderVariant =
@@ -54,7 +53,7 @@ const REDUCED = {
 
 export function Loader({
   variant = "spinner",
-  size = 20,
+  size = 32,
   speed = 1,
   label = "Loading",
   className,
@@ -66,7 +65,7 @@ export function Loader({
       role="status"
       aria-label={label}
       className={cn(
-        "inline-flex items-center justify-center text-foreground shrink-0 select-none",
+        "inline-flex items-center justify-center text-foreground",
         className,
       )}
     >
@@ -173,6 +172,8 @@ function Ascii({
 }: PartProps & { frames: string[] }) {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
+    // Reduced motion slows the cycle rather than stopping it — it's a glyph
+    // swap, not on-screen movement.
     const step = ((reduce ? speed * 2.5 : speed) / frames.length) * 1000;
     const id = setInterval(
       () => setFrame((f) => (f + 1) % frames.length),
@@ -183,7 +184,7 @@ function Ascii({
 
   return (
     <span
-      className="font-mono leading-none tabular-nums text-primary font-bold"
+      className="font-mono leading-none tabular-nums"
       style={{ fontSize: size, lineHeight: 1 }}
     >
       {frames[frame % frames.length]}
@@ -191,6 +192,10 @@ function Ascii({
   );
 }
 
+// Each shape is sampled at the same number of points and emitted as an SVG
+// path with identical command structure, so framer tweens the `d` attribute
+// point-to-point — a real morph, not a snap. (clip-path polygon strings don't
+// interpolate reliably in framer, which left the shapes broken.)
 const MORPH_POINTS = 24;
 
 function ngonRadius(ang: number, n: number, phase = 0) {
@@ -220,7 +225,11 @@ const MORPH_PATHS = [
   morphPath((a) => ngonRadius(a, 4)), // diamond
 ];
 
+// Each shape appears twice in a row so it fully forms and HOLDS before the
+// next morph. Even keyframe spacing then alternates hold / morph segments.
 const MORPH_SEQ = [...MORPH_PATHS.flatMap((p) => [p, p]), MORPH_PATHS[0]];
+// Rotation and scale only change across the morph segments, staying put on the
+// holds, so a settled shape sits still.
 const MORPH_ROT = [0, 0, 72, 72, 144, 144, 216, 216, 288, 288, 360];
 const MORPH_SCALE = [1, 1, 0.88, 0.88, 1, 1, 0.88, 0.88, 1, 1, 1];
 
@@ -263,7 +272,7 @@ function Comet({ size, speed, reduce }: PartProps) {
   const head = size * 0.2;
   const r = size / 2 - head / 2;
   return (
-    <span className="relative inline-flex" style={{ width: size, height: size }}>
+    <span className="relative" style={{ width: size, height: size }}>
       <motion.span
         className="absolute inset-0"
         animate={reduce ? REDUCED.animate : { rotate: 360 }}
@@ -377,6 +386,9 @@ const NEWTON_BALLS = [0, 1, 2, 3, 4];
 function Newton({ size, speed, reduce }: PartProps) {
   const d = size * 0.2;
   const out = d * 1.1;
+  // Only the end balls move: the left slides out and back on the first half,
+  // then the right on the second half — the impact appears to jump the three
+  // still middle balls. Pure horizontal slide, no swing, no strings.
   const moves: Record<number, { x: number[]; times: number[] }> = {
     0: { x: [0, -out, 0, 0], times: [0, 0.28, 0.5, 1] },
     4: { x: [0, 0, out, 0], times: [0, 0.5, 0.78, 1] },
@@ -414,7 +426,7 @@ function Helix({ size, speed, reduce }: PartProps) {
   const dot = size * 0.14;
   const amp = size * 0.32;
   return (
-    <span className="relative inline-flex" style={{ width: size, height: size }}>
+    <span className="relative" style={{ width: size, height: size }}>
       {Array.from({ length: rows }, (_, r) => {
         const top = (r / (rows - 1)) * (size - dot);
         const delay = (r / rows) * speed;
@@ -544,6 +556,7 @@ function DotMatrix({ size, speed, reduce }: PartProps) {
       {cells.map((idx) => {
         const x = idx % n;
         const y = Math.floor(idx / n);
+        // Diagonal wave: cells light in order of their distance from the corner.
         const delay = ((x + y) / (2 * (n - 1))) * speed;
         return (
           <motion.span
@@ -568,6 +581,8 @@ function DotMatrix({ size, speed, reduce }: PartProps) {
   );
 }
 
+// Ordered Bayer 4x4 matrix — the classic dithering threshold pattern. Cells
+// light in this order, so the fill shimmers like a dissolving halftone.
 const BAYER_4 = [
   0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5,
 ];
@@ -583,6 +598,7 @@ function Dither({ size, speed, reduce }: PartProps) {
     >
       {BAYER_4.map((order, idx) => (
         <motion.span
+          // biome-ignore lint/suspicious/noArrayIndexKey: fixed matrix cells, order never changes
           key={idx}
           className="bg-current"
           style={{ width: cell, height: cell }}

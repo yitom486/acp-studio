@@ -569,7 +569,7 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
       className="acp-md text-sm leading-relaxed break-words text-foreground"
       components={components}
       componentsByLanguage={byLanguage}
-      smooth={smoothOptions}
+      smooth={process.env.NODE_ENV === "test" ? false : smoothOptions}
     />
   );
 });

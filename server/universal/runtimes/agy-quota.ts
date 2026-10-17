@@ -67,21 +67,35 @@ export async function probeLiveAgyQuota(runtimeId = "antigravity-stdio"): Promis
   if (process.platform === "win32") {
     try {
       const psScript = `
-        $procs = Get-CimInstance Win32_Process -Filter "Name like '%language_server%'"
+        $procs = Get-CimInstance Win32_Process | Where-Object { $_.Name -like "*agy*" -or $_.Name -like "*language_server*" }
         foreach ($p in $procs) {
           $cmd = $p.CommandLine
-          if ($cmd -match '--csrf_token\\s+([a-f0-9\\-]+)') {
+          if (!$cmd) { continue }
+          $csrf = $null
+          if ($cmd -match '--csrf_token[=\\s]+([a-f0-9\\-]+)') {
             $csrf = $matches[1]
+          }
+          if (!$csrf) { continue }
+
+          $ports = @()
+          if ($cmd -match '--hub-port[=\\s]+(\\d+)') {
+            $ports += [int]$matches[1]
+          }
+
+          if ($ports.Count -eq 0) {
             $conns = Get-NetTCPConnection -OwningProcess $p.ProcessId -State Listen -ErrorAction SilentlyContinue
             foreach ($c in $conns) {
-              $port = $c.LocalPort
-              try {
-                $body = Invoke-RestMethod -Uri "http://127.0.0.1:$port/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary" -Method Post -Headers @{ "Content-Type" = "application/json"; "x-codeium-csrf-token" = $csrf } -Body "{}" -TimeoutSec 2
-                if ($body.response.groups) {
-                  return @{ ok = $true; port = $port; csrf = $csrf; data = $body } | ConvertTo-Json -Depth 6 -Compress
-                }
-              } catch {}
+              $ports += $c.LocalPort
             }
+          }
+
+          foreach ($port in $ports) {
+            try {
+              $body = Invoke-RestMethod -Uri "http://127.0.0.1:$port/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary" -Method Post -Headers @{ "Content-Type" = "application/json"; "x-codeium-csrf-token" = $csrf } -Body "{}" -TimeoutSec 2
+              if ($body.response.groups) {
+                return @{ ok = $true; port = $port; csrf = $csrf; data = $body } | ConvertTo-Json -Depth 6 -Compress
+              }
+            } catch {}
           }
         }
         return "{}"
@@ -108,10 +122,18 @@ export async function probeLiveAgyQuota(runtimeId = "antigravity-stdio"): Promis
             }>;
           }>;
 
-          const geminiGroup = groups.find((g) => g.displayName?.toLowerCase().includes("gemini"));
-          const thirdPartyGroup = groups.find(
-            (g) => g.displayName?.toLowerCase().includes("claude") || g.displayName?.toLowerCase().includes("gpt"),
-          );
+          const geminiGroup = groups.find((g) => {
+            const d = g.displayName?.toLowerCase() || "";
+            return d.includes("gemini") && !d.includes("argon");
+          });
+          const thirdPartyGroup = groups.find((g) => {
+            const d = g.displayName?.toLowerCase() || "";
+            return d.includes("claude") || d.includes("gpt") || d.includes("3p");
+          });
+          const argonGroup = groups.find((g) => {
+            const d = g.displayName?.toLowerCase() || "";
+            return d.includes("argon");
+          });
 
           const gemini5h = geminiGroup?.buckets?.find(
             (b) => b.displayName?.toLowerCase().includes("five hour") || b.bucketId?.includes("5h") || b.window === "5h",
@@ -124,6 +146,10 @@ export async function probeLiveAgyQuota(runtimeId = "antigravity-stdio"): Promis
             (b) => b.displayName?.toLowerCase().includes("five hour") || b.bucketId?.includes("5h") || b.window === "5h",
           );
           const tpWeekly = thirdPartyGroup?.buckets?.find(
+            (b) => b.displayName?.toLowerCase().includes("weekly") || b.bucketId?.includes("weekly") || b.window === "weekly",
+          );
+
+          const argonWeekly = argonGroup?.buckets?.find(
             (b) => b.displayName?.toLowerCase().includes("weekly") || b.bucketId?.includes("weekly") || b.window === "weekly",
           );
 
@@ -140,6 +166,7 @@ export async function probeLiveAgyQuota(runtimeId = "antigravity-stdio"): Promis
           const extraWindows = [
             toWindow(tp5h, "Claude and GPT models", "5-Hour limit", 300),
             toWindow(tpWeekly, "Claude and GPT models", "Weekly limit", 10080),
+            argonWeekly ? toWindow(argonWeekly, "Gemini 4 Argon", "Weekly limit", 10080) : undefined,
           ].filter(Boolean) as AcpQuotaLimitWindow[];
 
           return {
@@ -147,7 +174,7 @@ export async function probeLiveAgyQuota(runtimeId = "antigravity-stdio"): Promis
             provider: "Google Antigravity",
             account: {
               email: acc.email,
-              name: acc.name || "Google Developer",
+              name: acc.name || (acc.email ? acc.email.split("@")[0] : "Google Developer"),
               plan: "Google AI Pro",
               type: "gemini",
             },

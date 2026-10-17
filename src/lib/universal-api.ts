@@ -18,6 +18,9 @@ export interface UsageUpdate {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  sessionInputTokens?: number;
+  sessionOutputTokens?: number;
+  sessionTotalTokens?: number;
 }
 
 /** Pick numeric extras off a raw usage_update or done payload (unknown fields never pass).
@@ -102,6 +105,20 @@ export function pickUsageExtras(u: any): Partial<UsageUpdate> {
       out.totalTokens = val;
       break;
     }
+  }
+
+  // 5. session cumulative tokens: 提取全会话累计消耗
+  const sessionTotal = meta.sessionTotalTokens ?? u.sessionTotalTokens ?? meta.session_total_tokens;
+  if (typeof sessionTotal === "number" && Number.isFinite(sessionTotal)) {
+    out.sessionTotalTokens = sessionTotal;
+  }
+  const sessionIn = meta.sessionInputTokens ?? u.sessionInputTokens ?? meta.session_input_tokens;
+  if (typeof sessionIn === "number" && Number.isFinite(sessionIn)) {
+    out.sessionInputTokens = sessionIn;
+  }
+  const sessionOut = meta.sessionOutputTokens ?? u.sessionOutputTokens ?? meta.session_output_tokens;
+  if (typeof sessionOut === "number" && Number.isFinite(sessionOut)) {
+    out.sessionOutputTokens = sessionOut;
   }
 
   return out;

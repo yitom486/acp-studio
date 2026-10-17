@@ -16,6 +16,9 @@ export interface Message {
     inputTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
+    sessionInputTokens?: number;
+    sessionOutputTokens?: number;
+    sessionTotalTokens?: number;
   };
   model?: string;
   mode?: string;

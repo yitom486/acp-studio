@@ -6,7 +6,7 @@ import {
   PromptFormCard,
 } from "./GenerativeCards";
 import { ReactArtifactCard } from "./ReactArtifactCard";
-import { Loader } from "@/components/motion/Loader";
+import { Loader } from "@/components/motion/loader";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   EditorialDiagramCard,
