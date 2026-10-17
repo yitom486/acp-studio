@@ -11,8 +11,9 @@ import rehypeRaw from "rehype-raw";
 import ReactMarkdown from "react-markdown";
 import { Check, Copy, Info, Lightbulb, AlertCircle, AlertTriangle, ShieldAlert } from "lucide-react";
 import { useMessagePartText, type TextMessagePartComponent } from "@assistant-ui/react";
-import { closeOpenFences, hasMath } from "@/lib/markdown-preprocess";
+import { closeOpenFences, hasMath, preprocessMarkdown } from "@/lib/markdown-preprocess";
 import { getMathPlugins, loadMathPlugins, subscribeMath } from "@/components/assistant/math-plugins";
+import { useDeviceFps } from "@/lib/fps-adaptive";
 import { cn } from "@/lib/utils";
 import { AcpImageView, isSafeLinkHref, isSafeMediaSrc } from "@/components/assistant/AcpMedia";
 import { Citation } from "@/components/primitives/Citations";
@@ -96,9 +97,12 @@ export const AcpSyntaxHighlighter: React.FC<{
 
   useEffect(() => {
     let active = true;
-    const run = async () => {
+    const cleanLang = (language || "").split(/\s+/)[0]?.toLowerCase().trim() || "plaintext";
+
+    // 节流防抖：在流式输出期间（高达 180~240 帧/秒），避免重度 Shiki 语法树在每一帧都阻塞主线程，
+    // 75ms 节流窗口内由原生的 pre/code 无闪烁同帧渲染，停顿或完成后无缝过渡至完整高亮 HTML。
+    const timer = setTimeout(async () => {
       try {
-        const cleanLang = (language || "").split(/\s+/)[0]?.toLowerCase().trim() || "plaintext";
         const hl = await getHighlighter();
         const l = await ensureLanguage(hl, cleanLang);
         const shikiTheme = theme === "light" ? "github-light-high-contrast" : "github-dark-default";
@@ -110,16 +114,17 @@ export const AcpSyntaxHighlighter: React.FC<{
       } catch {
         if (active) setHighlighted(null);
       }
-    };
-    void run();
+    }, 75);
+
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [code, language, theme]);
 
   if (!highlighted) {
     return (
-      <pre className="overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground">
+      <pre className="overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground select-text">
         <code>{code}</code>
       </pre>
     );
@@ -128,7 +133,7 @@ export const AcpSyntaxHighlighter: React.FC<{
   return (
     <div
       data-testid="acp-highlighted-code"
-      className="overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!m-0 [&_pre]:!border-0 [&_code]:!bg-transparent [&_code]:!p-0"
+      className="overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!m-0 [&_pre]:!border-0 [&_code]:!bg-transparent [&_code]:!p-0 select-text"
       dangerouslySetInnerHTML={{ __html: highlighted }}
     />
   );
@@ -462,6 +467,7 @@ const fencesOnly = (t: string) => closeOpenFences(t);
 export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   const components = useMemo(() => acpComponents, []);
   const byLanguage = useMemo(() => customByLanguage, []);
+  const { smoothOptions } = useDeviceFps();
   const { text } = useMessagePartText();
   const math = useSyncExternalStore(subscribeMath, getMathPlugins, getMathPlugins);
   const needsMath = useMemo(() => hasMath(text), [text]);
@@ -471,7 +477,7 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   const useMath = needsMath && !!math;
   const remarkPlugins = useMemo(() => (useMath ? [...BASE_REMARK, ...math!.remark] : BASE_REMARK), [useMath, math]);
   const rehypePlugins = useMemo(() => (useMath ? [rehypeRaw, ...math!.rehype] : BASE_REHYPE), [useMath, math]);
-  const preprocess = useMemo(() => (useMath ? (t: string) => closeOpenFences(math!.preprocess(t)) : fencesOnly), [useMath, math]);
+  const preprocess = useMemo(() => (useMath ? (t: string) => preprocessMarkdown(math!.preprocess(t)) : preprocessMarkdown), [useMath, math]);
   return (
     <MarkdownTextPrimitive
       remarkPlugins={remarkPlugins}
@@ -480,8 +486,7 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
       className="acp-md text-sm leading-relaxed break-words text-foreground"
       components={components}
       componentsByLanguage={byLanguage}
-      defer
-      smooth={{ drainMs: 250, maxCharIntervalMs: 6 }}
+      smooth={smoothOptions}
     />
   );
 });
@@ -504,7 +509,7 @@ export const AcpStandaloneMarkdown: React.FC<AcpStandaloneMarkdownProps> = memo(
   const useMath = needsMath && !!math;
   const remarkPlugins = useMemo(() => (useMath ? [...BASE_REMARK, ...math!.remark] : BASE_REMARK), [useMath, math]);
   const rehypePlugins = useMemo(() => (useMath ? [rehypeRaw, ...math!.rehype] : BASE_REHYPE), [useMath, math]);
-  const processed = useMemo(() => (useMath ? closeOpenFences(math!.preprocess(content)) : closeOpenFences(content)), [useMath, math, content]);
+  const processed = useMemo(() => (useMath ? preprocessMarkdown(math!.preprocess(content)) : preprocessMarkdown(content)), [useMath, math, content]);
 
   return (
     <div className={cn("acp-md text-xs leading-relaxed break-words text-foreground", className)}>

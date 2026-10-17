@@ -974,13 +974,31 @@ export async function consumeUniversalChat(
         } else if (payload.type === "update" && payload.update) {
           const u = payload.update;
           const kind = u.sessionUpdate as string;
-          if (kind === "agent_message_chunk" && u.content?.type === "text") {
+          const isThoughtChunk =
+            kind === "agent_thought_chunk" ||
+            kind === "thought_chunk" ||
+            kind === "reasoning_chunk" ||
+            kind === "thought" ||
+            kind === "reasoning" ||
+            (kind === "agent_message_chunk" && (u.content?.type === "thought" || u.content?.type === "reasoning"));
+
+          if (isThoughtChunk) {
+            const thoughtText =
+              typeof u.content?.text === "string"
+                ? u.content.text
+                : typeof u.text === "string"
+                  ? u.text
+                  : typeof u.thought === "string"
+                    ? u.thought
+                    : typeof u.content === "string"
+                      ? u.content
+                      : "";
+            if (thoughtText) handlers.onThoughtChunk?.(thoughtText);
+          } else if (kind === "agent_message_chunk" && u.content?.type === "text") {
             handlers.onTextChunk?.(u.content.text, u.messageId);
           } else if (kind === "agent_message_chunk" && u.content?.type === "image") {
             const img = toChatImage(u.content);
             if (img) handlers.onImageChunk?.(img, u.messageId);
-          } else if (kind === "agent_thought_chunk" && u.content?.type === "text") {
-            handlers.onThoughtChunk?.(u.content.text);
           } else if (kind === "user_message_chunk") {
             // replayed history (session/load) — surface as text so UI can rebuild
             if (u.content?.type === "text") handlers.onTextChunk?.(u.content.text, u.messageId);

@@ -30,3 +30,44 @@ export function hasMath(text: string): boolean {
   if (/\$\$[\s\S]+?\$\$/.test(text) || /\\\[[\s\S]+?\\\]/.test(text) || /\\\([\s\S]+?\\\)/.test(text)) return true;
   return /(^|[^\\$\w])\$(?!\s)[^$\n]*[^\s$\d][^$\n]*?(?<!\s)\$(?![\w$])/.test(text);
 }
+
+/**
+ * 规范化 LLM 输出中常见的不符合 CommonMark 右侧边界规范的粗体/斜体定界符：
+ * 例如 `出于**防止用户硬件指纹追踪 (Anti-Fingerprinting) **的隐`
+ * CommonMark 规定右侧定界符前不得有空格，否则退化为普通星号。
+ * 本函数在保护围栏代码块和行内代码的前提下，将内部多余的首尾空格移出定界符外，
+ * 确保所有模型输出的强调文本 100% 稳定被解析为 <strong> / <em>。
+ */
+export function normalizeLooseEmphasis(text: string): string {
+  if (!text) return text;
+  return text.replace(
+    /(```[\s\S]*?```|`[^`\n]*`)|(\*\*([^\*\r\n]+?)\*\*(\s*))|(__([^_\r\n]+?)__(\s*))/g,
+    (match, code, _boldAsterisk, innerAsterisk, trailingSpaceAsterisk, _boldUnderscore, innerUnderscore, trailingSpaceUnderscore) => {
+      if (code) return code;
+      if (innerAsterisk) {
+        const trimmed = innerAsterisk.trim();
+        if (!trimmed) return match;
+        const hadTrailingSpaceInside = /\s+$/.test(innerAsterisk);
+        const endsWithPunct = /[)\].!?,:;'"’”`~\-_\\]$/.test(trimmed);
+        const shouldAddSpaceAfter = hadTrailingSpaceInside || (endsWithPunct && !trailingSpaceAsterisk);
+        return `**${trimmed}**${shouldAddSpaceAfter && !trailingSpaceAsterisk ? " " : trailingSpaceAsterisk}`;
+      }
+      if (innerUnderscore) {
+        const trimmed = innerUnderscore.trim();
+        if (!trimmed) return match;
+        const hadTrailingSpaceInside = /\s+$/.test(innerUnderscore);
+        const endsWithPunct = /[)\].!?,:;'"’”`~\-_\\]$/.test(trimmed);
+        const shouldAddSpaceAfter = hadTrailingSpaceInside || (endsWithPunct && !trailingSpaceUnderscore);
+        return `__${trimmed}__${shouldAddSpaceAfter && !trailingSpaceUnderscore ? " " : trailingSpaceUnderscore}`;
+      }
+      return match;
+    }
+  );
+}
+
+/**
+ * 综合预处理：闭合流式截断的代码块围栏 + 规范化松散 Markdown 强调标记。
+ */
+export function preprocessMarkdown(text: string): string {
+  return normalizeLooseEmphasis(closeOpenFences(text));
+}

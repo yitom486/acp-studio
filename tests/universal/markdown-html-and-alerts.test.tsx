@@ -5,6 +5,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { AcpBlockquote, AcpStandaloneMarkdown } from "@/components/assistant/AcpMarkdown";
+import { preprocessMarkdown } from "@/lib/markdown-preprocess";
+import { normalizeFPS, getAdaptiveSmoothOptions } from "@/lib/fps-adaptive";
 
 describe("Markdown HTML and GitHub Alert Callouts", () => {
   it("renders GitHub [!NOTE] alert callout with proper badge and icon", () => {
@@ -124,6 +126,37 @@ describe("Markdown HTML and GitHub Alert Callouts", () => {
     expect(html).toContain('data-alert="note"');
     expect(html).toContain("渲染引擎已自动就绪。");
     expect(html).toContain("const ready = true;");
+  });
+
+  it("normalizes loose bold delimiters with trailing/leading spaces (anti-fingerprinting case)", () => {
+    const raw = "出于**防止用户硬件指纹追踪 (Anti-Fingerprinting) **的隐私机制";
+    const normalized = preprocessMarkdown(raw);
+    expect(normalized).toBe("出于**防止用户硬件指纹追踪 (Anti-Fingerprinting)** 的隐私机制");
+
+    const html = renderToString(React.createElement(AcpStandaloneMarkdown, { content: raw }));
+    expect(html).toContain('class="font-semibold">防止用户硬件指纹追踪 (Anti-Fingerprinting)</strong>');
+  });
+
+  it("preserves code blocks without corrupting asterisks inside them", () => {
+    const raw = "Prose **bold text ** outside\n```js\nconst x = **not bold **;\n```";
+    const normalized = preprocessMarkdown(raw);
+    expect(normalized).toContain("**bold text**");
+    expect(normalized).toContain("const x = **not bold **;");
+  });
+
+  it("adapts smooth typewriter streaming parameters to screen refresh rate (60Hz vs 180Hz vs 240Hz)", () => {
+    expect(normalizeFPS(59.9)).toBe(60);
+    expect(normalizeFPS(179.2)).toBe(180);
+    expect(normalizeFPS(240.1)).toBe(240);
+
+    const smooth60 = getAdaptiveSmoothOptions(60);
+    const smooth180 = getAdaptiveSmoothOptions(180);
+    const smooth240 = getAdaptiveSmoothOptions(240);
+
+    // 180Hz screen frame duration is ~5.55ms; maxCharIntervalMs must be <= 1.5ms to avoid skipping every other frame
+    expect(smooth180.maxCharIntervalMs).toBeLessThanOrEqual(1.5);
+    expect(smooth240.maxCharIntervalMs).toBeLessThanOrEqual(1.0);
+    expect(smooth60.maxCharIntervalMs).toBeGreaterThan(smooth180.maxCharIntervalMs);
   });
 });
 

@@ -404,6 +404,31 @@ export class UniversalAgentConnection {
               title: childTitle,
               updateType: params.update.sessionUpdate,
             });
+
+            // 将子智能体的工具调用与思考过程实时桥接至父会话广播流，
+            // 确保用户界面实时展示子任务的工具调用卡片与思考过程，避免“静默等待”
+            const updateType = params.update.sessionUpdate;
+            if (updateType === "tool_call" || updateType === "tool_call_update") {
+              const u = params.update as Record<string, unknown>;
+              const origTitle = typeof u.title === "string" ? u.title : "";
+              const prefixedTitle = origTitle ? `[${childTitle}] ${origTitle}` : `[${childTitle}] 工具调用`;
+              self.broadcast(parentSessionId, {
+                type: "update",
+                agentId: self.profile.id,
+                sessionId: parentSessionId,
+                update: {
+                  ...u,
+                  title: prefixedTitle,
+                },
+              });
+            } else if (updateType === "agent_thought_chunk") {
+              self.broadcast(parentSessionId, {
+                type: "update",
+                agentId: self.profile.id,
+                sessionId: parentSessionId,
+                update: params.update,
+              });
+            }
           }
           return;
         }
