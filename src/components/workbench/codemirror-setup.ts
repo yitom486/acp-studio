@@ -42,20 +42,21 @@ export const acpEditorTheme = EditorView.theme({
 });
 
 export const acpHighlight = HighlightStyle.define([
-  { tag: [t.keyword, t.modifier, t.operatorKeyword, t.controlKeyword], color: v("foreground"), fontWeight: "600" },
-  { tag: [t.string, t.special(t.string), t.regexp], color: v("success") },
-  { tag: [t.number, t.bool, t.null, t.atom], color: v("warning") },
-  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: v("muted-foreground"), fontStyle: "italic" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: v("foreground") },
-  { tag: [t.typeName, t.className, t.namespace], color: v("foreground", 0.85), fontStyle: "italic" },
-  { tag: [t.propertyName, t.attributeName], color: v("foreground", 0.8) },
-  { tag: [t.tagName], color: v("destructive") },
-  { tag: [t.heading], fontWeight: "700", color: v("foreground") },
-  { tag: [t.link, t.url], color: v("foreground"), textDecoration: "underline" },
+  { tag: [t.keyword, t.modifier, t.operatorKeyword, t.controlKeyword, t.definitionKeyword], color: "var(--syntax-keyword)", fontWeight: "600" },
+  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--syntax-string)" },
+  { tag: [t.number, t.bool, t.null, t.atom], color: "var(--syntax-number)" },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: "var(--syntax-comment)", fontStyle: "italic" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.function(t.definition(t.variableName))], color: "var(--syntax-function)" },
+  { tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: "var(--syntax-type)" },
+  { tag: [t.propertyName, t.attributeName], color: "var(--syntax-property)" },
+  { tag: [t.tagName], color: "var(--syntax-tag)" },
+  { tag: [t.variableName, t.definition(t.variableName)], color: "var(--syntax-variable)" },
+  { tag: [t.heading], fontWeight: "700", color: "var(--syntax-variable)" },
+  { tag: [t.link, t.url], color: "var(--syntax-keyword)", textDecoration: "underline" },
   { tag: [t.emphasis], fontStyle: "italic" },
   { tag: [t.strong], fontWeight: "700" },
-  { tag: [t.punctuation, t.bracket, t.operator], color: v("muted-foreground") },
-  { tag: t.invalid, color: v("destructive") },
+  { tag: [t.punctuation, t.bracket, t.operator], color: "var(--syntax-punctuation)" },
+  { tag: t.invalid, color: "hsl(var(--destructive))" },
 ]);
 
 /** 高亮一组行（1-based），用于 AI 改动后的闪烁提示 */

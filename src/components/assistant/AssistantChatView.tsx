@@ -89,6 +89,9 @@ import { ThinkingShimmer } from "@/components/agents/loading-states/thinking-shi
 import { ReasoningText } from "@/components/agents/loading-states/reasoning-text";
 import { TextScramble } from "@/components/motion/text-scramble";
 import { TextShimmer } from "@/components/motion/text-shimmer";
+import { FolderDown } from "lucide-react";
+import { ACP_PATH_MIME, decodeDragRefs } from "@/lib/composer-drop";
+import { sendDropToComposer } from "@/lib/composer-bridge";
 
 export interface AssistantChatViewProps {
   agentName?: string;
@@ -1256,8 +1259,51 @@ export const AssistantChatView: React.FC<AssistantChatViewProps> = ({
   onGenerativeAction,
 }) => {
   const { viewportRef, contentRef } = useStickToBottom<HTMLDivElement>();
+  const [dragOver, setDragOver] = React.useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    if (!dragOver) setDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const internalRefs = decodeDragRefs(dt.getData(ACP_PATH_MIME));
+    const files = Array.from(dt.files || []);
+    const text = dt.getData("text/plain");
+    sendDropToComposer({
+      internalRefs: internalRefs.length ? internalRefs : undefined,
+      files: files.length ? files : undefined,
+      text: text || undefined,
+    });
+  };
+
   return (
-    <ThreadPrimitive.Root className="flex-1 flex flex-col min-h-0 bg-background relative overflow-hidden">
+    <ThreadPrimitive.Root
+      className="flex-1 flex flex-col min-h-0 bg-background relative overflow-hidden"
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragOver && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/85 backdrop-blur-xs border-2 border-dashed border-primary/70 rounded-xl m-2 pointer-events-none transition-all animate-in fade-in duration-150">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary mb-3 ring-8 ring-primary/5">
+            <FolderDown className="w-6 h-6 animate-bounce" />
+          </div>
+          <span className="text-sm font-semibold text-foreground">松开以引用至 Agent 对话</span>
+          <span className="text-xs text-muted-foreground mt-1">支持工作区文件、文件夹 @ 引用及外部文件附件</span>
+        </div>
+      )}
       <MessageScroller
         navigation="rail"
         externalViewportRef={viewportRef}

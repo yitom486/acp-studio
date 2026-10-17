@@ -34,6 +34,7 @@ import { matchMentionToken, applyMentionInsert, buildMentionAttachment, formatFi
 import { ACP_PATH_MIME, decodeDragRefs, relativeToWorkspace, classifyOutsideFile, collectFolderFiles, stripMentionText, FOLDER_FILE_CAP, OUTSIDE_FILE_MAX, type DragRef } from "@/lib/composer-drop";
 import { fsList } from "@/lib/fs-api";
 import { matchSlashToken, replaceSlashToken, mergeCommands, filterCommands, type SlashCommand } from "@/lib/slash-commands";
+import { ACP_INSERT_SNIPPET_EVENT, ACP_COMPOSER_DROP_EVENT, formatSnippetPrompt, type CodeSnippetPayload, type ComposerDropPayload } from "@/lib/composer-bridge";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import { getWorkspaceEnv } from "@/stores/useStudioStore";
 
@@ -401,6 +402,32 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     if (notes.length) setNotice(notes.join("；"));
   };
 
+  const processDropData = async (payload: ComposerDropPayload) => {
+    if (payload.internalRefs && payload.internalRefs.length) {
+      await addRefs(payload.internalRefs);
+      return;
+    }
+    const cwd = p.currentWorkspace;
+    const refs: DragRef[] = [];
+    const outside: File[] = [];
+    let outsideDirs = 0;
+    (payload.files || []).forEach((file) => {
+      const isDir = !!(file as any).isDirectory;
+      const abs = (file as any).path || window.acpStudio?.workbench?.pathForFile?.(file) || "";
+      const rel = cwd && abs ? relativeToWorkspace(cwd, abs) : null;
+      if (rel !== null && rel !== "") refs.push({ path: rel, kind: isDir ? "dir" : "file" });
+      else if (isDir) outsideDirs++;
+      else outside.push(file);
+    });
+    if (refs.length) await addRefs(refs);
+    if (outside.length) await handleFiles(outside);
+    if (outsideDirs) setNotice(`工作区外的文件夹不能直接拖入（${outsideDirs} 个已忽略），请拖入其中的文件。`);
+    if (payload.text && !refs.length && !outside.length) {
+      const cur = aui.composer.getState().text;
+      aui.composer.setText(cur ? `${cur} ${payload.text}` : payload.text);
+    }
+  };
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
@@ -419,7 +446,7 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     Array.from(dt.files || []).forEach((file, i) => {
       const entry = (items[i] as any)?.webkitGetAsEntry?.();
       const isDir = !!entry?.isDirectory;
-      const abs = window.acpStudio?.workbench?.pathForFile?.(file) || "";
+      const abs = (file as any).path || window.acpStudio?.workbench?.pathForFile?.(file) || "";
       const rel = cwd && abs ? relativeToWorkspace(cwd, abs) : null;
       if (rel !== null && rel !== "") refs.push({ path: rel, kind: isDir ? "dir" : "file" });
       else if (isDir) outsideDirs++;
@@ -429,6 +456,51 @@ export const AcpComposer: React.FC<AcpComposerProps> = (p) => {
     if (outside.length) await handleFiles(outside);
     if (outsideDirs) setNotice(`工作区外的文件夹不能直接拖入（${outsideDirs} 个已忽略），请拖入其中的文件。`);
   };
+
+  useEffect(() => {
+    const handleInsertSnippet = async (e: Event) => {
+      const detail = (e as CustomEvent<CodeSnippetPayload>).detail;
+      if (!detail) return;
+      const formatted = formatSnippetPrompt(detail);
+      const curText = aui.composer.getState().text;
+      const newText = curText ? `${curText}\n\n${formatted}\n` : `${formatted}\n`;
+      aui.composer.setText(newText);
+
+      // 如果有当前工作区并且尚未关联附件，补充附件引用
+      const cwd = detail.cwd || p.currentWorkspace;
+      if (cwd && detail.path) {
+        const have = new Set(p.attachments.map((a) => a.mention?.path).filter(Boolean));
+        if (!have.has(detail.path)) {
+          try {
+            const f = await readWorkspaceFile(cwd, detail.path);
+            p.setAttachments([...p.attachments, { ...buildMentionAttachment(f), mention: { path: detail.path, kind: "file" } }]);
+          } catch {
+            // 附件添加失败不阻塞文本插入
+          }
+        }
+      }
+
+      // 自动聚焦输入框
+      requestAnimationFrame(() => {
+        const textarea = document.querySelector<HTMLTextAreaElement>('textarea[data-testid="composer-input"], textarea');
+        textarea?.focus();
+        if (textarea) textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+      });
+    };
+
+    const handleComposerDrop = (e: Event) => {
+      const detail = (e as CustomEvent<ComposerDropPayload>).detail;
+      if (!detail) return;
+      void processDropData(detail);
+    };
+
+    window.addEventListener(ACP_INSERT_SNIPPET_EVENT, handleInsertSnippet);
+    window.addEventListener(ACP_COMPOSER_DROP_EVENT, handleComposerDrop);
+    return () => {
+      window.removeEventListener(ACP_INSERT_SNIPPET_EVENT, handleInsertSnippet);
+      window.removeEventListener(ACP_COMPOSER_DROP_EVENT, handleComposerDrop);
+    };
+  }, [aui, p.attachments, p.setAttachments, p.currentWorkspace]);
 
   const handlePaste = (e: React.ClipboardEvent) => {
     const files = e.clipboardData?.files;

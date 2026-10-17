@@ -3,15 +3,16 @@
  * 每个标签保留自己的 EditorState（撤销历史、光标、滚动），切换标签不丢。
  */
 import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
-import { EditorView } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
 import { EditorState, Compartment } from "@codemirror/state";
 import { MergeView, unifiedMergeView } from "@codemirror/merge";
-import { X, Circle, GitCompare, Columns2, Rows2, AlertTriangle, Loader2 } from "lucide-react";
+import { X, Circle, GitCompare, Columns2, Rows2, AlertTriangle, Loader2, Sparkles, Check, MessageSquareShare } from "lucide-react";
 import { useWorkbenchStore, isDirty, type EditorTab } from "@/stores/useWorkbenchStore";
 import { saveTab, acceptDisk, openDiff } from "@/lib/workbench-actions";
 import { baseExtensions, languageFor, setFlashLines } from "./codemirror-setup";
 import { cn } from "@/lib/utils";
 import { AcpStandaloneMarkdown } from "@/components/assistant/AcpMarkdown";
+import { sendSnippetToComposer } from "@/lib/composer-bridge";
 
 const NotebookViewer = lazy(() => import("./NotebookViewer"));
 const MarkdownWysiwyg = lazy(() => import("./MarkdownWysiwyg"));
@@ -41,10 +42,68 @@ function buildState(tab: EditorTab, onChange: (text: string) => void): EditorSta
   });
 }
 
-const FileEditor: React.FC<{ tab: EditorTab }> = ({ tab }) => {
+const FileEditor: React.FC<{ tab: EditorTab; cwd: string | null }> = ({ tab, cwd }) => {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const tabId = tab.id;
+  const [selection, setSelection] = useState<{
+    fromLine: number;
+    toLine: number;
+    code: string;
+  } | null>(null);
+  const [sentFeedback, setSentFeedback] = useState(false);
+
+  const onSelectionRef = useRef(setSelection);
+  onSelectionRef.current = setSelection;
+
+  const sendToChat = (fromLine?: number, toLine?: number, code?: string) => {
+    let actualFrom = fromLine;
+    let actualTo = toLine;
+    let actualCode = code;
+
+    const v = view.current;
+    if (v && actualCode == null) {
+      const sel = v.state.selection.main;
+      if (!sel.empty) {
+        actualFrom = v.state.doc.lineAt(sel.from).number;
+        actualTo = v.state.doc.lineAt(sel.to).number;
+        actualCode = v.state.sliceDoc(sel.from, sel.to);
+      } else {
+        actualCode = v.state.doc.toString();
+      }
+    }
+
+    const ext = tab.path.split(".").pop()?.toLowerCase() || "";
+    const langMap: Record<string, string> = {
+      ts: "typescript",
+      tsx: "tsx",
+      js: "javascript",
+      jsx: "jsx",
+      py: "python",
+      rs: "rust",
+      json: "json",
+      md: "markdown",
+      css: "css",
+      html: "html",
+      sh: "bash",
+      yaml: "yaml",
+      yml: "yaml",
+    };
+    const lang = langMap[ext] || ext;
+    sendSnippetToComposer({
+      path: tab.path,
+      fromLine: actualFrom,
+      toLine: actualTo,
+      code: actualCode || tab.text,
+      lang,
+      cwd,
+    });
+    setSentFeedback(true);
+    setTimeout(() => setSentFeedback(false), 2000);
+  };
+
+  const onSendRef = useRef<() => void>(() => {});
+  onSendRef.current = () => sendToChat();
 
   useEffect(() => {
     if (!host.current) return;
@@ -57,7 +116,39 @@ const FileEditor: React.FC<{ tab: EditorTab }> = ({ tab }) => {
       if (curNorm === nextNorm) return;
       st.patchTab(tabId, { text, ...(cur.preview ? { preview: false } : {}) }); // 开始编辑 = 固定标签
     };
-    const v = new EditorView({ state: states.get(tabId) ?? buildState(tab, onChange), parent: host.current });
+    const state =
+      states.get(tabId) ??
+      EditorState.create({
+        doc: tab.text.replace(/\r\n/g, "\n"),
+        extensions: [
+          baseExtensions(),
+          langCompartment.of([]),
+          keymap.of([
+            {
+              key: "Mod-l",
+              run: () => {
+                onSendRef.current();
+                return true;
+              },
+            },
+          ]),
+          EditorView.updateListener.of((u) => {
+            if (u.docChanged) onChange(u.state.doc.toString());
+            if (u.selectionSet || u.docChanged) {
+              const sel = u.state.selection.main;
+              if (!sel.empty) {
+                const fromLine = u.state.doc.lineAt(sel.from).number;
+                const toLine = u.state.doc.lineAt(sel.to).number;
+                const code = u.state.sliceDoc(sel.from, sel.to);
+                onSelectionRef.current({ fromLine, toLine, code });
+              } else {
+                onSelectionRef.current(null);
+              }
+            }
+          }),
+        ],
+      });
+    const v = new EditorView({ state, parent: host.current });
     view.current = v;
     let cancelled = false;
     void languageFor(tab.path).then((lang) => {
@@ -92,7 +183,37 @@ const FileEditor: React.FC<{ tab: EditorTab }> = ({ tab }) => {
     if (first <= v.state.doc.lines) v.dispatch({ effects: EditorView.scrollIntoView(v.state.doc.line(first).from, { y: "center" }) });
   }, [tab.flashAt, tab.flashLines]);
 
-  return <div ref={host} className="h-full overflow-hidden" />;
+  return (
+    <div className="relative h-full overflow-hidden group">
+      <div ref={host} className="h-full overflow-hidden" />
+      {selection && (
+        <div className="absolute bottom-4 right-6 z-20 flex items-center gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-150 shadow-lg rounded-full border border-border bg-popover/95 backdrop-blur-md px-3 py-1.5 text-xs text-popover-foreground">
+          <Sparkles className="w-3.5 h-3.5 text-signal animate-pulse shrink-0" />
+          <span className="font-mono text-[11px] text-muted-foreground mr-0.5">
+            {selection.fromLine === selection.toLine ? `L${selection.fromLine}` : `L${selection.fromLine}-L${selection.toLine}`}
+          </span>
+          <button
+            type="button"
+            onClick={() => sendToChat(selection.fromLine, selection.toLine, selection.code)}
+            className="flex items-center gap-1 font-medium hover:text-signal transition-colors cursor-pointer select-none"
+            title="发送选中代码到 Agent 对话框 (Ctrl+L / ⌘+L)"
+          >
+            {sentFeedback ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-success" />
+                <span className="text-success font-medium">已发送到对话</span>
+              </>
+            ) : (
+              <>
+                <span>发送到对话</span>
+                <kbd className="ml-1 text-[10px] font-mono opacity-70 bg-muted px-1.5 py-0.5 rounded border border-border">Ctrl+L</kbd>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 };
 
 const DiffViewer: React.FC<{ tab: EditorTab; mode: "split" | "unified" }> = ({ tab, mode }) => {
@@ -216,6 +337,21 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
         )}
         {active?.kind === "file" && cwd && (
           <div className="flex h-full items-center gap-1 px-2 text-[11px] text-muted-foreground">
+            <button
+              className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground flex items-center gap-1"
+              onClick={() => {
+                const ext = active.path.split(".").pop()?.toLowerCase() || "";
+                sendSnippetToComposer({
+                  path: active.path,
+                  code: active.text,
+                  lang: ext,
+                  cwd,
+                });
+              }}
+              title="将文件/选中代码发送到对话 (Ctrl+L)"
+            >
+              <MessageSquareShare className="inline h-3.5 w-3.5" />
+            </button>
             <button className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground" onClick={() => void openDiff(cwd, active.path)} title="与 HEAD 对比">
               <GitCompare className="inline h-3.5 w-3.5" />
             </button>
@@ -269,7 +405,7 @@ export const EditorPane: React.FC<{ cwd: string | null }> = ({ cwd }) => {
             />
           </Suspense>
         ) : (
-          <FileEditor key={active.id} tab={active} />
+          <FileEditor key={active.id} tab={active} cwd={cwd} />
         )}
       </div>
 
