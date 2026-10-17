@@ -11,12 +11,22 @@
 
 ### Added
 <!-- 日常开发把条目写在这里（- 开头一行一条），发版时自动归档；注释行不计入归档 -->
+
+## [0.1.10] - 2026-10-17
+
+### Added
+- 全面集成 beUI 智能体交互系统（Agent Activity & Motion）：引入成熟组件库的 `AgentActivity`、`ReasoningText`、`ThinkingShimmer` 与 ASCII/Braille 动态加载器，将思考链（Thinking Trace）、阶段推进记录（Progress Trace）与工具执行流合流为紧凑自适应高密度容器。
+- 深度思考流式直出：思考过程模块默认展开，接入 `AcpStandaloneMarkdown` 实时流式渲染深度推理文本；视口高度自动贴合实际内容动态延展，彻底消除空白黑洞与高度截断。
+- 动态模型目录与配额探针：支持通过本地 agy hub 真实动态探测语言服务配额，支持 Claude 3.5/3.7/Opus、Gemini 2.5/Gemini 4、OpenAI Codex 等真实模型并实时展示剩余比例及重置时间，告别硬编码。
+- 品牌全新升级 AutumnFlow（秋水）：引入结合现代工业玻璃金属质感与东方水墨意境的流体光刃（Fluid Light Blades）全套高精桌面图标。
 - 应用会话历史使用独立引用索引，只显示本应用创建或主动导入的主会话；支持手动导入外部历史，正文仍由原 Agent 保存。
 - 已识别的子智能体会话收纳到顶部“子任务”入口，支持只读查看及快速返回主会话，保留主会话流式输出和未发送草稿。
-- 增加真实 Electron 回归测试，覆盖开发与正式运行环境共存、会话导入与子会话查看，以及开发窗口显示、无额外终端和退出后端口复用。
 - 补齐五种结构化图表的明暗主题、缩放、全屏、复制与 SVG 下载端到端矩阵；增加 Mermaid 流程图、时序图和状态图的真实渲染、预览交互、多图隔离及语法错误恢复验证。
-
 ### Fixed
+- 根治流式输出气泡抖动：助手消息气泡容器解绑 Framer Motion `layout="size"` 弹簧物理位移干涉，交由浏览器原生 Blink 排版引擎单向自然展开，彻底消灭吐字时的高频微震与微卡顿。
+- 根治文字闪烁与突变：彻底清除所有前端模拟伪造文案与定时器轮播循环，状态文案 100% 严格绑定 ACP 协议后端真实事件；修复 Shimmer 渐变色阶在暗黑模式下的遮罩断裂。
+- 重构架构拓扑图连线：彻底重构 `EditorialDiagramCard` 架构图走线算法，改用中轴中线对齐与端点贝塞尔曲线精确定位，增加节点半透明背景衬底与高对比度边框，解决多层跨节点连线交叉与标签遮挡。
+- 单轮上下文 Token 消耗与缓存命中率口径标准化：避免将历史累计生命周期 Token 误作单轮增量导致上下文占用虚高，真实展示提示词增量与缓存命中率。
 - 修复侧栏项目图标容器宽度不足导致图标与项目名称重叠的问题。
 - 开发与正式版隔离默认网关、MCP 端口及桌面实例目录；端口占用明确报错，避免误结束其他实例，并报告页面或网关加载失败。
 - 修复 Windows 开发启动窗口被隐藏、退出后 Vite 遗留占用端口，以及后台服务额外弹出黑色控制台的问题。
@@ -271,7 +281,7 @@
   本轮横切另含安全加固、agent 异步按需安装、SSE 发送互斥、前端懒加载拆分，
   细节见各专项条目（此处仅汇总，不编造版本号）。
 
-[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/yitom486/acp-studio/compare/v0.1.10...HEAD
 [0.1.0]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.0
 [0.1.1]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.1
 [0.1.2]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.2
@@ -282,3 +292,4 @@
 [0.1.7]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.7
 [0.1.8]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.8
 [0.1.9]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.9
+[0.1.10]: https://github.com/yitom486/acp-studio/releases/tag/v0.1.10
