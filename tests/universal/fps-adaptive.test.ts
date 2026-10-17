@@ -1,5 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { normalizeFPS, getAdaptiveSmoothOptions } from "../../src/lib/fps-adaptive";
+import {
+  normalizeFPS,
+  getAdaptiveSmoothOptions,
+  type AdaptiveSmoothOptions,
+} from "../../src/lib/fps-adaptive";
+
+/** 复刻 useSmooth 的速率公式：baseTimePerChar = min(interval, drain / remaining)。 */
+function revealCharsPerSecond(fps: number, opt: AdaptiveSmoothOptions, remaining: number) {
+  const base = Math.min(opt.maxCharIntervalMs ?? Infinity, opt.drainMs / Math.max(1, remaining));
+  const byTime = 1000 / base;
+  const byFrameCap = (opt.maxCharsPerFrame ?? Infinity) * fps;
+  return Math.min(byTime, byFrameCap);
+}
+
+const TIERS = [60, 90, 120, 144, 165, 180, 240, 300, 360];
 
 describe("fps-adaptive", () => {
   it("normalizes arbitrary raw frame rates to standard hardware tiers", () => {
@@ -14,29 +28,41 @@ describe("fps-adaptive", () => {
     expect(normalizeFPS(NaN)).toBe(60);
   });
 
-  it("calculates adaptive smooth options and minCommitMs throttling per tier", () => {
-    // 60Hz: 16.6ms frame time
-    const opt60 = getAdaptiveSmoothOptions(60);
-    expect(opt60.drainMs).toBe(200);
-    expect(opt60.minCommitMs).toBe(16);
+  it("keeps one typing cadence across every refresh rate", () => {
+    // 逐字节奏必须与刷新率解耦：历史实现把 interval 压到 1~4ms，
+    // 导致每帧吐 4~24 个字，正文变成“整词/整行蹦出”。
+    for (const fps of TIERS) {
+      expect(getAdaptiveSmoothOptions(fps).maxCharIntervalMs).toBe(14);
+    }
+  });
 
-    // 120Hz: 8.3ms frame time
-    const opt120 = getAdaptiveSmoothOptions(120);
-    expect(opt120.drainMs).toBe(150);
-    expect(opt120.maxCharIntervalMs).toBe(2.5);
-    expect(opt120.minCommitMs).toBe(12);
+  it("reveals at a character-granular, display-independent rate in steady state", () => {
+    for (const fps of TIERS) {
+      const opt = getAdaptiveSmoothOptions(fps);
+      // 稳态积压 60 字：约 50~160 字/秒，既不是龟速也不是整行蹦出
+      const rate = revealCharsPerSecond(fps, opt, 60);
+      expect(rate).toBeGreaterThan(50);
+      expect(rate).toBeLessThan(160);
+      // 任何刷新率下都不能停滞（0 字/秒）
+      expect(rate).toBeGreaterThan(0);
+    }
+  });
 
-    // 180Hz (user's monitor): 5.5ms frame time, sub-2ms interval to prevent skipping rAF frames
-    const opt180 = getAdaptiveSmoothOptions(180);
-    expect(opt180.drainMs).toBe(120);
-    expect(opt180.maxCharIntervalMs).toBe(1.5);
-    expect(opt180.minCommitMs).toBe(10);
+  it("catches up quickly when a large chunk arrives at once", () => {
+    for (const fps of [60, 120, 240]) {
+      const opt = getAdaptiveSmoothOptions(fps);
+      // 4000 字积压必须在数秒内追平（60Hz 下约 1.4k 字/秒），不能越落越远
+      expect(revealCharsPerSecond(fps, opt, 4000)).toBeGreaterThan(1000);
+    }
+  });
 
-    // 240Hz+ gaming displays: 4.1ms frame time
-    const opt240 = getAdaptiveSmoothOptions(240);
-    expect(opt240.drainMs).toBe(90);
-    expect(opt240.maxCharIntervalMs).toBe(1.0);
-    expect(opt240.minCommitMs).toBe(8);
+  it("keeps the AST commit budget in a sane window", () => {
+    for (const fps of TIERS) {
+      const opt = getAdaptiveSmoothOptions(fps);
+      // 下限：不允许每帧都提交（否则长文本会陷入 Markdown 反复解析）
+      expect(opt.minCommitMs).toBeGreaterThanOrEqual(4);
+      // 上限：也不能攒太久，否则正文会变成一次蹦 3 个字以上
+      expect(opt.minCommitMs).toBeLessThanOrEqual(32);
+    }
   });
 });
-

@@ -76,11 +76,56 @@ function hasUserMessage(t: ChatThread): boolean {
   return t.messages.some((m) => m.role === "user" && m.content.trim().length > 0);
 }
 
+/** 参与「是否真的变了」判定的字段：只有这些值变了才需要产出新对象。 */
+const MERGED_TURN_KEYS = [
+  "content",
+  "progressContent",
+  "thought",
+  "toolCalls",
+  "images",
+  "plan",
+  "usage",
+  "model",
+  "mode",
+  "isStreaming",
+  "timestamp",
+  "thoughtTiming",
+] as const;
+
+/** "" / undefined / null 视为同一语义（空内容），其余按引用比较。 */
+function sameTurnValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  const aEmpty = a === undefined || a === null || a === "";
+  const bEmpty = b === undefined || b === null || b === "";
+  return aEmpty && bEmpty;
+}
+
+function isSameTurn(a: any, b: any): boolean {
+  for (const key of MERGED_TURN_KEYS) {
+    if (!sameTurnValue(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+function sameToolCall(a: any, b: any): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (!Object.is(a[key], b[key])) return false;
+  }
+  return true;
+}
+
 /**
  * Auto-heal and normalize assistant turns:
  * Merges consecutive assistant messages (e.g. from fragmented replays,
  * standalone thought chunks, or step-by-step tool/status outputs) into a
  * single cohesive assistant turn.
+ *
+ * 引用稳定性是硬要求：assistant-ui 的 external store 以「源消息对象引用」作为
+ * 转换缓存键，任何无关的浅拷贝都会让整条线程的缓存击穿、所有气泡重渲染。
+ * 因此：无需合并时原样返回入参对象；合并后若内容与前者完全一致，也返回前者本身。
  */
 export function mergeAssistantTurns<T extends Partial<Message> & { role: string; content?: string }>(
   messages: T[]
@@ -129,33 +174,40 @@ export function mergeAssistantTurns<T extends Partial<Message> & { role: string;
         }
       }
 
-      // 3. Merge toolCalls (deduplicate by id)
-      let mergedTools = prev.toolCalls ? [...prev.toolCalls] : undefined;
+      // 3. Merge toolCalls (deduplicate by id) — 仅在确有变化时才分配新数组
+      let mergedTools = prev.toolCalls;
       if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
-        mergedTools = mergedTools ? [...mergedTools] : [];
+        const next = prev.toolCalls ? [...prev.toolCalls] : [];
+        let toolsChanged = false;
         for (const tc of msg.toolCalls) {
-          const idx = mergedTools.findIndex((x) => x.id === tc.id);
+          const idx = next.findIndex((x) => x.id === tc.id);
           if (idx >= 0) {
-            mergedTools[idx] = { ...mergedTools[idx], ...tc };
+            const mergedCall = { ...next[idx], ...tc };
+            if (!sameToolCall(next[idx], mergedCall)) {
+              next[idx] = mergedCall;
+              toolsChanged = true;
+            }
           } else {
-            mergedTools.push(tc);
+            next.push(tc);
+            toolsChanged = true;
           }
         }
+        if (toolsChanged) mergedTools = next;
       }
 
-      // 4. Merge images
-      const mergedImages = [
-        ...(prev.images || []),
-        ...(msg.images || []),
-      ].slice(-8);
+      // 4. Merge images — 同上，没有新图就不动原数组
+      let mergedImages = prev.images;
+      if (Array.isArray(msg.images) && msg.images.length > 0) {
+        mergedImages = [...(prev.images || []), ...msg.images].slice(-8);
+      }
 
-      result[result.length - 1] = {
+      const nextTurn: T = {
         ...prev,
         content: mergedContent,
         progressContent: mergedProgress || undefined,
         thought: mergedThought,
         toolCalls: mergedTools && mergedTools.length > 0 ? mergedTools : undefined,
-        images: mergedImages.length > 0 ? mergedImages : undefined,
+        images: mergedImages && mergedImages.length > 0 ? mergedImages : undefined,
         plan: msg.plan || prev.plan,
         usage: msg.usage || prev.usage,
         model: msg.model || prev.model,
@@ -164,8 +216,12 @@ export function mergeAssistantTurns<T extends Partial<Message> & { role: string;
         timestamp: msg.timestamp || prev.timestamp,
         thoughtTiming: prev.thoughtTiming || msg.thoughtTiming,
       };
+
+      // 空合并（例如重复的快照 / 无正文的续传消息）保留原引用，避免无谓的重渲染。
+      result[result.length - 1] = isSameTurn(prev, nextTurn) ? prev : nextTurn;
     } else {
-      result.push({ ...msg });
+      // 不要浅拷贝：入参对象就是下游缓存的身份键。
+      result.push(msg);
     }
   }
   return result;

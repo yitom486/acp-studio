@@ -11,25 +11,23 @@ export function distanceFromBottom(el: { scrollHeight: number; scrollTop: number
  * 流式输出跟随：用户在底部时，内容变高（ResizeObserver）就贴住底部；
  * 用户往上滚了就绝不强制滚动，直到他自己回到底部（或点“回到底部”）。
  * - 向上滚轮 / 触摸 / 方向键立即解除跟随，避免与用户“抢”滚动；
- * - 跟随用 rAF 合并到每帧一次、直接设 scrollTop（平滑来自内容本身逐步增长），
- *   不用 smooth 行为，避免连续的平滑动画互相打断导致抖动。
+ * - 跟随在 ResizeObserver 回调里同步写 scrollTop：RO 在布局之后、绘制之前触发，
+ *   这一帧就能把底部贴住。若改成再排一个 rAF，内容已经长高但滚动还没跟上，
+ *   必然出现一帧“底部被顶上去再弹回来”的抖动。
+ * - 不用 smooth 行为：连续的平滑动画互相打断才是抖动的来源，平滑感来自内容本身逐步增长。
  */
 export function useStickToBottom<T extends HTMLElement = HTMLDivElement>() {
   const viewportRef = useRef<T | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const pinned = useRef(true);
-  const frame = useRef<number | null>(null);
   const lastTop = useRef(0);
 
   const follow = useCallback(() => {
-    if (frame.current != null) return;
-    frame.current = requestAnimationFrame(() => {
-      frame.current = null;
-      const el = viewportRef.current;
-      if (!el || !pinned.current) return;
-      el.scrollTop = el.scrollHeight;
-      lastTop.current = el.scrollTop;
-    });
+    const el = viewportRef.current;
+    if (!el || !pinned.current) return;
+    // 写 scrollHeight 会被浏览器夹到最大可滚动值，回读得到真实位置。
+    el.scrollTop = el.scrollHeight;
+    lastTop.current = el.scrollTop;
   }, []);
 
   useEffect(() => {
@@ -82,7 +80,6 @@ export function useStickToBottom<T extends HTMLElement = HTMLDivElement>() {
       el.removeEventListener("touchmove", release);
       el.removeEventListener("keydown", onKey);
       ro.disconnect();
-      if (frame.current != null) cancelAnimationFrame(frame.current);
     };
   }, [follow]);
 

@@ -447,84 +447,81 @@ code, pre, kbd, samp {
   -webkit-app-region: no-drag;
 }
 
-/* ---------- 流式输出：回答气泡光环 + 内容淡入 + 光标 ---------- */
-@property --acp-ring-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
+/* ---------- 流式输出：回答气泡流光 + 内容淡入 + 光标 ---------- */
 
 .acp-stream-ring {
   isolation: isolate;
 }
 
-.acp-stream-ring::before,
-.acp-stream-ring::after {
+/*
+ * 流光严格贴合气泡自身的边框：inset: 0 + border-radius: inherit。
+ *
+ * 旧实现是 inset:-1px + calc(var(--radius) + 1px) —— 半径 9px 套在 rounded-2xl（16px）
+ * 的气泡上，圆角对不上、还比气泡大一圈，看起来就是“外面多了一个框把气泡夹住”，
+ * 气泡每长高一次这个错位就重算一次，于是显得在跳。
+ *
+ * 同时删掉了原来那层 filter: blur(10px) 的外发光：它会溢出到气泡之外盖住邻居，
+ * 而且卡片每长高一次就要整层重新栅格化——流式期间最大的逐帧重绘来源。
+ */
+.acp-stream-ring::before {
   content: "";
   position: absolute;
-  inset: -1px;
-  border-radius: calc(var(--radius, 0.5rem) + 1px);
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 600ms ease;
+  z-index: 1;
   background: conic-gradient(
-    from var(--acp-ring-angle),
+    from 210deg,
     transparent 0deg,
-    transparent 200deg,
-    hsl(var(--foreground) / 0.55) 290deg,
-    hsl(var(--foreground) / 0.9) 330deg,
+    transparent 190deg,
+    hsl(var(--foreground) / 0.45) 280deg,
+    hsl(var(--foreground) / 0.85) 330deg,
     transparent 360deg
   );
-  animation: acp-ring-spin 3.2s linear infinite;
-  animation-play-state: paused;
-}
-/* 只保留 1px 边框那一圈 */
-.acp-stream-ring::before {
-  padding: 1px;
+  /* 只保留 1px 边框那一圈 */
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
-  z-index: 1;
-}
-/* 柔光：同一圈渐变放到后面并模糊 */
-.acp-stream-ring::after {
-  inset: -2px;
-  filter: blur(10px);
-  z-index: -1;
-}
-.acp-stream-ring[data-streaming="true"]::before {
-  opacity: 0.9;
-  animation-play-state: running;
-}
-.acp-stream-ring[data-streaming="true"]::after {
-  opacity: 0.22;
-  animation-play-state: running;
-}
-[data-theme="light"] .acp-stream-ring[data-streaming="true"]::after {
-  opacity: 0.14;
+  opacity: 0;
+  transition: opacity 420ms ease;
 }
 
-@keyframes acp-ring-spin {
-  to {
-    --acp-ring-angle: 360deg;
+/*
+ * 用「呼吸」代替「旋转」：opacity 由合成器处理，逐帧零重绘、零布局；
+ * 旋转 conic-gradient 走的是自定义属性，每一帧都要重画整张卡片的渐变。
+ */
+.acp-stream-ring[data-streaming="true"]::before {
+  opacity: 1;
+  animation: acp-ring-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes acp-ring-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
-/* 新到达的段落 / 列表项 / 代码块带有水流般微位移与弥散滑入（只在挂载时播放一次，旧节点不重播） */
+/* 新到达的段落 / 列表项 / 代码块淡入（只在挂载时播放一次，旧节点不重播）。
+   两条硬约束：
+   1) 不能用 filter: blur()：每个新块都会被提升为独立合成层并逐帧重新栅格化；
+   2) 不能用 transform 位移：视口是贴底跟随的，新块一旦带 3~4px 上滑，
+      就会和“内容向上生长”的方向互相打架，看起来像气泡在抽动。
+   只保留 120ms 的透明度过渡——短到“长高”和“出现”落在同一段感知里。 */
 .acp-stream-ring[data-streaming="true"] .acp-md > *,
 .acp-stream-ring[data-streaming="true"] .acp-md li {
-  animation: acp-block-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: acp-block-in 120ms linear both;
 }
 @keyframes acp-block-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
-    filter: blur(1.5px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
-    filter: blur(0);
   }
 }
 
@@ -554,12 +551,11 @@ code, pre, kbd, samp {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .acp-stream-ring::before,
-  .acp-stream-ring::after {
+  .acp-stream-ring::before {
     animation: none;
   }
-  .acp-stream-ring[data-streaming="true"]::after {
-    opacity: 0;
+  .acp-stream-ring[data-streaming="true"]::before {
+    opacity: 0.75;
   }
   .acp-stream-ring[data-streaming="true"] .acp-md > *,
   .acp-stream-ring[data-streaming="true"] .acp-md li {

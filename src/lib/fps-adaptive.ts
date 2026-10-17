@@ -79,17 +79,36 @@ export interface AdaptiveSmoothOptions {
 
 /**
  * 根据物理屏幕刷新率（60Hz、120Hz、144Hz、180Hz、240Hz、300Hz+）
- * 动态计算流式输出最优帧节奏，杜绝高刷屏（180Hz/240Hz）因固定 6ms 时间步长导致的“隔帧跳帧”与微顿挫。
+ * 计算流式输出的揭示节奏。
+ *
+ * 关键：揭示速度要与刷新率**解耦**。`useSmooth` 的速率公式是
+ * `baseTimePerChar = min(maxCharIntervalMs, drainMs / remainingChars)`，
+ * 一旦 `maxCharIntervalMs` 被压到亚毫秒级（历史实现是 1~4ms），
+ * 每一帧就会一次吐出 4~24 个字——正文不是“逐字打出来”，而是“整词/整行蹦出来”，
+ * 这正是气泡拉长显得生硬、跳变的直接原因。
+ *
+ * 现在的策略：
+ * - `maxCharIntervalMs` 固定 14ms ≈ 70 字/秒，任何刷新率下都是逐字推进
+ *   （高刷屏上会有若干帧不吐字，那是 14ms 的文字更新节奏，肉眼不可见）；
+ * - `drainMs` 负责“追平”：积压越多单字耗时越短，最多可到 `maxCharsPerFrame`
+ *   字/帧，保证大分片一次性到达时仍能在 1 秒内追平，不会越落越远；
+ * - `minCommitMs` 只限制「Markdown AST 重新解析 + React 提交」的频率，按帧时间给，
+ *   保证每帧最多提交一次。
  */
 export function getAdaptiveSmoothOptions(fps: number): AdaptiveSmoothOptions {
   const frameTimeMs = 1000 / Math.max(30, fps);
 
-  // 60Hz 屏: 帧间隔 16.6ms，宽裕时间步长
+  // 恒定打字节奏（≈70 字/秒），不随刷新率变化。
+  const TYPING_INTERVAL_MS = 14;
+  // 追平窗口内的单帧上限：仅用于超大分片兜底，正常输出远达不到。
+  const MAX_CHARS_PER_FRAME = 24;
+
+  // 60Hz 屏: 帧间隔 16.6ms
   if (fps <= 75) {
     return {
-      drainMs: 200,
-      maxCharIntervalMs: 4,
-      maxCharsPerFrame: 24,
+      drainMs: 900,
+      maxCharIntervalMs: TYPING_INTERVAL_MS,
+      maxCharsPerFrame: MAX_CHARS_PER_FRAME,
       minCommitMs: 16,
     };
   }
@@ -97,32 +116,29 @@ export function getAdaptiveSmoothOptions(fps: number): AdaptiveSmoothOptions {
   // 90Hz~120Hz: 帧间隔 8.3~11.1ms
   if (fps <= 120) {
     return {
-      drainMs: 150,
-      maxCharIntervalMs: 2.5,
-      maxCharsPerFrame: 16,
-      minCommitMs: 12,
+      drainMs: 800,
+      maxCharIntervalMs: TYPING_INTERVAL_MS,
+      maxCharsPerFrame: MAX_CHARS_PER_FRAME,
+      minCommitMs: Math.max(8, Math.round(frameTimeMs)),
     };
   }
 
   // 144Hz~180Hz (电竞/高刷办公屏): 帧间隔 5.5~6.9ms
-  // 注意：固定 6ms 在 180Hz (5.5ms) 下会因为 5.5 < 6 导致每隔一帧吐 0 字，造成明显的 90fps 频闪！
-  // 必须将 maxCharIntervalMs 下调至 1.5ms 甚至更小，确保每一帧 rAF 均能顺畅推进。
-  // minCommitMs 设置为 10ms，保证 React 渲染与 Markdown AST 解析以约 100fps 稳妥提交，避免主线程过载。
   if (fps <= 180) {
     return {
-      drainMs: 120,
-      maxCharIntervalMs: 1.5,
-      maxCharsPerFrame: 12,
-      minCommitMs: 10,
+      drainMs: 700,
+      maxCharIntervalMs: TYPING_INTERVAL_MS,
+      maxCharsPerFrame: MAX_CHARS_PER_FRAME,
+      minCommitMs: Math.max(6, Math.round(frameTimeMs)),
     };
   }
 
   // 240Hz~360Hz 极高刷屏: 帧间隔 2.7~4.1ms
   return {
-    drainMs: 90,
-    maxCharIntervalMs: 1.0,
-    maxCharsPerFrame: 8,
-    minCommitMs: 8,
+    drainMs: 600,
+    maxCharIntervalMs: TYPING_INTERVAL_MS,
+    maxCharsPerFrame: MAX_CHARS_PER_FRAME,
+    minCommitMs: Math.max(4, Math.round(frameTimeMs)),
   };
 }
 

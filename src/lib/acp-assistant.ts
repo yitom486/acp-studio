@@ -77,7 +77,7 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
       id: msg.id,
       role: "user",
       content: [
-        { type: "text", text: preprocessMarkdown(msg.content || "") },
+        { type: "text", id: "body-0", text: preprocessMarkdown(msg.content || "") },
         ...(msg.images || []).filter((img) => img && typeof img.src === "string" && img.src).map((img) => ({ type: "image" as const, image: img.src })),
       ],
       metadata: {
@@ -104,8 +104,8 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
 
   // assistant
   const content: Array<
-    | { type: "text"; text: string }
-    | { type: "reasoning"; text: string; timing?: { startedAt: number; completedAt?: number } }
+    | { type: "text"; id?: string; text: string }
+    | { type: "reasoning"; id?: string; text: string; timing?: { startedAt: number; completedAt?: number } }
     | { type: "image"; image: string }
     | {
         type: "tool-call";
@@ -122,6 +122,10 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
   if (msg.thought) {
     content.push({
       type: "reasoning",
+      // 稳定 part id：assistant-ui 用 `${type}:${id}` 作为 part 的渲染/存储键。
+      // 没有 id 时退化为 `${type}@${index}`，一旦前面的 part 增减（工具调用插入），
+      // 正文 part 的键就会漂移，useSmooth 判定 part 已更换并清空重打。
+      id: "thought",
       text: msg.thought,
       ...(msg.thoughtTiming?.startedAt ? { timing: { ...msg.thoughtTiming, startedAt: msg.thoughtTiming.startedAt } } : {}),
     });
@@ -150,16 +154,23 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
   const normalizedBody = msg.isStreaming ? rawBodyText : preprocessMarkdown(rawBodyText);
   const segments = splitInterleavedGenerativeContent(normalizedBody, generativeTools);
   let hasTextPart = false;
+  let textSegmentIndex = 0;
   for (const seg of segments) {
     if (seg.type === "text") {
       hasTextPart = true;
-      content.push({ type: "text", text: seg.text });
+      content.push({
+        type: "text",
+        // 同上：正文 part 用位置稳定的 id，避免流式期间因 part 插入导致的键漂移。
+        id: `body-${textSegmentIndex}`,
+        text: seg.text,
+      });
+      textSegmentIndex += 1;
     } else {
       content.push(toToolCallPart(seg.tool));
     }
   }
   if (!hasTextPart) {
-    content.push({ type: "text", text: "" });
+    content.push({ type: "text", id: "body-0", text: "" });
   }
 
   // Agent-sent images (after text; order within a turn is text-then-images).
@@ -192,6 +203,29 @@ export function convertAcpMessage(msg: Message): ThreadMessageLike {
   };
 }
 
+/**
+ * 逐条转换缓存（按 ACP Message 的引用身份）。
+ *
+ * assistant-ui 的 external store 用「源对象引用」作为转换缓存键：
+ * `ThreadMessageConverter.cache` 与 `createExternalMessageConversionCache().callbackCache`
+ * 都是 `WeakMap<源消息, 转换结果>`。只要某条消息的对象引用变了，即使内容一字未动，
+ * 也会被重新转换成一个全新的 ThreadMessage —— 进而让该消息的全部 part 重新计算、
+ * 组件树整体重渲染。
+ *
+ * 流式期间 `patchMessage` 只替换目标消息，其余消息引用天然稳定；这里再按引用缓存，
+ * 保证「没变的消息 → 同一个 ThreadMessageLike 引用」，把每 token 的 O(整条线程) 重建
+ * 收敛成 O(1)。
+ */
+const threadMessageCache = new WeakMap<Message, ThreadMessageLike>();
+
+export function convertAcpMessageCached(msg: Message): ThreadMessageLike {
+  const cached = threadMessageCache.get(msg);
+  if (cached) return cached;
+  const converted = convertAcpMessage(msg);
+  threadMessageCache.set(msg, converted);
+  return converted;
+}
+
 export function convertAcpMessages(messages: Message[]): ThreadMessageLike[] {
   const filtered: Message[] = [];
   for (let i = 0; i < messages.length; i++) {
@@ -204,7 +238,7 @@ export function convertAcpMessages(messages: Message[]): ThreadMessageLike[] {
     }
     filtered.push(msg);
   }
-  return filtered.map(convertAcpMessage);
+  return filtered.map(convertAcpMessageCached);
 }
 
 /** Extract plain text from an assistant-ui AppendMessage (for onNew/onEdit). */

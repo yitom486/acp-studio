@@ -18,6 +18,10 @@ export interface UsageUpdate {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  /** 提示词总量（新增输入 + 缓存命中），agent 侧算好的分母 */
+  promptTokens?: number;
+  /** 缓存命中率 0~1，agent 侧算好的口径优先 */
+  cacheHitRate?: number;
   sessionInputTokens?: number;
   sessionOutputTokens?: number;
   sessionTotalTokens?: number;
@@ -119,6 +123,16 @@ export function pickUsageExtras(u: any): Partial<UsageUpdate> {
   const sessionOut = meta.sessionOutputTokens ?? u.sessionOutputTokens ?? meta.session_output_tokens;
   if (typeof sessionOut === "number" && Number.isFinite(sessionOut)) {
     out.sessionOutputTokens = sessionOut;
+  }
+
+  // 6. cacheHitRate / promptTokens: agent 已经算好的口径优先（恒 0~1）
+  const rate = meta.cacheHitRate ?? u.cacheHitRate;
+  if (typeof rate === "number" && Number.isFinite(rate)) {
+    out.cacheHitRate = Math.max(0, Math.min(1, rate));
+  }
+  const prompt = meta.promptTokens ?? u.promptTokens;
+  if (typeof prompt === "number" && Number.isFinite(prompt) && prompt > 0) {
+    out.promptTokens = prompt;
   }
 
   return out;

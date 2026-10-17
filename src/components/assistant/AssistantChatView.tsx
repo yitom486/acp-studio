@@ -128,17 +128,16 @@ const ThinkingStateCapsule: React.FC<{ startedAt?: number; statusHint?: string }
 
   const timeStr = `(${elapsed.toFixed(1)}s)`;
 
-  const phrases = React.useMemo(() => {
-    if (statusHint && !statusHint.includes("连接") && !statusHint.includes("通道")) {
-      return [statusHint, "正在思考与深度分析", "正在检索上下文", "正在组织回复"];
-    }
-    return [
-      statusHint || "正在思考…",
-      "正在深入分析推导",
-      "正在检索上下文",
-      "正在规划执行策略",
-      "模型深度推理中，正在组织回复",
-    ];
+  /**
+   * 只显示后端真实事件给出的状态（onStateUpdate / onToolCall / onNotice / onActivity
+   * 都会写入 statusHint）。不再轮播「正在规划执行策略 / 正在检索上下文」这类凭空
+   * 捏造的阶段——用户看到的是智能体此刻实际在做的事，而不是一份固定的文案表。
+   */
+  const label = React.useMemo(() => {
+    const hint = statusHint?.trim();
+    if (!hint) return "正在思考";
+    // ReasoningText 会自行补省略号，这里去掉已有的尾缀避免「……」叠加
+    return hint.replace(/[…\.\s]+$/, "").slice(0, 48);
   }, [statusHint]);
 
   return (
@@ -155,9 +154,9 @@ const ThinkingStateCapsule: React.FC<{ startedAt?: number; statusHint?: string }
         </>
       ) : (
         <ReasoningText
-          variant="cascade"
-          phrases={phrases}
-          interval={2000}
+          variant="swap"
+          phrases={[label]}
+          interval={2200}
           shimmerDuration={2}
           indicator={
             <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
@@ -189,9 +188,18 @@ const UsagePanel: React.FC<{ msg: Message }> = ({ msg }) => {
       : null;
   const doneTools = (msg.toolCalls || []).filter((t) => t.startedAt != null && t.completedAt != null);
   const toolMs = doneTools.reduce((a, t) => a + (t.completedAt! - t.startedAt!), 0);
-  const cacheBase = u.totalTokens ?? u.used;
+  // 缓存命中率的分母是「提示词总量 = 新增输入 + 缓存命中」。
+  // agent（agy-acp-map）已在 _meta.promptTokens / _meta.cacheHitRate 里给出规范口径，优先采用；
+  // 缺失时才在本地折算：有 inputTokens 用 input+cached，否则退回 totalTokens。
+  // 直接用 totalTokens 做分母在「缓存量 > 本轮输出」时会算出 1338.5% 这种数字。
+  const cacheBase =
+    u.promptTokens ??
+    (u.inputTokens != null
+      ? u.inputTokens + (u.cachedTokens ?? 0)
+      : (u.totalTokens ?? u.used));
   const cacheRate =
-    u.cachedTokens != null && cacheBase > 0 ? u.cachedTokens / cacheBase : null;
+    u.cacheHitRate ??
+    (u.cachedTokens != null && cacheBase > 0 ? Math.min(1, u.cachedTokens / cacheBase) : null);
   const row = "flex items-center justify-between gap-2";
   return (
     <div className="rounded-lg bg-background/70 border border-border px-3 py-2">

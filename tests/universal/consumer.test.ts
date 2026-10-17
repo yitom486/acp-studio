@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  pickUsageExtras,
   consumeUniversalChat,
   buildTranscriptFromReplay,
   parseModelId,
@@ -273,5 +274,29 @@ describe("consumeUniversalChat (v1 full updates)", () => {
       status: "completed",
       rawOutput: "Writing line 1\nWriting line 2\n",
     });
+  });
+});
+
+describe("usage extras", () => {
+  it("prefers the agent-computed cache hit rate and prompt total", () => {
+    const extras = pickUsageExtras({
+      used: 140000,
+      size: 1048576,
+      _meta: {
+        inputTokens: 70000,
+        cachedTokens: 70000,
+        promptTokens: 140000,
+        cacheHitRate: 0.5,
+        totalTokens: 74000,
+      },
+    });
+    expect(extras.cacheHitRate).toBe(0.5);
+    expect(extras.promptTokens).toBe(140000);
+    expect(extras.cachedTokens).toBe(70000);
+  });
+
+  it("clamps a nonsense cache rate instead of rendering 1338%", () => {
+    const extras = pickUsageExtras({ used: 10, size: 100, _meta: { cacheHitRate: 13.385 } });
+    expect(extras.cacheHitRate).toBe(1);
   });
 });

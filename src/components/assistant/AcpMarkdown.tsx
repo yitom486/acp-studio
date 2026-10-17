@@ -550,7 +550,18 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   const components = useMemo(() => acpComponents, []);
   const byLanguage = useMemo(() => customByLanguage, []);
   const { smoothOptions } = useDeviceFps();
-  const { text } = useMessagePartText();
+  const part = useMessagePartText();
+  const text = part.text;
+  /**
+   * 打字机只在「这一 part 仍在生成」时启用。
+   *
+   * 轮次结束时 `convertAcpMessage` 会把正文收缩为结论（`partitionTurnContent` 把过程段落
+   * 收进折叠区），正文不再是 displayedText 的前缀——此时若继续走 smooth，
+   * `useSmooth` 会命中 `!text.startsWith(displayedText)` 并清空重打，用户看到的就是
+   * 每轮结束时整段答案“消失再重新打一遍”。关闭 smooth 后收尾只发生一次结构变化，
+   * 不会再有重打动画。
+   */
+  const smooth = process.env.NODE_ENV === "test" || part.status.type !== "running" ? false : smoothOptions;
   const math = useSyncExternalStore(subscribeMath, getMathPlugins, getMathPlugins);
   const needsMath = useMemo(() => hasMath(text), [text]);
   useEffect(() => {
@@ -569,7 +580,7 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
       className="acp-md text-sm leading-relaxed break-words text-foreground"
       components={components}
       componentsByLanguage={byLanguage}
-      smooth={process.env.NODE_ENV === "test" ? false : smoothOptions}
+      smooth={smooth}
     />
   );
 });

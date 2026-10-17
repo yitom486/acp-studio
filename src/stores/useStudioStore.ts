@@ -38,6 +38,10 @@ export interface UsageState {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  /** 提示词总量（新增输入 + 缓存命中）；缓存命中率的分母 */
+  promptTokens?: number;
+  /** 缓存命中率 0~1（agent 侧口径优先，UI 仅在缺失时自行折算） */
+  cacheHitRate?: number;
 }
 
 export interface RecentWorkspace {
