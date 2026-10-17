@@ -14,6 +14,8 @@ import { getMathPlugins, loadMathPlugins, subscribeMath } from "@/components/ass
 import { cn } from "@/lib/utils";
 import { AcpImageView, isSafeLinkHref, isSafeMediaSrc } from "@/components/assistant/AcpMedia";
 import { Citation } from "@/components/primitives/Citations";
+import { getHighlighter, ensureLanguage } from "@/components/magicui/code-comparison";
+import { useThemeStore } from "@/stores/useThemeStore";
 
 const ReactArtifactCard = lazy(() =>
   import("./ReactArtifactCard").then((m) => ({ default: m.ReactArtifactCard }))
@@ -80,6 +82,53 @@ export const AcpCodeHeader: React.FC<CodeHeaderProps> = ({ language, code }) => 
         </Suspense>
       )}
     </div>
+  );
+};
+
+export const AcpSyntaxHighlighter: React.FC<{
+  language?: string;
+  code: string;
+}> = ({ language, code }) => {
+  const theme = useThemeStore((s) => s.theme);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const run = async () => {
+      try {
+        const cleanLang = (language || "").split(/\s+/)[0]?.toLowerCase().trim() || "plaintext";
+        const hl = await getHighlighter();
+        const l = await ensureLanguage(hl, cleanLang);
+        const shikiTheme = theme === "light" ? "github-light-high-contrast" : "github-dark-default";
+        const out = hl.codeToHtml(code, {
+          lang: l,
+          theme: shikiTheme,
+        });
+        if (active) setHighlighted(out);
+      } catch {
+        if (active) setHighlighted(null);
+      }
+    };
+    void run();
+    return () => {
+      active = false;
+    };
+  }, [code, language, theme]);
+
+  if (!highlighted) {
+    return (
+      <pre className="overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground">
+        <code>{code}</code>
+      </pre>
+    );
+  }
+
+  return (
+    <div
+      data-testid="acp-highlighted-code"
+      className="overflow-x-auto rounded-b-lg border border-t-0 border-border bg-background/80 px-3 py-2.5 text-xs leading-relaxed font-mono text-foreground [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!m-0 [&_pre]:!border-0 [&_code]:!bg-transparent [&_code]:!p-0"
+      dangerouslySetInnerHTML={{ __html: highlighted }}
+    />
   );
 };
 
@@ -186,6 +235,7 @@ const acpComponents = memoizeMarkdownComponents({
     return <AcpImageView src={src} alt={typeof alt === "string" ? alt : undefined} />;
   },
   CodeHeader: AcpCodeHeader,
+  SyntaxHighlighter: AcpSyntaxHighlighter,
 });
 
 /**
