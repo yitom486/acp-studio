@@ -155,8 +155,7 @@ const ThinkingStateCapsule: React.FC<{ startedAt?: number; statusHint?: string }
       ) : (
         <ReasoningText
           variant="swap"
-          phrases={[label]}
-          interval={2200}
+          text={label}
           shimmerDuration={2}
           indicator={
             <Loader variant="ascii-braille" size={13} className="text-primary font-bold shrink-0" />
@@ -885,11 +884,11 @@ const AssistantMessageView: React.FC<{
           <MessageBubble
             variant="outline"
             className="w-full max-w-full"
-            layout={false}
+            layout={process.env.NODE_ENV === "test" ? false : "size"}
           >
             <MessageBubbleContent
-              layout={false}
-              className="w-full max-w-full rounded-2xl p-4 sm:p-5 space-y-3 bg-card border border-border text-foreground shadow-xs"
+              layout={process.env.NODE_ENV === "test" ? false : "size"}
+              className="w-full max-w-full rounded-2xl p-4 sm:p-5 space-y-3 text-foreground shadow-xs"
             >
               <div className="flex items-center justify-between gap-4 text-[11px] pb-2 border-b border-border/70">
           <div className="flex items-center gap-2">

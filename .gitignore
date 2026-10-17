@@ -28,3 +28,6 @@ scratch/*.cjs
 scratch/*.css
 scratch/*diagnostic*
 scratch/studio-resources-live*
+
+# WorkBuddy agent memory (local, per-machine)
+.workbuddy-ai/

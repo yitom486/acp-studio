@@ -2,7 +2,7 @@
 // beui.dev/components/agents/loading-states
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactNode, useId } from "react";
 import { Loader } from "@/components/motion/loader";
 import { TextScramble } from "@/components/motion/text-scramble";
 import { EASE_OUT, SPRING_SWAP } from "@/lib/ease";
@@ -13,24 +13,17 @@ import {
 } from "@/lib/text-shimmer";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_PHRASES = [
-  "Thinking",
-  "Reading the context",
-  "Connecting the details",
-  "Forming a response",
-];
-
 const CASCADE_STAGGER = 0.025;
 
 export type ReasoningTextVariant = "cascade" | "swap" | "scramble";
 
 export interface ReasoningTextProps {
-  /** Phrases cycled through while the agent works. */
+  /** 当前状态文案（唯一真实数据源，来自后端事件）。 */
+  text?: string;
+  /** 兼容 phrases 数组传入（取当前首项，杜绝定时器循环假象）。 */
   phrases?: string[];
   /** Animation used when the active phrase changes. */
   variant?: ReasoningTextVariant;
-  /** Milliseconds each phrase remains visible. */
-  interval?: number;
   /** Seconds taken for one shimmer pass. */
   shimmerDuration?: number;
   /** Optional leading visual. Defaults to a terminal-style ASCII loader. */
@@ -66,7 +59,7 @@ function CascadePhrase({
   }
 
   return (
-    <AnimatePresence initial={false}>
+    <AnimatePresence mode="popLayout">
       <motion.span
         key={phrase}
         className="col-start-1 row-start-1 inline-block justify-self-start whitespace-pre"
@@ -79,21 +72,19 @@ function CascadePhrase({
             // biome-ignore lint/suspicious/noArrayIndexKey: position is the stable cascade slot identity.
             key={characterIndex}
             custom={characterIndex * CASCADE_STAGGER}
-            // Own states: a phrase that cycles back re-enters mid-exit, and
-            // only owned targets are restored.
             initial="initial"
             animate="animate"
             exit="exit"
             variants={{
-              initial: { opacity: 0, y: "100%" },
+              initial: { opacity: 0, y: 6 },
               animate: (delay: number) => ({
                 opacity: 1,
-                y: "0%",
+                y: 0,
                 transition: { ...SPRING_SWAP, delay },
               }),
               exit: (delay: number) => ({
                 opacity: 0,
-                y: "-100%",
+                y: -6,
                 transition: {
                   duration: 0.14,
                   ease: EASE_OUT,
@@ -117,7 +108,7 @@ function CascadePhrase({
 
 function SwapPhrase({ phrase, reduce, shimmerDuration }: PhraseProps) {
   return (
-    <AnimatePresence initial={false}>
+    <AnimatePresence mode="wait">
       <motion.span
         key={phrase}
         className={cn(
@@ -125,11 +116,11 @@ function SwapPhrase({ phrase, reduce, shimmerDuration }: PhraseProps) {
           TEXT_SHIMMER_CLASS_NAME,
         )}
         style={textShimmerStyle(shimmerDuration)}
-        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 3 }}
-        animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
-        exit={reduce ? { opacity: 0 } : { opacity: 0, y: -3 }}
+        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 2 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={reduce ? { opacity: 0 } : { opacity: 0, y: -2 }}
         transition={{
-          duration: reduce ? 0.12 : 0.2,
+          duration: reduce ? 0.12 : 0.25,
           ease: EASE_OUT,
         }}
       >
@@ -158,32 +149,20 @@ function ScramblePhrase({
 }
 
 export function ReasoningText({
-  phrases = DEFAULT_PHRASES,
+  text,
+  phrases,
   variant = "cascade",
-  interval = 1800,
   shimmerDuration = 2.2,
   indicator,
   className,
 }: ReasoningTextProps) {
   const reduce = (useReducedMotion() ?? false) || process.env.NODE_ENV === "test";
-  const [index, setIndex] = useState(0);
   const statusId = useId();
-  const safePhrases = phrases.length > 0 ? phrases : DEFAULT_PHRASES;
-  const phrase = safePhrases[index % safePhrases.length];
-  const longestPhrase = safePhrases.reduce((longest, current) =>
-    current.length > longest.length ? current : longest,
-  );
+
+  // 严禁前端轮播假状态：严格消费真实传入的文案。省略号统一规范由下层补全。
+  const rawText = (text ?? phrases?.[0] ?? "正在思考").trim();
+  const phrase = rawText.replace(/[…\.\s]+$/, "") || "正在思考";
   const phraseProps = { phrase, reduce, shimmerDuration };
-
-  useEffect(() => {
-    if (safePhrases.length < 2) return;
-
-    const timer = window.setInterval(() => {
-      setIndex((current) => (current + 1) % safePhrases.length);
-    }, Math.max(600, interval));
-
-    return () => window.clearInterval(timer);
-  }, [interval, safePhrases.length]);
 
   return (
     <>
@@ -203,14 +182,14 @@ export function ReasoningText({
               variant="ascii-line"
               size={14}
               speed={0.8}
-              label="Reasoning"
+              label={phrase}
             />
           )}
         </span>
 
         <span aria-hidden="true" className="grid overflow-hidden text-left">
           <span className="invisible col-start-1 row-start-1 whitespace-nowrap">
-            {longestPhrase}…
+            {phrase}…
           </span>
           {variant === "cascade" ? (
             <CascadePhrase {...phraseProps} />

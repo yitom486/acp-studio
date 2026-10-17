@@ -350,9 +350,9 @@ function ArchitectureDiagramSvg({
   const connections = Array.isArray(data.connections) ? data.connections : [];
 
   const width = 640;
-  const layerHeight = 84;
+  const layerHeight = 90;
   const gap = 24;
-  const topPad = 20;
+  const topPad = 24;
   const totalHeight = Math.max(
     layers.length * (layerHeight + gap) + topPad + 40,
     280
@@ -393,7 +393,7 @@ function ArchitectureDiagramSvg({
       {layers.map((layer: any, layerIdx: number) => {
         const y = topPad + layerIdx * (layerHeight + gap);
         const nodes = Array.isArray(layer.nodes) ? layer.nodes : [];
-        const nodeWidth = nodes.length > 0 ? (width - 120) / nodes.length - 12 : 120;
+        const nodeWidth = nodes.length > 0 ? (width - 80) / nodes.length - 16 : 140;
 
         return (
           <g key={layer.id || layerIdx} transform={`translate(0, ${y})`}>
@@ -414,7 +414,7 @@ function ArchitectureDiagramSvg({
             {/* 层级名称 */}
             <text
               x="32"
-              y="18"
+              y="20"
               className="text-[11px] font-mono font-semibold uppercase tracking-wider fill-muted-foreground"
             >
               {layer.title || layer.name || `Layer ${layerIdx + 1}`}
@@ -422,8 +422,8 @@ function ArchitectureDiagramSvg({
 
             {/* 容器内的节点卡片 */}
             {nodes.map((node: any, nodeIdx: number) => {
-              const nx = 40 + nodeIdx * (nodeWidth + 12);
-              const ny = 26;
+              const nx = 36 + nodeIdx * (nodeWidth + 16);
+              const ny = 28;
               const isHighlighted = Boolean(node.highlighted || node.focus);
 
               return (
@@ -432,7 +432,7 @@ function ArchitectureDiagramSvg({
                     x="0"
                     y="0"
                     width={nodeWidth}
-                    height="46"
+                    height="50"
                     rx="6"
                     fill="currentColor"
                     className={
@@ -444,28 +444,30 @@ function ArchitectureDiagramSvg({
                     strokeWidth={isHighlighted ? 1.5 : 1}
                     strokeOpacity={isHighlighted ? 1 : 0.4}
                   />
-                  <text
-                    x="10"
-                    y="20"
-                    className="text-[12px] font-semibold fill-foreground"
-                  >
-                    {node.label || node.title}
-                  </text>
-                  <text
-                    x="10"
-                    y="36"
-                    className="text-[10px] font-mono fill-muted-foreground"
-                  >
-                    {node.subtext || node.type || node.badge || ""}
-                  </text>
-                  {isHighlighted && (
-                    <circle
-                      cx={nodeWidth - 12}
-                      cy="12"
-                      r="3.5"
-                      fill={accentStyles.fill}
-                    />
-                  )}
+                  {/* 使用 foreignObject 承载带 ellipsis 截断与气泡 tooltip 的自适应排版，杜绝文字越界覆盖 */}
+                  <foreignObject x="0" y="0" width={nodeWidth} height="50">
+                    <div
+                      className="w-full h-full px-3 py-1 flex flex-col justify-center select-none overflow-hidden"
+                      title={`${node.label || node.title || ""}${node.subtext ? ` — ${node.subtext}` : ""}`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[12px] font-semibold text-foreground truncate leading-snug">
+                          {node.label || node.title}
+                        </span>
+                        {isHighlighted && (
+                          <span
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ backgroundColor: accentStyles.fill }}
+                          />
+                        )}
+                      </div>
+                      {(node.subtext || node.type || node.badge) && (
+                        <div className="text-[10px] font-mono text-muted-foreground truncate leading-snug mt-0.5">
+                          {node.subtext || node.type || node.badge}
+                        </div>
+                      )}
+                    </div>
+                  </foreignObject>
                 </g>
               );
             })}

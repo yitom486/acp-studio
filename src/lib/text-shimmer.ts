@@ -7,12 +7,31 @@ import type { CSSProperties } from "react";
 // `!important` because the sweep is an inline style, which outranks a plain rule
 // in a media query. It selects a marker class carried by TEXT_SHIMMER_CLASS_NAME
 // so it also reaches consumers that build their own span out of these exports.
-export const TEXT_SHIMMER_KEYFRAMES =
-  "@keyframes beui-text-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}" +
-  "@media (prefers-reduced-motion: reduce){.beui-text-shimmer{animation:none !important}}";
+export const TEXT_SHIMMER_KEYFRAMES = `
+@keyframes beui-text-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.beui-text-shimmer {
+  background-image: linear-gradient(110deg, hsl(var(--muted-foreground)) 30%, hsl(var(--foreground)) 50%, hsl(var(--muted-foreground)) 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  display: inline-block;
+}
+@media (prefers-reduced-motion: reduce) {
+  .beui-text-shimmer {
+    animation: none !important;
+    background-image: none !important;
+    -webkit-text-fill-color: currentColor !important;
+    color: hsl(var(--muted-foreground)) !important;
+  }
+}
+`;
 
-export const TEXT_SHIMMER_CLASS_NAME =
-  "beui-text-shimmer bg-[length:200%_100%] bg-clip-text text-transparent bg-[linear-gradient(110deg,var(--muted-foreground)_30%,var(--foreground)_50%,var(--muted-foreground)_70%)]";
+export const TEXT_SHIMMER_CLASS_NAME = "beui-text-shimmer";
 
 export function textShimmerStyle(duration: number): CSSProperties {
   return {

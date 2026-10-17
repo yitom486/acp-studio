@@ -18,6 +18,7 @@ import {
   type PendingElicitation,
 } from "@/lib/universal-api";
 import { parseRateLimitsFromStatusText } from "@/lib/quota-parser";
+import { isBootstrapHint, statusTextForUpdate } from "@/lib/agent-status";
 import {
   isGenerativeTool,
   appendGenerativeToolPlaceholder,
@@ -235,22 +236,22 @@ export function useChatSend({
       try {
         const known = agentsRef.current.find((a) => a.id === agentId)?.status?.connected;
         if (!known) {
-          beginTurn("正在启动智能体进程…");
+          beginTurn("启动中…");
           st.setStreaming(true);
           await connectAgent(agentId);
         }
         let sid = useStudioStore.getState().sessionId;
         if (!sid) {
-          beginTurn("正在建立会话通道…");
+          beginTurn("创建会话…");
           st.setStreaming(true);
           sid = await resolveSession(agentId);
           if (!sid) throw new Error("无法创建会话");
         }
-        beginTurn("正在连接模型思考…");
+        beginTurn("等待响应…");
         st.setStreaming(true);
         useStudioStore.getState().patchMessage(assistantId, (m) => ({
           ...m,
-          statusHint: m.statusHint || "正在连接模型思考…",
+          statusHint: m.statusHint || "等待响应…",
         }));
         const cur = useStudioStore.getState();
         // Transient transport failures (dropped SSE, gateway hiccup) resend
@@ -292,48 +293,29 @@ export function useChatSend({
             await consumeUniversalChat(
               { agentId, sessionId: sid, prompt: blocks },
               {
-            onConnect: () =>
-              useStudioStore.getState().patchMessage(assistantId, (m) => ({
-                ...m,
-                statusHint: "已连接模型通道，正在深入思考…",
-              })),
+            onConnect: () => {
+              // 传输通道连接就绪，不写入虚假「深入思考」文案，等待后端下发首个真实事件
+            },
             onSessionId: (id) => {
               useStudioStore.getState().setSessionId(id);
-              useStudioStore.getState().patchMessage(assistantId, (m) => ({
-                ...m,
-                statusHint:
-                  m.statusHint && !m.statusHint.includes("连接") && !m.statusHint.includes("通道")
-                    ? m.statusHint
-                    : "已连接会话，正在深入思考…",
-              }));
             },
             onStateUpdate: (state) => {
-              if (state === "running") {
-                useStudioStore.getState().patchMessage(assistantId, (m) => ({
-                  ...m,
-                  statusHint:
-                    m.statusHint && !m.statusHint.includes("连接") && !m.statusHint.includes("通道")
-                      ? m.statusHint
-                      : (m.thought ? "正在思考分析…" : "模型正在深入分析推导…"),
-                }));
-              } else if (state === "requires_action") {
-                useStudioStore.getState().patchMessage(assistantId, (m) => ({
-                  ...m,
-                  statusHint: "等待确认操作…",
-                }));
-              } else if (state === "idle") {
-                useStudioStore.getState().patchMessage(assistantId, (m) => ({
-                  ...m,
-                  statusHint: undefined,
-                }));
+              if (state === "idle") {
+                useStudioStore.getState().patchMessage(assistantId, (m) => ({ ...m, statusHint: undefined }));
+                return;
               }
+              const text = statusTextForUpdate("state_update", { state });
+              if (!text) return;
+              useStudioStore.getState().patchMessage(assistantId, (m) => {
+                // running 是兜底态：已经有更具体的事件文案（工具 / 子智能体 / 压缩）时不要顶掉
+                if (state === "running" && m.statusHint && !isBootstrapHint(m.statusHint)) return m;
+                return { ...m, statusHint: text };
+              });
             },
             onNotice: (n) => {
-              if (n.message) {
-                useStudioStore.getState().patchMessage(assistantId, (m) => ({
-                  ...m,
-                  statusHint: n.message,
-                }));
+              const text = statusTextForUpdate("notice", { message: n.message });
+              if (text) {
+                useStudioStore.getState().patchMessage(assistantId, (m) => ({ ...m, statusHint: text }));
               }
             },
             onTextChunk: (chunk) =>
@@ -342,7 +324,7 @@ export function useChatSend({
               useStudioStore.getState().patchMessage(assistantId, (m) => ({
                 ...m,
                 thought: (m.thought || "") + chunk,
-                statusHint: "正在思考分析…",
+                statusHint: "正在思考…",
                 thoughtTiming: m.thoughtTiming ?? { startedAt: Date.now() },
               })),
             onImageChunk: (img) =>
@@ -367,7 +349,7 @@ export function useChatSend({
                 return {
                   ...m,
                   content: newContent,
-                  statusHint: `正在调用 ${displayTitle}…`,
+                  statusHint: statusTextForUpdate("tool_call", { title: displayTitle }) ?? m.statusHint,
                   toolCalls: [
                     ...(m.toolCalls || []),
                     {
@@ -417,9 +399,11 @@ export function useChatSend({
                 }
 
                 const displayTitle = resolveToolDisplayTitle(targetCall);
-                const hint = terminal
-                  ? (targetCall.status === "completed" ? `${displayTitle} 执行完成` : `${displayTitle} 执行失败`)
-                  : `正在执行 ${displayTitle}…`;
+                const hint =
+                  statusTextForUpdate("tool_call_update", {
+                    title: displayTitle,
+                    status: targetCall.status,
+                  }) ?? m.statusHint;
 
                 return {
                   ...m,
@@ -428,7 +412,11 @@ export function useChatSend({
                   toolCalls: calls,
                 };
               }),
-            onPlan: (entries) => useStudioStore.getState().patchMessage(assistantId, { plan: entries }),
+            onPlan: (entries) =>
+              useStudioStore.getState().patchMessage(assistantId, (m) => {
+                const hint = statusTextForUpdate("plan", { entries });
+                return hint ? { ...m, plan: entries, statusHint: hint } : { ...m, plan: entries };
+              }),
             onAvailableCommands: (cmds) => useStudioStore.getState().setAvailableCommands(cmds, sid),
             onModeUpdate: (modeId) => {
               const stNow = useStudioStore.getState();
@@ -463,18 +451,17 @@ export function useChatSend({
             onActivity: (a) => {
               if (a.kind === "subagent_active") {
                 const d = (a.detail || {}) as { childId?: string; title?: string; updateType?: string };
-                const title = d.title || "子智能体";
-                useStudioStore.getState().patchMessage(assistantId, (m) => ({
-                  ...m,
-                  statusHint: `${title} 协同处理中…`,
-                }));
+                const hint = statusTextForUpdate("subagent_active", { subagentTitle: d.title });
+                if (hint) {
+                  useStudioStore.getState().patchMessage(assistantId, (m) => ({ ...m, statusHint: hint }));
+                }
                 return;
               }
               if (a.kind === "compaction_update" || a.kind === "compaction_summary_chunk") {
-                useStudioStore.getState().patchMessage(assistantId, (m) => ({
-                  ...m,
-                  statusHint: "正在压缩历史上下文…",
-                }));
+                const hint = statusTextForUpdate(a.kind);
+                if (hint) {
+                  useStudioStore.getState().patchMessage(assistantId, (m) => ({ ...m, statusHint: hint }));
+                }
                 return;
               }
               appendActivityMessage(a, now(), assistantId);

@@ -153,10 +153,14 @@ describe("Markdown HTML and GitHub Alert Callouts", () => {
     const smooth180 = getAdaptiveSmoothOptions(180);
     const smooth240 = getAdaptiveSmoothOptions(240);
 
-    // 180Hz screen frame duration is ~5.55ms; maxCharIntervalMs must be <= 1.5ms to avoid skipping every other frame
-    expect(smooth180.maxCharIntervalMs).toBeLessThanOrEqual(1.5);
-    expect(smooth240.maxCharIntervalMs).toBeLessThanOrEqual(1.0);
-    expect(smooth60.maxCharIntervalMs).toBeGreaterThan(smooth180.maxCharIntervalMs);
+    // 逐字节奏恒定（14ms/字），但 AST commit 与排空窗口随高刷屏动态收敛
+    expect(smooth60.maxCharIntervalMs).toBe(14);
+    expect(smooth180.maxCharIntervalMs).toBe(14);
+    expect(smooth240.maxCharIntervalMs).toBe(14);
+    expect(smooth60.minCommitMs).toBeGreaterThan(smooth180.minCommitMs);
+    expect(smooth180.minCommitMs).toBeGreaterThanOrEqual(smooth240.minCommitMs);
+    expect(smooth60.drainMs).toBeGreaterThan(smooth180.drainMs);
+    expect(smooth180.drainMs).toBeGreaterThan(smooth240.drainMs);
   });
 
   it("renders block math even when $$ is followed by inline prose or not on its own line", async () => {

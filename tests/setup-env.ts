@@ -21,3 +21,11 @@ process.env.ACP_SESSION_INDEX_FILE = path.join(sandbox, "session-index.json");
 process.on("exit", () => {
   fs.rmSync(sandbox, { recursive: true, force: true });
 });
+
+try {
+  const { MotionGlobalConfig } = await import("framer-motion");
+  MotionGlobalConfig.skipAnimations = true;
+} catch {
+  // framer-motion not loaded in pure node tests
+}
+
