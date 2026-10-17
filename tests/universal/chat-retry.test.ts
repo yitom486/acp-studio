@@ -178,6 +178,15 @@ describe("send retry policy", () => {
     expect(isTransientSendError(new TypeError("fetch failed"))).toBe(true);
     expect(isTransientSendError(new Error("Server 503: unavailable"))).toBe(true);
     expect(isTransientSendError(new Error("Socket hang up"))).toBe(true);
+    expect(
+      isTransientSendError(
+        new Error(
+          'Eligibility check failed: failed to get profile picture: Get "https://lh3.googleusercontent.com/a/...": EOF'
+        )
+      )
+    ).toBe(true);
+    expect(isTransientSendError(new Error("unexpected EOF"))).toBe(true);
+    expect(isTransientSendError(new Error("read: connection reset by peer"))).toBe(true);
     expect(isTransientSendError(Object.assign(new Error("x"), { name: "AbortError" }))).toBe(false);
     expect(isTransientSendError({ authRequired: true, message: "need auth" })).toBe(false);
     expect(isTransientSendError(new Error("ordinary failure"))).toBe(false);

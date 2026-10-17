@@ -4,7 +4,7 @@ import { renderToString } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { AcpBlockquote } from "@/components/assistant/AcpMarkdown";
+import { AcpBlockquote, AcpStandaloneMarkdown } from "@/components/assistant/AcpMarkdown";
 
 describe("Markdown HTML and GitHub Alert Callouts", () => {
   it("renders GitHub [!NOTE] alert callout with proper badge and icon", () => {
@@ -114,6 +114,16 @@ describe("Markdown HTML and GitHub Alert Callouts", () => {
       })
     );
     expect(html).toContain("<mark>important text</mark>");
+  });
+
+  it("renders rich progress markdown through AcpStandaloneMarkdown", () => {
+    const markdown = "### 排查进展\n\n已完成 **96 项核心测试**。\n\n> [!NOTE]\n> 渲染引擎已自动就绪。\n\n```ts\nconst ready = true;\n```";
+    const html = renderToString(React.createElement(AcpStandaloneMarkdown, { content: markdown }));
+    expect(html).toContain("排查进展</h3>");
+    expect(html).toContain('class="font-semibold">96 项核心测试</strong>');
+    expect(html).toContain('data-alert="note"');
+    expect(html).toContain("渲染引擎已自动就绪。");
+    expect(html).toContain("const ready = true;");
   });
 });
 

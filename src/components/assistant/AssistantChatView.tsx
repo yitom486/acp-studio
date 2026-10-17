@@ -34,7 +34,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AcpMarkdownText } from "@/components/assistant/AcpMarkdown";
+import { AcpMarkdownText, AcpStandaloneMarkdown } from "@/components/assistant/AcpMarkdown";
 import { AcpImagePart } from "@/components/assistant/AcpMedia";
 import { TurnChanges } from "@/components/assistant/TurnChanges";
 import { TurnDiffViewer } from "@/components/assistant/TurnDiffViewer";
@@ -411,8 +411,8 @@ const AgentProgressAccordion: React.FC<{
       >
         <div className="overflow-hidden">
           <div className="px-3 pb-3 pt-1">
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-3 max-h-[220px] overflow-y-auto overscroll-contain text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words font-sans">
-              {progress}
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-3 max-h-[260px] overflow-y-auto overscroll-contain text-xs text-muted-foreground leading-relaxed break-words font-sans">
+              <AcpStandaloneMarkdown content={progress} />
             </div>
           </div>
         </div>

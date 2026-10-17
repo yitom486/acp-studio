@@ -136,6 +136,20 @@ describe("threads (per-agent persisted records)", () => {
     const res3 = partitionTurnContent("你好，有什么我可以帮你的？");
     expect(res3.progress).toBeUndefined();
     expect(res3.conclusion).toBe("你好，有什么我可以帮你的？");
+
+    // 4. Long conversational answer with "总结" / "Summary" but NO tools (hasTools=false / undefined)
+    // CRITICAL: pure chat / tutorials / explanations must NEVER have their body folded into an accordion!
+    const longTutorial = `### 1. requestAnimationFrame 原理\nrAF 会把动画回调注册到浏览器的下一次重绘生命周期。\n\n### 2. 与 CSS 动画的对比\nCSS 动画可以直接在合成线程运行。\n\n## 总结\n- 简单过渡优先使用 CSS\n- 复杂物理动画使用 rAF`;
+    const res4 = partitionTurnContent(longTutorial, undefined, false);
+    expect(res4.progress).toBeUndefined();
+    expect(res4.conclusion).toBe(longTutorial);
+    expect(res4.conclusion).toContain("requestAnimationFrame 原理");
+    expect(res4.conclusion).toContain("## 总结");
+
+    // 5. Message with only progressContent and empty content (e.g. streaming finished before post-tool text)
+    const res5 = partitionTurnContent("", "正在执行代码核查...\n已确认无误。");
+    expect(res5.progress).toBeUndefined();
+    expect(res5.conclusion).toBe("正在执行代码核查...\n已确认无误。");
   });
 });
 

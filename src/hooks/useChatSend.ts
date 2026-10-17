@@ -51,7 +51,7 @@ export function isTransientSendError(err: unknown): boolean {
   if ((err as { name?: unknown } | null)?.name === "AbortError") return false;
   if (isAuthRequiredError(err)) return false;
   const msg = err instanceof Error ? err.message : String(err ?? "");
-  return /fetch failed|failed to fetch|networkerror|network request failed|load failed|timeout|timed out|econnreset|econnrefused|epipe|socket hang up|temporarily|try again|rate limit|too many requests|429|50[0234]|service unavailable|bad gateway|gateway timeout|not ready/i.test(
+  return /fetch failed|failed to fetch|networkerror|network request failed|load failed|timeout|timed out|econnreset|econnrefused|epipe|socket hang up|connection reset|temporarily|try again|rate limit|too many requests|429|50[0234]|service unavailable|bad gateway|gateway timeout|not ready|eof|unexpected eof|eligibility check failed/i.test(
     msg
   );
 }

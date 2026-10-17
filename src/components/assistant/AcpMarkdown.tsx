@@ -8,6 +8,7 @@ import {
 import "@assistant-ui/react-markdown/styles/dot.css";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import ReactMarkdown from "react-markdown";
 import { Check, Copy, Info, Lightbulb, AlertCircle, AlertTriangle, ShieldAlert } from "lucide-react";
 import { useMessagePartText, type TextMessagePartComponent } from "@assistant-ui/react";
 import { closeOpenFences, hasMath } from "@/lib/markdown-preprocess";
@@ -462,7 +463,7 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
   const components = useMemo(() => acpComponents, []);
   const byLanguage = useMemo(() => customByLanguage, []);
   const { text } = useMessagePartText();
-  const math = useSyncExternalStore(subscribeMath, getMathPlugins);
+  const math = useSyncExternalStore(subscribeMath, getMathPlugins, getMathPlugins);
   const needsMath = useMemo(() => hasMath(text), [text]);
   useEffect(() => {
     if (needsMath && !math) void loadMathPlugins();
@@ -484,3 +485,58 @@ export const AcpMarkdownText: TextMessagePartComponent = memo(() => {
     />
   );
 });
+
+export interface AcpStandaloneMarkdownProps {
+  content: string;
+  className?: string;
+}
+
+/**
+ * 独立 Markdown 渲染器（用于阶段推进记录折叠区、独立弹窗等无需 assistant-ui PartContext 的场景）。
+ * 完整支持 GFM 表格、Shiki 高亮代码块、GitHub Alert 呼出框及安全 HTML 标签。
+ */
+export const AcpStandaloneMarkdown: React.FC<AcpStandaloneMarkdownProps> = memo(({ content, className }) => {
+  const math = useSyncExternalStore(subscribeMath, getMathPlugins, getMathPlugins);
+  const needsMath = useMemo(() => hasMath(content), [content]);
+  useEffect(() => {
+    if (needsMath && !math) void loadMathPlugins();
+  }, [needsMath, math]);
+  const useMath = needsMath && !!math;
+  const remarkPlugins = useMemo(() => (useMath ? [...BASE_REMARK, ...math!.remark] : BASE_REMARK), [useMath, math]);
+  const rehypePlugins = useMemo(() => (useMath ? [rehypeRaw, ...math!.rehype] : BASE_REHYPE), [useMath, math]);
+  const processed = useMemo(() => (useMath ? closeOpenFences(math!.preprocess(content)) : closeOpenFences(content)), [useMath, math, content]);
+
+  return (
+    <div className={cn("acp-md text-xs leading-relaxed break-words text-foreground", className)}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        components={{
+          ...(acpComponents as any),
+          pre: ({ children }: any) => <div className="my-1.5">{children}</div>,
+          code: function StandaloneCode({ className: codeClassName, children, ...props }: any) {
+            const match = /language-(\w+)/.exec(codeClassName || "");
+            const codeString = String(children || "").replace(/\n$/, "");
+            if (match) {
+              const lang = match[1];
+              return (
+                <div className="my-1.5 overflow-hidden rounded-lg border border-border">
+                  <AcpCodeHeader language={lang} code={codeString} />
+                  <AcpSyntaxHighlighter language={lang} code={codeString} />
+                </div>
+              );
+            }
+            return (
+              <code className={cn("rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground", codeClassName)} {...props}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
+        {processed}
+      </ReactMarkdown>
+    </div>
+  );
+});
+

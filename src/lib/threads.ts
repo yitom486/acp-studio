@@ -191,14 +191,21 @@ export function partitionTurnContent(
   const trimmedContent = content?.trim() || "";
 
   if (trimmedProgress) {
+    if (!trimmedContent) {
+      return {
+        progress: undefined,
+        conclusion: trimmedProgress,
+      };
+    }
     return {
       progress: trimmedProgress,
       conclusion: trimmedContent,
     };
   }
 
-  // 若无显式 progressContent，检测是否有段落级的定稿/结论标题分界
-  if (trimmedContent.length > 50) {
+  // 仅在明确包含工具调用（hasTools 为 true）且未显式拆分 progress 时，
+  // 才对历史消息做后验段落切分。纯文本问答/代码讲解/长文分析绝不折叠正文。
+  if (hasTools && trimmedContent.length > 50) {
     const conclusionRegex =
       /(?:\n\n|\r?\n)(?=(?:#{1,4}\s+|(?:\*\*|__))(?:总结|结论|完成|验证|接线|结果|最终|改动说明|变更说明|实施方案|Summary|Conclusion|Resolution|Verified|Implementation|Deliverables)[\s\S]*?(?:\*\*|__|\n))/i;
     const match = conclusionRegex.exec(trimmedContent);
