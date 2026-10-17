@@ -350,13 +350,76 @@ function ArchitectureDiagramSvg({
   const connections = Array.isArray(data.connections) ? data.connections : [];
 
   const width = 640;
-  const layerHeight = 90;
-  const gap = 24;
+  const layerHeight = 94;
+  const gap = 34;
   const topPad = 24;
   const totalHeight = Math.max(
-    layers.length * (layerHeight + gap) + topPad + 40,
+    layers.length * (layerHeight + gap) + topPad + 30,
     280
   );
+
+  type Endpoint = {
+    type: "node" | "layer";
+    layerIdx: number;
+    nodeIdx?: number;
+    centerX: number;
+    topY: number;
+    bottomY: number;
+  };
+  const endpointMap = new Map<string, Endpoint>();
+
+  // 1. 预先构建所有分层与节点的几何坐标索引
+  layers.forEach((layer: any, layerIdx: number) => {
+    const ly = topPad + layerIdx * (layerHeight + gap);
+    const lEndpoint: Endpoint = {
+      type: "layer",
+      layerIdx,
+      centerX: width / 2,
+      topY: ly,
+      bottomY: ly + layerHeight,
+    };
+    if (layer.id) endpointMap.set(String(layer.id).trim().toLowerCase(), lEndpoint);
+    if (layer.title) endpointMap.set(String(layer.title).trim().toLowerCase(), lEndpoint);
+    if (layer.name) endpointMap.set(String(layer.name).trim().toLowerCase(), lEndpoint);
+    endpointMap.set(`layer-${layerIdx}`, lEndpoint);
+
+    const nodes = Array.isArray(layer.nodes) ? layer.nodes : [];
+    const nodeWidth = nodes.length > 0 ? (width - 80) / nodes.length - 16 : 140;
+
+    nodes.forEach((node: any, nodeIdx: number) => {
+      const nx = 36 + nodeIdx * (nodeWidth + 16);
+      const ny = ly + 28;
+      const nEndpoint: Endpoint = {
+        type: "node",
+        layerIdx,
+        nodeIdx,
+        centerX: nx + nodeWidth / 2,
+        topY: ny,
+        bottomY: ny + 50,
+      };
+      if (node.id) endpointMap.set(String(node.id).trim().toLowerCase(), nEndpoint);
+      if (node.label) endpointMap.set(String(node.label).trim().toLowerCase(), nEndpoint);
+      if (node.title) endpointMap.set(String(node.title).trim().toLowerCase(), nEndpoint);
+      endpointMap.set(`node-${layerIdx}-${nodeIdx}`, nEndpoint);
+    });
+  });
+
+  // 2. 统计同一相邻层对之间的连线数，杜绝跨层伪随机偏移
+  const tierConnCounts = new Map<string, number>();
+  const tierConnIndices = new Map<number, number>();
+
+  connections.forEach((conn: any, idx: number) => {
+    const fromKey = String(conn.from || "").trim().toLowerCase();
+    const toKey = String(conn.to || "").trim().toLowerCase();
+    const fromEp = endpointMap.get(fromKey);
+    const toEp = endpointMap.get(toKey);
+    if (fromEp && toEp && fromEp.type === "layer" && toEp.type === "layer") {
+      const key = `${fromEp.layerIdx}->${toEp.layerIdx}`;
+      const currentCount = tierConnCounts.get(key) || 0;
+      tierConnIndices.set(idx, currentCount);
+      tierConnCounts.set(key, currentCount + 1);
+    }
+  });
 
   return (
     <svg
@@ -389,7 +452,7 @@ function ArchitectureDiagramSvg({
         </marker>
       </defs>
 
-      {/* 渲染各层容器 */}
+      {/* 渲染各层容器底框与内部节点卡片 */}
       {layers.map((layer: any, layerIdx: number) => {
         const y = topPad + layerIdx * (layerHeight + gap);
         const nodes = Array.isArray(layer.nodes) ? layer.nodes : [];
@@ -397,25 +460,23 @@ function ArchitectureDiagramSvg({
 
         return (
           <g key={layer.id || layerIdx} transform={`translate(0, ${y})`}>
-            {/* 分层容器底框 */}
+            {/* 分层容器底框：采用清晰可见的边框与微底色，确保深色模式下结构一目了然 */}
             <rect
               x="20"
               y="0"
               width={width - 40}
               height={layerHeight}
-              rx="8"
-              fill="currentColor"
-              className="text-muted/15"
-              stroke="currentColor"
+              rx="10"
+              fill="var(--surface-1, rgba(255, 255, 255, 0.02))"
+              stroke="var(--line, rgba(255, 255, 255, 0.12))"
               strokeDasharray="4 4"
               strokeWidth="1"
-              strokeOpacity="0.4"
             />
             {/* 层级名称 */}
             <text
-              x="32"
+              x="34"
               y="20"
-              className="text-[11px] font-mono font-semibold uppercase tracking-wider fill-muted-foreground"
+              className="text-[11px] font-mono font-semibold uppercase tracking-wider fill-foreground/75 select-none"
             >
               {layer.title || layer.name || `Layer ${layerIdx + 1}`}
             </text>
@@ -433,18 +494,12 @@ function ArchitectureDiagramSvg({
                     y="0"
                     width={nodeWidth}
                     height="50"
-                    rx="6"
-                    fill="currentColor"
-                    className={
-                      isHighlighted
-                        ? `${accentStyles.bg} text-card`
-                        : "text-card"
-                    }
-                    stroke={isHighlighted ? accentStyles.stroke : "currentColor"}
+                    rx="7"
+                    fill="var(--card, #1c1c1f)"
+                    stroke={isHighlighted ? accentStyles.stroke : "var(--line, #38383f)"}
                     strokeWidth={isHighlighted ? 1.5 : 1}
-                    strokeOpacity={isHighlighted ? 1 : 0.4}
                   />
-                  {/* 使用 foreignObject 承载带 ellipsis 截断与气泡 tooltip 的自适应排版，杜绝文字越界覆盖 */}
+                  {/* 使用 foreignObject 承载自适应排版，带 ellipsis 截断与悬停气泡 */}
                   <foreignObject x="0" y="0" width={nodeWidth} height="50">
                     <div
                       className="w-full h-full px-3 py-1 flex flex-col justify-center select-none overflow-hidden"
@@ -475,53 +530,104 @@ function ArchitectureDiagramSvg({
         );
       })}
 
-      {/* 层间连接线 */}
+      {/* 精准层间 / 节点间连接线：支持居中对齐中轴、S型平滑曲线以及标签气泡衬底 */}
       {connections.map((conn: any, idx: number) => {
-        const fromIdx = layers.findIndex(
-          (l: any) =>
-            l.id === conn.from ||
-            (Array.isArray(l.nodes) && l.nodes.some((n: any) => n.id === conn.from))
-        );
-        const toIdx = layers.findIndex(
-          (l: any) =>
-            l.id === conn.to ||
-            (Array.isArray(l.nodes) && l.nodes.some((n: any) => n.id === conn.to))
-        );
+        const fromKey = String(conn.from || "").trim().toLowerCase();
+        const toKey = String(conn.to || "").trim().toLowerCase();
+        let fromEp = endpointMap.get(fromKey);
+        let toEp = endpointMap.get(toKey);
 
-        if (fromIdx >= 0 && toIdx >= 0 && fromIdx !== toIdx) {
-          const sy = topPad + fromIdx * (layerHeight + gap) + layerHeight;
-          const ey = topPad + toIdx * (layerHeight + gap);
-          const cx = width / 2 + (idx % 3 - 1) * 60;
-
-          return (
-            <g key={idx}>
-              <line
-                x1={cx}
-                y1={sy}
-                x2={cx}
-                y2={ey}
-                stroke={conn.highlighted ? accentStyles.stroke : "#888888"}
-                strokeWidth={conn.highlighted ? 1.5 : 1}
-                strokeDasharray={conn.dashed ? "3 3" : undefined}
-                markerEnd={
-                  conn.highlighted
-                    ? `url(#arrow-${accent})`
-                    : "url(#arrow-neutral)"
-                }
-              />
-              {conn.label && (
-                <text
-                  x={cx + 6}
-                  y={(sy + ey) / 2}
-                  className="text-[10px] font-mono fill-muted-foreground"
-                >
-                  {conn.label}
-                </text>
-              )}
-            </g>
+        // 兜底：如果直接匹配不到，尝试在各层的 nodes 里反查归属层
+        if (!fromEp) {
+          const fIdx = layers.findIndex(
+            (l: any) =>
+              l.id === conn.from ||
+              (Array.isArray(l.nodes) && l.nodes.some((n: any) => n.id === conn.from))
           );
+          if (fIdx >= 0) fromEp = endpointMap.get(`layer-${fIdx}`);
         }
-        return null;
+        if (!toEp) {
+          const tIdx = layers.findIndex(
+            (l: any) =>
+              l.id === conn.to ||
+              (Array.isArray(l.nodes) && l.nodes.some((n: any) => n.id === conn.to))
+          );
+          if (tIdx >= 0) toEp = endpointMap.get(`layer-${tIdx}`);
+        }
+
+        if (!fromEp || !toEp || fromEp.layerIdx === toEp.layerIdx) return null;
+
+        let startX: number;
+        let startY: number;
+        let endX: number;
+        let endY: number;
+
+        if (fromEp.type === "layer" && toEp.type === "layer") {
+          // 层级间连接：默认沿中轴通道优雅下行；同层对多连线时才对称展开
+          const key = `${fromEp.layerIdx}->${toEp.layerIdx}`;
+          const count = tierConnCounts.get(key) || 1;
+          const localIdx = tierConnIndices.get(idx) || 0;
+          const offset = count > 1 ? (localIdx - (count - 1) / 2) * 72 : 0;
+          startX = width / 2 + offset;
+          endX = width / 2 + offset;
+          startY = fromEp.bottomY;
+          endY = toEp.topY;
+        } else {
+          // 节点间连接：严格锚定源节点底边中点与目标节点顶边中点
+          startX = fromEp.centerX;
+          startY = fromEp.bottomY;
+          endX = toEp.centerX;
+          endY = toEp.topY;
+        }
+
+        const isHighlighted = Boolean(conn.highlighted);
+        const strokeColor = isHighlighted ? accentStyles.stroke : "var(--line-strong, #666666)";
+        const midX = (startX + endX) / 2;
+        const midY = (startY + endY) / 2;
+        const isStraight = Math.abs(startX - endX) < 4;
+        const pathD = isStraight
+          ? `M ${startX} ${startY} L ${endX} ${endY}`
+          : `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
+
+        const labelText = typeof conn.label === "string" ? conn.label.trim() : "";
+        const labelWidth = labelText ? Math.max(labelText.length * 11 + 14, 28) : 0;
+
+        return (
+          <g key={idx}>
+            <path
+              d={pathD}
+              fill="none"
+              stroke={strokeColor}
+              strokeWidth={isHighlighted ? 1.5 : 1}
+              strokeDasharray={conn.dashed ? "3 3" : undefined}
+              markerEnd={isHighlighted ? `url(#arrow-${accent})` : "url(#arrow-neutral)"}
+            />
+            {labelText && (
+              <g transform={`translate(${midX}, ${midY})`}>
+                <rect
+                  x={-labelWidth / 2}
+                  y={-9}
+                  width={labelWidth}
+                  height={18}
+                  rx="4"
+                  fill="var(--card, #1c1c1f)"
+                  stroke={isHighlighted ? accentStyles.stroke : "var(--line, #38383f)"}
+                  strokeWidth="0.8"
+                />
+                <text
+                  x="0"
+                  y="3.5"
+                  textAnchor="middle"
+                  className={`text-[10px] font-mono select-none ${
+                    isHighlighted ? accentStyles.text : "fill-muted-foreground"
+                  }`}
+                >
+                  {labelText}
+                </text>
+              </g>
+            )}
+          </g>
+        );
       })}
     </svg>
   );

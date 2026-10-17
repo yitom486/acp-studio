@@ -27,6 +27,30 @@ describe("Structured diagram payload contracts", () => {
     });
   }
 
+  it("architecture accurately aligns connections along center spine or node coordinates without fake modulo offsets", () => {
+    const svg = render("architecture", {
+      layers: [
+        { id: "app", title: "应用层", nodes: [{ id: "n1", label: "PyTorch" }, { id: "n2", label: "LLM" }] },
+        { id: "lib", title: "库层", nodes: [{ id: "n3", label: "cuBLAS" }, { id: "n4", label: "NCCL" }] },
+        { id: "hw", title: "硬件层", nodes: [{ id: "n5", label: "SM" }, { id: "n6", label: "HBM" }] },
+      ],
+      connections: [
+        { from: "app", to: "lib", label: "调用" },
+        { from: "lib", to: "hw", label: "PTX" },
+        { from: "n3", to: "n5", label: "SASS" },
+      ],
+    });
+
+    const paths = svg.querySelectorAll("path[marker-end]");
+    expect(paths).toHaveLength(3);
+    // 层间调用应居中于 320（不再出现 (idx % 3 - 1) * 60 导致的伪随机偏斜）
+    expect(paths[0].getAttribute("d")).toBe("M 320 118 L 320 152");
+    expect(paths[1].getAttribute("d")).toBe("M 320 246 L 320 280");
+    // 节点间调用（n3 cuBLAS 到 n5 SM）应垂直对齐到节点 X 坐标
+    expect(paths[2].getAttribute("d")).toContain("M 168");
+    expect(paths[2].getAttribute("d")).toContain("L 168");
+  });
+
   it("flowchart supports nodes/edges aliases and drops unresolved connections", () => {
     const svg = render("flowchart", {
       nodes: [{ id: "a", name: "开始" }, { id: "b", name: "完成" }],
